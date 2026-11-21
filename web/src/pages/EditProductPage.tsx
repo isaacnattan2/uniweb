@@ -21,6 +21,7 @@ export function EditProductPage() {
   const [loadError, setLoadError] = useState('');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [uploadingImages, setUploadingImages] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -65,6 +66,7 @@ export function EditProductPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (uploadingImages || submitting) return;
     setError('');
     setSubmitting(true);
 
@@ -191,6 +193,7 @@ export function EditProductPage() {
                 setImages((prev) => [...prev, ...newUrls]);
               }}
               existingImages={images}
+              onUploadingChange={setUploadingImages}
               onRemoveImage={(index) => {
                 setImages((prev) => prev.filter((_, i) => i !== index));
               }}
@@ -206,8 +209,8 @@ export function EditProductPage() {
             >
               Cancelar
             </button>
-            <button type="submit" disabled={submitting} className="btn-primary">
-              {submitting ? 'Salvando...' : 'Salvar Alterações'}
+            <button type="submit" disabled={submitting || uploadingImages} className="btn-primary">
+              {submitting ? 'Salvando...' : uploadingImages ? 'Enviando imagens...' : 'Salvar Alterações'}
             </button>
           </div>
         </form>

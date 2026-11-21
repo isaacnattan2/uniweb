@@ -35,7 +35,14 @@ NODE_ENV=development
 PORT=3000
 JWT_SECRET=secret-key
 JWT_EXPIRE=7d
+AWS_ENDPOINT_URL_S3=https://YOUR-BRANCH.storage.example.com
+AWS_REGION=us-east-2
+AWS_ACCESS_KEY_ID=your-storage-access-key
+AWS_SECRET_ACCESS_KEY=your-storage-secret-key
+NEON_STORAGE_BUCKET=uniweb-product-images
 ```
+
+As variáveis `AWS_*` são credenciais do Neon Object Storage para o bucket público de fotos de produtos. Configure-as somente no backend, inclusive nas variáveis de ambiente do Render. Os novos uploads vão para o bucket; imagens antigas em `/uploads` não são migradas automaticamente.
 
 ## 📁 Estrutura
 

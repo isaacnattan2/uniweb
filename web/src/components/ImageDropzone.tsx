@@ -7,6 +7,7 @@ interface ImageDropzoneProps {
   onImagesAdded: (urls: string[]) => void;
   existingImages?: string[];
   onRemoveImage?: (index: number) => void;
+  onUploadingChange?: (uploading: boolean) => void;
   maxFiles?: number;
 }
 
@@ -14,6 +15,7 @@ export function ImageDropzone({
   onImagesAdded,
   existingImages = [],
   onRemoveImage,
+  onUploadingChange,
   maxFiles = 5,
 }: ImageDropzoneProps) {
   const [uploading, setUploading] = React.useState(false);
@@ -39,6 +41,7 @@ export function ImageDropzone({
       if (acceptedFiles.length === 0) return;
 
       setUploading(true);
+      onUploadingChange?.(true);
       setUploadError('');
 
       try {
@@ -68,9 +71,10 @@ export function ImageDropzone({
         setUploadError(errorMessage);
       } finally {
         setUploading(false);
+        onUploadingChange?.(false);
       }
     },
-    [onImagesAdded, existingImages.length, maxFiles]
+    [onImagesAdded, onUploadingChange, existingImages.length, maxFiles]
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({

@@ -1,23 +1,27 @@
-import express, { Request, Response } from 'express';
+import express, { Response, NextFunction } from 'express';
 import { upload, UploadService } from '../services/UploadService';
-import { authMiddleware } from '../middleware/auth';
+import { authMiddleware, AuthRequest } from '../middleware/auth';
 
 const router = express.Router();
 
-router.post('/images', authMiddleware, upload.array('images', 5), (req: Request, res: Response) => {
+function requireSeller(req: AuthRequest, res: Response, next: NextFunction) {
+  if (req.userType !== 'business' && req.userType !== 'admin') {
+    return res.status(403).json({ error: 'Apenas lojistas e administradores podem enviar imagens' });
+  }
+  next();
+}
+
+router.post('/images', authMiddleware, requireSeller, upload.array('images', 5), async (req: AuthRequest, res: Response) => {
   try {
-    if (!req.files || (req.files as Express.Multer.File[]).length === 0) {
+    if (!Array.isArray(req.files) || req.files.length === 0) {
       return res.status(400).json({ error: 'Nenhuma imagem foi enviada' });
     }
 
-    const baseUrl = `${req.protocol}://${req.get('host')}`;
-    const urls = (req.files as Express.Multer.File[]).map((file) =>
-      `${baseUrl}${UploadService.getImageUrl(file.filename)}`
-    );
-
+    const urls = await UploadService.uploadImages(req.files);
     res.json({ urls });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch (error) {
+    console.error('Erro ao enviar imagens ao armazenamento:', error);
+    res.status(503).json({ error: 'Não foi possível enviar as imagens. Tente novamente.' });
   }
 });
 

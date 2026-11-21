@@ -20,6 +20,7 @@ export function NewProductPage() {
   const [images, setImages] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [uploadingImages, setUploadingImages] = useState(false);
   const [checkingAccess, setCheckingAccess] = useState(true);
   const [accessError, setAccessError] = useState('');
 
@@ -43,7 +44,7 @@ export function NewProductPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!businessId) return;
+    if (!businessId || uploadingImages || loading) return;
     setError('');
     setLoading(true);
 
@@ -160,6 +161,7 @@ export function NewProductPage() {
                 setImages((prev) => [...prev, ...newUrls]);
               }}
               existingImages={images}
+              onUploadingChange={setUploadingImages}
               onRemoveImage={(index) => {
                 setImages((prev) => prev.filter((_, i) => i !== index));
               }}
@@ -175,8 +177,8 @@ export function NewProductPage() {
             >
               Cancelar
             </button>
-            <button type="submit" disabled={loading} className="btn-primary">
-              {loading ? 'Adicionando...' : 'Adicionar Produto'}
+            <button type="submit" disabled={loading || uploadingImages} className="btn-primary">
+              {loading ? 'Adicionando...' : uploadingImages ? 'Enviando imagens...' : 'Adicionar Produto'}
             </button>
           </div>
         </form>
