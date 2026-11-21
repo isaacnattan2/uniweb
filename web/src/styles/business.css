@@ -1,0 +1,105 @@
+.business-page {
+  min-height: 100vh;
+  background: #f9fafb;
+}
+
+.business-page .container {
+  padding: 40px 20px;
+}
+
+.business-info {
+  background: white;
+  border-radius: 8px;
+  padding: 24px;
+  margin-bottom: 32px;
+  border: 1px solid #e5e7eb;
+}
+
+.business-info h2 {
+  font-size: 18px;
+  color: #1f2937;
+}
+
+.business-info-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.business-info-heading button {
+  min-height: 44px;
+}
+
+.business-info .business-notice {
+  color: #166534;
+}
+
+.business-edit-actions {
+  max-width: 440px;
+}
+
+.business-info p {
+  margin-bottom: 12px;
+  color: #374151;
+  line-height: 1.6;
+}
+
+.business-info strong {
+  color: #1f2937;
+}
+
+.business-page .products-section {
+  background: white;
+  border-radius: 8px;
+  padding: 24px;
+  border: 1px solid #e5e7eb;
+}
+
+.business-page .products-section h2 {
+  font-size: 18px;
+  margin-bottom: 20px;
+  color: #1f2937;
+}
+
+.products-table {
+  overflow-x: auto;
+}
+
+.products-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.products-table th {
+  background: #f3f4f6;
+  padding: 12px;
+  text-align: left;
+  font-weight: 600;
+  color: #374151;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.products-table td {
+  padding: 12px;
+  border-bottom: 1px solid #e5e7eb;
+  color: #6b7280;
+}
+
+.products-table tr:hover {
+  background: #f9fafb;
+}
+
+.products-table button {
+  padding: 6px 12px;
+  font-size: 12px;
+  background: #2563eb;
+  color: white;
+}
+
+.products-table button:hover {
+  background: #1d4ed8;
+}

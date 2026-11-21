@@ -1,0 +1,202 @@
+import axios, { AxiosInstance } from 'axios';
+import type { Business, UserType } from '../context/store';
+
+export interface Seller {
+  id: string;
+  full_name: string;
+  email: string;
+}
+
+export interface AdminBusiness {
+  id: string;
+  name: string;
+  category: string;
+  description: string;
+  owner_id: string;
+  owner_name: string;
+  owner_email: string;
+}
+
+export interface PublicProduct {
+  id: string;
+  business_id: string;
+  business_name?: string;
+  name: string;
+  description?: string;
+  category?: string;
+  price: string | number;
+  stock: number;
+  images?: Array<{ id?: string; image_url: string; order_index?: number }>;
+}
+
+export interface PublicBusiness {
+  id: string;
+  name: string;
+  description?: string;
+  category?: string;
+  rating?: string | number;
+}
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+
+export function resolveAssetUrl(url: string): string {
+  if (!url) return '';
+  if (/^https?:\/\//i.test(url)) return url;
+  if (url.startsWith('/')) {
+    return `${new URL(API_URL, window.location.origin).origin}${url}`;
+  }
+  return url;
+}
+
+const api: AxiosInstance = axios.create({
+  baseURL: API_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// Auth
+export async function registerUser(email: string, password: string, fullName: string, userType: string = 'customer') {
+  const response = await api.post('/auth/register', { email, password, fullName, userType });
+  return response.data;
+}
+
+export async function loginUser(email: string, password: string) {
+  const response = await api.post('/auth/login', { email, password });
+  return response.data;
+}
+
+export async function getCurrentUser(): Promise<{ id: string; user_type: UserType }> {
+  const response = await api.get('/auth/me');
+  return response.data;
+}
+
+export async function getSellers(): Promise<Seller[]> {
+  const response = await api.get('/admin/sellers');
+  return response.data;
+}
+
+export async function createSeller(fullName: string, email: string, password: string) {
+  const response = await api.post('/admin/sellers', { fullName, email, password });
+  return response.data;
+}
+
+export async function getAdminBusinesses(): Promise<AdminBusiness[]> {
+  const response = await api.get('/admin/businesses');
+  return response.data;
+}
+
+export async function transferBusiness(businessId: string, ownerId: string) {
+  const response = await api.put(`/admin/businesses/${businessId}/owner`, { ownerId });
+  return response.data;
+}
+
+// Business (Vendor)
+export async function createBusiness(name: string, description: string, category: string, ownerId: string) {
+  const response = await api.post('/businesses', { name, description, category, ownerId });
+  return response.data;
+}
+
+export async function getMyBusinesses() {
+  const response = await api.get('/businesses/my-businesses');
+  return response.data;
+}
+
+export async function getBusiness(id: string): Promise<Business> {
+  const response = await api.get(`/businesses/${id}`);
+  return response.data;
+}
+
+export async function updateBusiness(id: string, data: { name: string; category: string; description: string }): Promise<Business> {
+  const response = await api.put(`/businesses/${id}`, data);
+  return response.data;
+}
+
+// Products (Vendor)
+export async function createProduct(businessId: string, name: string, description: string, price: number, quantity: number, category: string, images?: string[]) {
+  const response = await api.post('/products', { businessId, name, description, price, quantity, category, images });
+  return response.data;
+}
+
+export async function getProductsByBusiness(businessId: string) {
+  const response = await api.get(`/products/business/${businessId}`);
+  return response.data;
+}
+
+export async function updateProduct(productId: string, data: any) {
+  const response = await api.put(`/products/${productId}`, data);
+  return response.data;
+}
+
+export async function deleteProduct(productId: string) {
+  const response = await api.delete(`/products/${productId}`);
+  return response.data;
+}
+
+// Shop (Public)
+export async function getAllBusinesses(): Promise<PublicBusiness[]> {
+  const response = await api.get('/shop/businesses');
+  return response.data;
+}
+
+export async function getBusinessPublic(businessId: string): Promise<PublicBusiness> {
+  const response = await api.get(`/shop/businesses/${businessId}`);
+  return response.data;
+}
+
+export async function getProductsPublic(businessId: string): Promise<PublicProduct[]> {
+  const response = await api.get(`/shop/businesses/${businessId}/products`);
+  return response.data;
+}
+
+export async function searchProducts(query: string): Promise<PublicProduct[]> {
+  const response = await api.get(`/shop/search?q=${encodeURIComponent(query)}`);
+  return response.data;
+}
+
+// Orders
+export type PaymentMethod = 'pix' | 'credit_card' | 'debit_card' | 'wallet';
+export type DeliveryType = 'pickup' | 'delivery' | 'shipping';
+
+export async function createOrder(
+  items: Array<{ productId: string; quantity: number; price: number }>,
+  paymentMethod: PaymentMethod,
+  deliveryType: DeliveryType,
+  deliveryAddress: string
+): Promise<{ orderIds: string[] }> {
+  const response = await api.post('/orders', { items, paymentMethod, deliveryType, deliveryAddress });
+  return response.data;
+}
+
+export async function getMyOrders() {
+  const response = await api.get('/orders/my-orders');
+  return response.data;
+}
+
+export async function getOrder(orderId: string) {
+  const response = await api.get(`/orders/${orderId}`);
+  return response.data;
+}
+
+// Upload
+export async function uploadImages(files: File[]) {
+  const formData = new FormData();
+  files.forEach((file) => {
+    formData.append('images', file);
+  });
+
+  const response = await api.post('/upload/images', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+  return response.data;
+}
