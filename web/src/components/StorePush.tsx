@@ -68,7 +68,8 @@ export function StorePush() {
       const identity = await getStorePushIdentity();
       if (!current) return;
       await instance.login(identity.externalId, identity.token);
-      if (current) setReady(instance);
+      // The SDK can be a class, which React would otherwise call as a state updater.
+      if (current) setReady(() => instance);
     }).catch(() => {
       if (current && seller) setNotice('Não foi possível conectar as notificações.');
     });
