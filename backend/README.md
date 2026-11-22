@@ -62,3 +62,12 @@ npm start
 ---
 
 **Status**: ✅ Pronto | **Port**: 3000
+
+## Checkout Asaas em desenvolvimento
+
+1. Aplique `migrations/add_asaas_checkout.sql` com uma conexão direta ao banco de desenvolvimento.
+2. No `.env` do backend, preencha `ASAAS_API_KEY` com a chave do Sandbox. Mantenha `ASAAS_API_URL=https://api-sandbox.asaas.com/v3` e aponte `ASAAS_RETURN_ORIGIN` para o endereço do frontend, por exemplo `https://uniweb-front.onrender.com`.
+3. No painel Sandbox, configure o webhook com uma URL HTTPS pública que chegue ao backend em `/api/orders/asaas/webhook`. Escolha envio sequencial e os eventos `CHECKOUT_PAID`, `CHECKOUT_CANCELED` e `CHECKOUT_EXPIRED`. Use o mesmo token em `ASAAS_WEBHOOK_TOKEN` e no campo de autenticação do Asaas.
+4. Reinicie o backend e finalize uma compra fictícia. Use os cartões de teste do Sandbox. O pedido aparece como pago após o webhook, e uma sessão cancelada ou expirada devolve os itens ao estoque.
+
+O checkout hospedado aceita Pix e cartão em até 3 parcelas sem juros. Um carrinho com várias lojas gera um pedido por loja e uma cobrança única na conta Asaas configurada. Os repasses aos lojistas precisam de uma integração de split.

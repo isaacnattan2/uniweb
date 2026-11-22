@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { getMyOrders, getOrder } from '../services/api';
 import '../styles/orders.css';
 
@@ -9,6 +9,8 @@ const deliveryLabels: Record<string, string> = { pickup: 'Retirada na loja', del
 
 export function OrdersPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const checkoutResult = searchParams.get('checkout');
   const { orderId } = useParams<{ orderId: string }>();
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,6 +45,9 @@ export function OrdersPage() {
         {orderId && <button className="page-back" onClick={() => navigate('/orders')}>← Voltar aos pedidos</button>}
         <h1>{orderId ? '📦 Detalhes do pedido' : '📦 Meus Pedidos'}</h1>
 
+        {checkoutResult === 'success' && <p role="status">Consulte abaixo a confirmação do pagamento. Atualize a página se o status ainda estiver pendente.</p>}
+        {checkoutResult === 'cancelled' && <p role="status">Você saiu da página de pagamento. Consulte o status nos detalhes do pedido.</p>}
+        {checkoutResult === 'expired' && <p role="status">O prazo de pagamento terminou.</p>}
         {error && <div className="error-message">{error}</div>}
 
         {!error && (orders.length === 0 ? (
@@ -83,6 +88,7 @@ export function OrdersPage() {
                   </ul>
                 </div>
 
+                {!orderId && <p>Pagamento: {paymentStatusLabels[order.payment_status] || order.payment_status}</p>}
                 {orderId && (
                   <div className="order-delivery">
                     <p><strong>Pagamento:</strong> {paymentLabels[order.payment_method] || order.payment_method} — {paymentStatusLabels[order.payment_status] || order.payment_status}</p>
@@ -92,6 +98,7 @@ export function OrdersPage() {
                 )}
 
                 <div className="order-footer">
+                  {orderId && order.checkoutUrl && <a href={order.checkoutUrl} className="btn-secondary">Continuar pagamento</a>}
                   <div className="order-total">
                     <strong>Total: R$ {Number(order.total_amount).toFixed(2)}</strong>
                   </div>

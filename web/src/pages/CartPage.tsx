@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createOrder } from '../services/api';
 import { useCartStore, useAuthStore } from '../context/store';
@@ -17,11 +17,14 @@ export function CartPage() {
   const [paymentMethod, setPaymentMethod] = useState('');
   const [deliveryType, setDeliveryType] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
+  const checkoutAttempt = useRef<{ signature: string; id: string } | null>(null);
+  const submitting = useRef(false);
 
   const total = getTotal();
   const storeCount = new Set(cart.map((item) => item.businessId)).size;
 
   async function handleCheckout() {
+    if (submitting.current) return;
     if (!token || !userId) {
       navigate('/login', { state: { from: '/cart' } });
       return;
@@ -30,7 +33,7 @@ export function CartPage() {
       setError('Entre com uma conta de cliente para finalizar a compra.');
       return;
     }
-    if (paymentMethod !== 'pix' && paymentMethod !== 'credit_card' && paymentMethod !== 'debit_card' && paymentMethod !== 'wallet') {
+    if (paymentMethod !== 'pix' && paymentMethod !== 'credit_card') {
       setError('Selecione uma forma de pagamento.');
       return;
     }
@@ -43,6 +46,7 @@ export function CartPage() {
       return;
     }
 
+    submitting.current = true;
     setLoading(true);
     setError('');
 
@@ -53,13 +57,23 @@ export function CartPage() {
         price: item.price,
       }));
 
-      const { orderIds } = await createOrder(items, paymentMethod, deliveryType, deliveryAddress.trim());
+      const signature = JSON.stringify([userId, items, paymentMethod, deliveryType, deliveryAddress.trim()]);
+      if (checkoutAttempt.current?.signature !== signature) {
+        checkoutAttempt.current = { signature, id: crypto.randomUUID() };
+      }
+      const { checkoutUrl } = await createOrder(
+        items, paymentMethod, deliveryType, deliveryAddress.trim(), checkoutAttempt.current.id
+      );
       clearCart();
-      alert(`${orderIds.length === 1 ? 'Pedido criado' : `${orderIds.length} pedidos criados`}. Pagamento pendente: nenhuma cobrança foi realizada.`);
+      if (checkoutUrl) {
+        window.location.assign(checkoutUrl);
+        return;
+      }
       navigate('/orders');
     } catch (err: any) {
       setError(err.response?.data?.error || 'Erro ao criar pedido');
     } finally {
+      submitting.current = false;
       setLoading(false);
     }
   }
@@ -169,8 +183,7 @@ export function CartPage() {
                     <option value="">Selecione</option>
                     <option value="pix">Pix</option>
                     <option value="credit_card">Cartão de crédito</option>
-                    <option value="debit_card">Cartão de débito</option>
-                    <option value="wallet">Carteira</option>
+
                   </select>
                   <label htmlFor="delivery-type">Forma de entrega</label>
                   <select id="delivery-type" value={deliveryType} onChange={(event) => setDeliveryType(event.target.value)} disabled={loading}>
@@ -185,7 +198,8 @@ export function CartPage() {
                       <textarea id="delivery-address" value={deliveryAddress} onChange={(event) => setDeliveryAddress(event.target.value)} maxLength={1000} disabled={loading} />
                     </>
                   )}
-                  <p>O pagamento ficará pendente e não será cobrado agora. O total não inclui frete.</p>
+                  {paymentMethod === 'credit_card' && <p>Até 3× sem juros no cartão.</p>}
+                  <p>Você vai concluir o pagamento na página do Asaas. O total não inclui frete.</p>
                 </div>
               )}
 

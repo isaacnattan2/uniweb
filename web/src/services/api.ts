@@ -170,9 +170,10 @@ export async function createOrder(
   items: Array<{ productId: string; quantity: number; price: number }>,
   paymentMethod: PaymentMethod,
   deliveryType: DeliveryType,
-  deliveryAddress: string
-): Promise<{ orderIds: string[] }> {
-  const response = await api.post('/orders', { items, paymentMethod, deliveryType, deliveryAddress });
+  deliveryAddress: string,
+  checkoutId: string
+): Promise<{ orderIds: string[]; checkoutUrl: string | null }> {
+  const response = await api.post('/orders/checkout', { items, paymentMethod, deliveryType, deliveryAddress, checkoutId });
   return response.data;
 }
 

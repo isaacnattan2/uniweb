@@ -136,3 +136,78 @@ test('desfaz todos os pedidos se uma gravação falhar', async () => {
     console.error = originalError;
   }
 });
+
+test('abre checkout Sandbox de cartao com o preco do banco e ate 3 parcelas', async (t) => {
+  const providerId = '10000000-0000-0000-0000-000000000001';
+  const checkoutId = '20000000-0000-0000-0000-000000000002';
+  const oldKey = process.env.ASAAS_API_KEY;
+  const oldToken = process.env.ASAAS_WEBHOOK_TOKEN;
+  t.after(() => {
+    if (oldKey === undefined) delete process.env.ASAAS_API_KEY;
+    else process.env.ASAAS_API_KEY = oldKey;
+    if (oldToken === undefined) delete process.env.ASAAS_WEBHOOK_TOKEN;
+    else process.env.ASAAS_WEBHOOK_TOKEN = oldToken;
+  });
+  process.env.ASAAS_API_KEY = 'sandbox-test-key';
+  process.env.ASAAS_WEBHOOK_TOKEN = 'mock-webhook-token-for-uniweb-tests';
+  const client = mockClient();
+  database.getClient = async () => client;
+  const provider = t.mock.method(globalThis, 'fetch', async () =>
+    new Response(JSON.stringify({ id: providerId }), { status: 200 })
+  );
+
+  const req = request();
+  req.body.paymentMethod = 'credit_card';
+  req.body.checkoutId = checkoutId;
+  const res = response();
+  await controller.createOrder(req, res, true);
+
+  assert.equal(res.statusCode, 201);
+  assert.equal(res.body.orderIds.length, 2);
+  assert.equal(new URL(res.body.checkoutUrl).searchParams.get('id'), providerId);
+  assert.equal(provider.mock.callCount(), 1);
+  const [url, options] = provider.mock.calls[0].arguments;
+  assert.equal(url, 'https://api-sandbox.asaas.com/v3/checkouts');
+  const payload = JSON.parse(options.body);
+  assert.equal(payload.externalReference, checkoutId);
+  assert.deepEqual(payload.billingTypes, ['CREDIT_CARD']);
+  assert.deepEqual(payload.installment, { maxInstallmentCount: 3 });
+  assert.deepEqual(payload.items.map(({ value, quantity }) => [value, quantity]), [[12.50, 2], [7.25, 2]]);
+  assert.ok(client.calls.some(([sql]) => sql.startsWith('INSERT INTO asaas_checkouts')));
+  assert.equal(client.calls.at(-1)[0], 'COMMIT');
+});
+
+test('valida o token do webhook e confirma ou cancela os pedidos em transacao', async (t) => {
+  const { asaasWebhook } = require('../dist/controllers/AsaasWebhook');
+  const oldToken = process.env.ASAAS_WEBHOOK_TOKEN;
+  t.after(() => {
+    if (oldToken === undefined) delete process.env.ASAAS_WEBHOOK_TOKEN;
+    else process.env.ASAAS_WEBHOOK_TOKEN = oldToken;
+  });
+  process.env.ASAAS_WEBHOOK_TOKEN = 'mock-webhook-token-for-uniweb-tests';
+  const calls = [];
+  database.getClient = async () => ({
+    async query(sql) {
+      calls.push(sql);
+      return { rows: sql.includes('FOR UPDATE') ? [{ id: 'checkout-session' }] : [] };
+    },
+    release() {},
+  });
+  const req = {
+    get: () => 'invalid-token',
+    body: { event: 'CHECKOUT_PAID', checkout: { id: 'provider-id', status: 'PAID' } },
+  };
+  const res = { sendStatus(status) { return status; } };
+  assert.equal(await asaasWebhook(req, res), 401);
+  assert.equal(calls.length, 0);
+
+  req.get = () => process.env.ASAAS_WEBHOOK_TOKEN;
+  assert.equal(await asaasWebhook(req, res), 200);
+  assert.ok(calls.some((sql) => sql.includes("SET payment_status = 'paid'")));
+  assert.equal(calls.at(-1), 'COMMIT');
+
+  req.body = { event: 'CHECKOUT_EXPIRED', checkout: { id: 'provider-id', status: 'EXPIRED' } };
+  assert.equal(await asaasWebhook(req, res), 200);
+  assert.ok(calls.some((sql) => sql.includes('stock = p.stock + r.units') && sql.includes("payment_status = 'pending'")));
+  assert.equal(calls.at(-1), 'COMMIT');
+});
