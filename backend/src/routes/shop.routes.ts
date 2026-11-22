@@ -1,11 +1,13 @@
 import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth';
-import { rateMarketplaceItem } from '../controllers/MarketplaceReview';
+import { getMarketplaceComments, getMyMarketplaceReview, rateMarketplaceItem } from '../controllers/MarketplaceReview';
 import ShopController from '../controllers/ShopController';
 
 const router = Router();
 
 router.get('/categories', ShopController.getCategories);
+router.get('/reviews/:kind/:id', getMarketplaceComments);
+router.get('/reviews/:kind/:id/mine', authMiddleware, getMyMarketplaceReview);
 router.put('/reviews/:kind/:id', authMiddleware, rateMarketplaceItem);
 router.get('/businesses', ShopController.getAllBusinesses);
 router.get('/businesses/:businessId', ShopController.getBusinessPublic);

@@ -56,7 +56,7 @@ export function StorePublicPage() {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') setParams({}, { replace: true });
       if (event.key === 'Tab' && modalRef.current) {
-        const controls = modalRef.current.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), [tabindex]:not([tabindex="-1"])');
+        const controls = modalRef.current.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])');
         const first = controls[0];
         const last = controls[controls.length - 1];
         if (event.shiftKey && document.activeElement === first) {
@@ -147,14 +147,16 @@ export function StorePublicPage() {
                 <p className="product-category">{selectedProduct.category_label || selectedProduct.category}</p>
                 <p className="product-description">{selectedProduct.description}</p>
                 <p><RatingLabel {...selectedProduct} /></p>
-                <RatingControl key={selectedProduct.id} kind="product" id={selectedProduct.id}
-                  onRated={(summary) => setProducts((items) => items.map((item) =>
-                    item.id === selectedProduct.id ? { ...item, ...summary } : item
-                  ))} />
                 <p className="product-price-large">R$ {Number(selectedProduct.price).toFixed(2)}</p>
                 <p className="product-stock">{selectedProduct.stock > 0 ? `${selectedProduct.stock} em estoque` : 'Fora de estoque'}</p>
                 <button onClick={() => { handleAddToCart(selectedProduct); setParams({}, { replace: true }); }} disabled={selectedProduct.stock <= 0} className="btn-primary btn-large">+ Adicionar ao carrinho</button>
               </div>
+            </div>
+            <div className="product-review-section">
+                <RatingControl key={selectedProduct.id} kind="product" id={selectedProduct.id}
+                  onRated={(summary) => setProducts((items) => items.map((item) =>
+                    item.id === selectedProduct.id ? { ...item, ...summary } : item
+                  ))} />
             </div>
           </div>
         </div>

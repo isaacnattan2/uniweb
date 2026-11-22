@@ -344,7 +344,7 @@
   gap: 0.25rem;
 }
 
-.rating-control button {
+.rating-control [role="group"] button {
   min-width: 2.5rem;
   min-height: 2.5rem;
   border: 1px solid #e2c992;
@@ -358,4 +358,51 @@
 .rating-control button:focus-visible {
   outline: 2px solid currentColor;
   outline-offset: 2px;
+}
+
+.rating-control fieldset {
+  padding: 0;
+  min-width: 0;
+  border: 0;
+}
+
+.rating-control h3,
+.rating-control legend {
+  margin-block: 0.5rem;
+}
+
+.rating-comment-field {
+  display: grid;
+  gap: 0.35rem;
+  margin-block: 0.75rem;
+}
+
+.rating-comment-field textarea {
+  width: 100%;
+  min-height: 4.5rem;
+  padding: 0.6rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font: inherit;
+  resize: vertical;
+}
+
+.marketplace-comments {
+  list-style: none;
+  padding: 0;
+  margin-block: 0.75rem;
+}
+
+.marketplace-comments li {
+  border-top: 1px solid #e5e7eb;
+  padding-block: 0.6rem;
+}
+
+.marketplace-comments p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.product-review-section {
+  padding: 0 1.25rem 1.25rem;
 }

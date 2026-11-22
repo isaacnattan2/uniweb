@@ -212,9 +212,32 @@ export async function deleteMarketplaceCategory(category: MarketplaceCategory) {
   await api.delete('/admin/categories/' + category.kind + '/' + encodeURIComponent(category.value));
 }
 
-export async function rateMarketplaceItem(kind: MarketplaceCategory['kind'], id: string, rating: number): Promise<RatingSummary> {
-  const response = await api.put('/shop/reviews/' + kind + '/' + id, { rating });
-  return response.data;
+export interface MarketplaceReviewInput {
+  rating: number | null;
+  comment: string | null;
+}
+
+export interface MarketplaceComment extends MarketplaceReviewInput {
+  id: string;
+  author: string;
+  updated_at: string | null;
+}
+
+type ReviewKind = MarketplaceCategory['kind'];
+
+export async function getMarketplaceComments(kind: ReviewKind, id: string, page = 0): Promise<{ comments: MarketplaceComment[]; hasMore: boolean }> {
+  return (await api.get('/shop/reviews/' + kind + '/' + id, { params: { page } })).data;
+}
+
+export async function getMyMarketplaceReview(kind: ReviewKind, id: string): Promise<{
+  eligible: boolean;
+  review: (MarketplaceReviewInput & { status: string }) | null;
+}> {
+  return (await api.get('/shop/reviews/' + kind + '/' + id + '/mine')).data;
+}
+
+export async function rateMarketplaceItem(kind: ReviewKind, id: string, input: MarketplaceReviewInput): Promise<RatingSummary> {
+  return (await api.put('/shop/reviews/' + kind + '/' + id, input)).data;
 }
 
 // Orders
