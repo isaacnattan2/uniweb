@@ -3,7 +3,8 @@ import { query } from '../config/database';
 import ProductImageService from '../services/ProductImageService';
 
 async function listMarketplaceProducts(search?: string, category?: string) {
-  const filter = search ? '(p.name ILIKE $1 OR p.description ILIKE $1)' : 'p.stock > 0';
+  const searchFilter = search ? ' AND (p.name ILIKE $1 OR p.description ILIKE $1)' : '';
+  const stockPriority = search ? '' : '(stock > 0) DESC NULLS LAST, ';
   const categoryFilter = category ? ' AND LOWER(TRIM(p.category)) = ' + (search ? '$2' : '$1') : '';
   const products = await query(
     `WITH latest AS (
@@ -12,9 +13,9 @@ async function listMarketplaceProducts(search?: string, category?: string) {
        FROM products p
        JOIN businesses b ON b.id = p.business_id
        JOIN users u ON u.id = b.owner_id
-       WHERE ${filter}${categoryFilter} AND p.status = 'active' AND b.status = 'active'
+       WHERE p.status = 'active' AND b.status = 'active'${searchFilter}${categoryFilter}
          AND p.deleted_at IS NULL AND b.deleted_at IS NULL AND u.status = 'active'
-       ORDER BY p.created_at DESC, p.id DESC
+       ORDER BY ${stockPriority}p.created_at DESC, p.id DESC
        LIMIT 20
      )
      SELECT latest.*, COALESCE(images.items, '[]'::json) AS images
@@ -24,7 +25,7 @@ async function listMarketplaceProducts(search?: string, category?: string) {
                        ORDER BY i.order_index, i.id) AS items
        FROM product_images i WHERE i.product_id = latest.id
      ) images ON true
-     ORDER BY latest.created_at DESC, latest.id DESC`,
+     ORDER BY ${stockPriority}latest.created_at DESC, latest.id DESC`,
     [...(search ? [search] : []), ...(category ? [category] : [])]
   );
   return products.rows;

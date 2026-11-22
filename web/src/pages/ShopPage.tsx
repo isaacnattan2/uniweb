@@ -94,7 +94,7 @@ export function ShopPage() {
         </select>
         {loading ? <p className="shop-feedback">Carregando...</p> : (<>
           <section className="search-results">
-            <h2>{query && !error ? 'Resultados para “' + query + '” (' + products.length + ')' : query ? 'Busca de produtos' : 'Últimos produtos'}</h2>
+            <h2>{query && !error ? 'Resultados para “' + query + '” (' + products.length + ')' : query ? 'Busca de produtos' : 'Produtos'}</h2>
             {error ? (
               <div className="empty-state" role="alert"><p>{error}</p>{query && <Link to="/shop">Voltar ao marketplace</Link>}</div>
             ) : products.length === 0 ? (
