@@ -1,8 +1,43 @@
-import { Response } from 'express';
+import { Request, Response } from 'express';
 import { query } from '../config/database';
 import ProductImageService from '../services/ProductImageService';
 
+async function listMarketplaceProducts(search?: string) {
+  const filter = search ? '(p.name ILIKE $1 OR p.description ILIKE $1)' : 'p.stock > 0';
+  const products = await query(
+    `WITH latest AS (
+       SELECT p.id, p.business_id, p.name, p.description, p.price, p.stock, p.category, p.rating, p.status,
+              b.name AS business_name, p.created_at
+       FROM products p
+       JOIN businesses b ON b.id = p.business_id
+       JOIN users u ON u.id = b.owner_id
+       WHERE ${filter} AND p.status = 'active' AND b.status = 'active'
+         AND p.deleted_at IS NULL AND b.deleted_at IS NULL AND u.status = 'active'
+       ORDER BY p.created_at DESC, p.id DESC
+       LIMIT 20
+     )
+     SELECT latest.*, COALESCE(images.items, '[]'::json) AS images
+     FROM latest
+     LEFT JOIN LATERAL (
+       SELECT json_agg(json_build_object('id', i.id, 'image_url', i.image_url, 'order_index', i.order_index)
+                       ORDER BY i.order_index, i.id) AS items
+       FROM product_images i WHERE i.product_id = latest.id
+     ) images ON true
+     ORDER BY latest.created_at DESC, latest.id DESC`,
+    search ? [search] : []
+  );
+  return products.rows;
+}
+
 export class ShopController {
+  async getRecentProducts(_req: Request, res: Response) {
+    try {
+      res.json(await listMarketplaceProducts());
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
   async getAllBusinesses(req: any, res: Response) {
     try {
       const result = await query(
@@ -60,32 +95,14 @@ export class ShopController {
     }
   }
 
-  async searchProducts(req: any, res: Response) {
+  async searchProducts(req: Request, res: Response) {
     try {
       const { q } = req.query;
-      if (!q || q.length < 2) {
+      if (typeof q !== 'string' || q.trim().length < 2) {
         return res.status(400).json({ error: 'Search query too short' });
       }
 
-      const result = await query(
-        `SELECT p.id, p.business_id, p.name, p.description, p.price, p.stock, p.category, p.rating, p.status,
-                b.name as business_name
-         FROM products p
-         JOIN businesses b ON p.business_id = b.id
-         JOIN users u ON u.id = b.owner_id
-         WHERE (p.name ILIKE $1 OR p.description ILIKE $1) AND p.status = 'active' AND b.status = 'active'
-           AND p.deleted_at IS NULL AND b.deleted_at IS NULL AND u.status = 'active'
-         ORDER BY p.created_at DESC
-         LIMIT 20`,
-        [`%${q}%`]
-      );
-      
-      for (let product of result.rows) {
-        const images = await ProductImageService.getProductImages(product.id);
-        product.images = images;
-      }
-      
-      res.json(result.rows);
+      res.json(await listMarketplaceProducts('%' + q.trim() + '%'));
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

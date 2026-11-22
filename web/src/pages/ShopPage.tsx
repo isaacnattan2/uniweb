@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { getAllBusinesses, resolveAssetUrl, searchProducts } from '../services/api';
+import { getAllBusinesses, getRecentProducts, resolveAssetUrl, searchProducts } from '../services/api';
 import type { PublicBusiness, PublicProduct } from '../services/api';
 import { useCartStore } from '../context/store';
 import '../styles/shop.css';
@@ -13,12 +13,14 @@ export function ShopPage() {
   const [products, setProducts] = useState<PublicProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [storesError, setStoresError] = useState(false);
   const [addedName, setAddedName] = useState('');
 
   useEffect(() => {
     let active = true;
     setLoading(true);
     setError('');
+    setStoresError(false);
     setAddedName('');
 
     if (query && query.length < 2) {
@@ -27,18 +29,17 @@ export function ShopPage() {
       return () => { active = false; };
     }
 
-    const load = query ? searchProducts(query).then((data) => {
+    const loadProducts = (query ? searchProducts(query) : getRecentProducts()).then((data) => {
       if (active) setProducts(data);
-    }) : getAllBusinesses().then((data) => {
-      if (active) setBusinesses(data);
+    }).catch(() => {
+      if (active) setError(query ? 'Não foi possível buscar produtos.' : 'Não foi possível carregar os produtos recentes.');
     });
-
-    load.catch((err: unknown) => {
-      if (active) {
-        console.error('Erro ao carregar marketplace:', err);
-        setError(query ? 'Não foi possível buscar produtos. Tente novamente.' : 'Não foi possível carregar as lojas. Tente novamente.');
-      }
-    }).finally(() => { if (active) setLoading(false); });
+    const loadStores = query ? Promise.resolve() : getAllBusinesses().then((data) => {
+      if (active) setBusinesses(data);
+    }).catch(() => {
+      if (active) setStoresError(true);
+    });
+    void Promise.all([loadProducts, loadStores]).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [query]);
 
@@ -62,13 +63,16 @@ export function ShopPage() {
       </div>
       <div className="container">
         {addedName && <p className="shop-notice" role="status">{addedName} adicionado ao carrinho. <Link to="/cart">Ver carrinho</Link></p>}
-        {loading ? <p className="shop-feedback">Carregando...</p> : error ? (
-          <div className="empty-state" role="alert"><p>{error}</p><Link to="/shop">Voltar às lojas</Link></div>
-        ) : query ? (
+        {loading ? <p className="shop-feedback">Carregando...</p> : (<>
           <section className="search-results">
-            <h2>Resultados para “{query}” ({products.length})</h2>
-            {products.length === 0 ? (
-              <div className="empty-state"><p>Nenhum produto encontrado. Tente outra busca.</p><Link to="/shop">Ver lojas</Link></div>
+            <h2>{query && !error ? 'Resultados para “' + query + '” (' + products.length + ')' : query ? 'Busca de produtos' : 'Últimos produtos'}</h2>
+            {error ? (
+              <div className="empty-state" role="alert"><p>{error}</p>{query && <Link to="/shop">Voltar ao marketplace</Link>}</div>
+            ) : products.length === 0 ? (
+              <div className="empty-state">
+                <p>{query ? 'Nenhum produto encontrado. Tente outra busca.' : 'Nenhum produto disponível no momento.'}</p>
+                {query && <Link to="/shop">Voltar ao marketplace</Link>}
+              </div>
             ) : (
               <div className="products-grid card-grid card-grid-7">
                 {products.map((product) => {
@@ -76,7 +80,7 @@ export function ShopPage() {
                   return (
                     <article key={product.id} className="product-card card-layout">
                       <Link className="product-image card-row-1" to={productUrl} aria-label={`Ver detalhes de ${product.name}`}>
-                        {product.images?.length ? <img src={resolveAssetUrl(product.images[0].image_url)} alt="" /> : <span aria-hidden="true">📦</span>}
+                        {product.images?.length ? <img src={resolveAssetUrl(product.images[0].image_url)} alt="" loading="lazy" /> : <span aria-hidden="true">📦</span>}
                       </Link>
                       <h3 className="card-row-2"><Link to={productUrl}>{product.name}</Link></h3>
                       <p className="product-store card-row-3">{product.business_name || 'Loja'}</p>
@@ -93,10 +97,9 @@ export function ShopPage() {
               </div>
             )}
           </section>
-        ) : (
-          <section>
+          {!query && <section>
             <h2>Lojas em destaque</h2>
-            {businesses.length === 0 ? <div className="empty-state"><p>Nenhuma loja disponível no momento.</p></div> :
+            {storesError ? <div className="empty-state" role="alert"><p>Não foi possível carregar as lojas.</p></div> : businesses.length === 0 ? <div className="empty-state"><p>Nenhuma loja disponível no momento.</p></div> :
               <div className="businesses-grid card-grid card-grid-6">
                 {businesses.map((business) => (
                   <article key={business.id} className="business-card card-layout">
@@ -109,8 +112,8 @@ export function ShopPage() {
                   </article>
                 ))}
               </div>}
-          </section>
-        )}
+          </section>}
+        </>)}
       </div>
     </div>
   );

@@ -171,6 +171,11 @@ export async function getProductsPublic(businessId: string): Promise<PublicProdu
   return response.data;
 }
 
+export async function getRecentProducts(): Promise<PublicProduct[]> {
+  const response = await api.get('/shop/products/recent');
+  return response.data;
+}
+
 export async function searchProducts(query: string): Promise<PublicProduct[]> {
   const response = await api.get(`/shop/search?q=${encodeURIComponent(query)}`);
   return response.data;

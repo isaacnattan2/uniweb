@@ -241,7 +241,7 @@ export function CartPage() {
                     </>
                   )}
                   {selectedMethod === 'credit_card' && (
-                    <p>{maxCardInstallments === 1 ? 'Cartão à vista.' : `Até ${maxCardInstallments}× sem juros no cartão.`}</p>
+                    <p>{maxCardInstallments === 1 ? 'Cartão à vista.' : `Até ${maxCardInstallments}× no cartão.`}</p>
                   )}
                   <p>Você vai concluir o pagamento na página do Asaas. O total não inclui frete.</p>
                 </div>

@@ -15,7 +15,7 @@ const paymentOptions = [
   {
     method: 'credit_card',
     label: 'Cartão de crédito',
-    instruction: 'O cliente pode pagar à vista ou parcelar sem juros até o limite da loja. As opções dependem do valor da compra e do cartão.',
+    instruction: 'O cliente pode pagar à vista ou parcelar até o limite da loja. As opções dependem do valor da compra e do cartão.',
     receipt: 'Até 32 dias à vista. No parcelado, uma parcela a cada 32 dias, sem antecipação.',
 
   },
@@ -32,7 +32,7 @@ export function StorePaymentSettings({ business, onSave }: { business: Business;
     const count = index + 1;
     const basisPoints = count === 1 ? 299 : count <= 6 ? 349 : 399;
     return {
-      label: count === 1 ? 'À vista (1×)' : count + '× sem juros',
+      label: count === 1 ? 'À vista (1×)' : count + '×',
       basisPoints,
       fixedCents: 49,
       fee: (basisPoints / 100).toLocaleString('pt-BR') + '% + R$ 0,49',
@@ -95,12 +95,16 @@ export function StorePaymentSettings({ business, onSave }: { business: Business;
                       setNotice('');
                     }}>
                     {Array.from({ length: MAX_CARD_INSTALLMENTS }, (_, index) => (
-                      <option key={index + 1} value={index + 1}>{index === 0 ? 'Somente à vista (1×)' : 'Até ' + (index + 1) + '× sem juros'}</option>
+                      <option key={index + 1} value={index + 1}>{index === 0 ? 'Somente à vista (1×)' : 'Até ' + (index + 1) + '×'}</option>
                     ))}
                   </select>
                 </div>
               )}
-              <dl className="card-row-5">
+              <dl
+                className={method === 'credit_card' ? 'card-row-5 installment-simulation' : 'card-row-5'}
+                tabIndex={method === 'credit_card' && maxCardInstallments > 3 ? 0 : undefined}
+                aria-label={method === 'credit_card' ? 'Simulação das parcelas do cartão' : undefined}
+              >
                 {('rates' in option && option.rates ? option.rates : cardRates).map(({ label: rateLabel, fee, basisPoints, fixedCents }) => {
                   const feeCents = Math.round(grossCents * basisPoints / 10000) + fixedCents;
                   const net = validAmount && grossCents >= feeCents ? money.format((grossCents - feeCents) / 100) : '—';

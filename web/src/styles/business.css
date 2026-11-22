@@ -146,3 +146,16 @@
   min-height: 2rem;
   cursor: pointer;
 }
+
+.payment-method-card .installment-simulation {
+  max-block-size: 12rem;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+  padding-inline-end: 0.5rem;
+}
+
+.payment-method-card .installment-simulation:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
+}

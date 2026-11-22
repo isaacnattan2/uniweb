@@ -98,7 +98,7 @@ export function OrdersPage() {
                   <div className="order-delivery">
                     <p><strong>Pagamento:</strong> {paymentLabels[order.payment_method] || order.payment_method} — {paymentStatusLabels[order.payment_status] || order.payment_status}</p>
                     {order.payment_method === 'credit_card' && order.installment_count != null && (
-                      <p><strong>Parcelamento:</strong> {order.installment_count === 1 ? '? vista (1?)' : order.installment_count + '? sem juros'}</p>
+                      <p><strong>Parcelamento:</strong> {order.installment_count === 1 ? 'À vista (1×)' : order.installment_count + '×'}</p>
                     )}
                     <p><strong>Entrega:</strong> {deliveryLabels[order.delivery_type] || order.delivery_type}</p>
                     {order.delivery_address && <p><strong>Endereço:</strong> {order.delivery_address}</p>}
