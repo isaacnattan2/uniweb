@@ -7,12 +7,16 @@ export async function listStoreOrders(req: Request, res: Response) {
     return res.status(400).json({ error: 'Página inválida.' });
   }
   const pageSize = 20;
+  const orderId = req.query.orderId;
+  if (orderId !== undefined && (typeof orderId !== 'string' || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(orderId))) {
+    return res.sendStatus(400);
+  }
   const { rows } = await query(
     `SELECT id, order_number, created_at, total, order_status AS status, payment_status,
             delivery_type, delivery_status, (delivery_driver_id IS NOT NULL) AS delivery_assigned
-     FROM orders WHERE business_id = $1 AND deleted_at IS NULL
+     FROM orders WHERE business_id = $1 AND deleted_at IS NULL${orderId ? ' AND id = $4' : ''}
      ORDER BY created_at DESC NULLS LAST, id LIMIT $2 OFFSET $3`,
-    [req.params.id, pageSize + 1, Number(offset)]
+    orderId ? [req.params.id, pageSize + 1, 0, orderId] : [req.params.id, pageSize + 1, Number(offset)]
   );
   res.set('Cache-Control', 'no-store');
   return res.json({ items: rows.slice(0, pageSize), nextOffset: rows.length > pageSize ? Number(offset) + pageSize : null });

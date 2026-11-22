@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import { useSearchParams } from 'react-router-dom';
 import { getStoreOrders, updateStoreOrder } from '../services/api';
 import type { StoreOrder, StoreOrderAction } from '../services/api';
 import { OrderStatus } from './OrderStatus';
@@ -10,6 +11,8 @@ const timestamp = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeSty
 const payments: Record<string, string> = { pending: 'Pendente', paid: 'Pago', failed: 'Falhou', refunded: 'Reembolsado' };
 
 export function StoreOrders({ businessId }: { businessId: string }) {
+  const [search, setSearch] = useSearchParams();
+  const orderId = search.get('order') || undefined;
   const [page, setPage] = useState({ items: [] as StoreOrder[], nextOffset: null as number | null });
   const [offset, setOffset] = useState(0);
   const [revision, setRevision] = useState(0);
@@ -23,7 +26,7 @@ export function StoreOrders({ businessId }: { businessId: string }) {
     const controller = new AbortController();
     setLoading(true);
     setLoadError('');
-    void getStoreOrders(businessId, offset, controller.signal).then((data) => {
+    void getStoreOrders(businessId, offset, controller.signal, orderId).then((data) => {
       if (!controller.signal.aborted) setPage(data);
     }).catch(() => {
       if (!controller.signal.aborted) setLoadError('Não foi possível carregar os pedidos da loja.');
@@ -31,7 +34,13 @@ export function StoreOrders({ businessId }: { businessId: string }) {
       if (!controller.signal.aborted) setLoading(false);
     });
     return () => controller.abort();
-  }, [businessId, offset, revision]);
+  }, [businessId, offset, revision, orderId]);
+
+  useEffect(() => {
+    if (orderId && !loading && !loadError && page.items[0]?.id === orderId) {
+      document.getElementById('store-orders-title')?.scrollIntoView();
+    }
+  }, [orderId, loading, loadError, page]);
 
   async function changeOrder(order: StoreOrder, action: StoreOrderAction) {
     if (action === 'cancel' && !window.confirm(order.payment_status === 'paid'
@@ -64,9 +73,16 @@ export function StoreOrders({ businessId }: { businessId: string }) {
       {notice && <p role="status">{notice}</p>}
       {actionError && <p role="alert">{actionError}</p>}
       {loadError && <p role="alert">{loadError}</p>}
+      {orderId && <button type="button" className="btn-secondary" onClick={() => {
+        setOffset(0);
+        setSearch((params) => {
+          params.delete('order');
+          return params;
+        });
+      }}>Ver todos os pedidos</button>}
       {loading && <p role="status">Carregando pedidos…</p>}
       {!loading && !loadError && page.items.length === 0 && <p>Nenhum pedido nesta página.</p>}
-      {!loadError && page.items.length > 0 && (
+      {!loadError && page.items.length > 0 && (!orderId || page.items[0].id === orderId) && (
         <ul className="store-order-list">
           {page.items.map((order) => {
             const canCancel = ['pending', 'confirmed', 'processing'].includes(order.status) && order.delivery_status !== 'delivered';
@@ -94,7 +110,7 @@ export function StoreOrders({ businessId }: { businessId: string }) {
           })}
         </ul>
       )}
-      {(offset > 0 || page.nextOffset !== null) && (
+      {!orderId && (offset > 0 || page.nextOffset !== null) && (
         <nav className="store-order-pagination" aria-label="Páginas de pedidos">
           <button className="btn-secondary" type="button" disabled={busy || offset === 0}
             onClick={() => setOffset((previous) => Math.max(0, previous - 20))}>Anterior</button>

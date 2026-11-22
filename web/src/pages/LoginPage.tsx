@@ -23,7 +23,8 @@ export function LoginPage() {
       login(token, user.id, user.user_type);
       const from = location.state?.from;
       const customerDestination = typeof from === 'string' && (from === '/cart' || /^\/store\/[\da-f-]{36}(?:\?product=[\da-f-]{36})?$/i.test(from)) ? from : '/shop';
-      navigate(user.user_type === 'admin' ? '/admin' : user.user_type === 'business' ? '/dashboard' :
+      const storeDestination = typeof from === 'string' && /^\/business\/[\da-f-]{36}\?order=[\da-f-]{36}$/i.test(from) ? from : '/dashboard';
+      navigate(user.user_type === 'admin' ? '/admin' : user.user_type === 'business' ? storeDestination :
         user.user_type === 'driver' ? '/driver' : customerDestination, { replace: true });
     } catch (err: any) {
       setError(err.response?.data?.error || 'Não foi possível entrar. Verifique seus dados e tente novamente.');

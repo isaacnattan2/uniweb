@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { signStorePushIdentity } from '../services/OrderPush';
 import { upload } from '../services/UploadService';
 import { getCustomerProfile, listCustomerAddresses, requireCustomer, saveCustomerAddress, updateCustomerProfile, uploadCustomerAvatar } from '../controllers/CustomerAccount';
 import { lookupPostalCode } from '../services/DeliveryAddress';
@@ -13,6 +14,14 @@ router.post('/register/driver', (req, res, next) => registerDriver(req, res).cat
 router.post('/login', (req, res) => AuthController.login(req, res));
 router.get('/me', authMiddleware, (req: AuthRequest, res) => {
   res.json({ id: req.userId, user_type: req.userType });
+});
+
+router.get('/me/push-identity', authMiddleware, (req: AuthRequest, res) => {
+  if (req.userType !== 'business' || !req.userId) return res.sendStatus(403);
+  res.set('Cache-Control', 'no-store');
+  const token = signStorePushIdentity(req.userId);
+  if (!token) return res.sendStatus(503);
+  return res.json({ externalId: req.userId, token });
 });
 
 router.get('/postal-code/:cep', lookupPostalCode);

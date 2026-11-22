@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Header } from './components/Header';
 import { SessionGate } from './components/SessionGate';
+import { StorePush } from './components/StorePush';
 import { LoginPage } from './pages/LoginPage';
 import { DriverPage, DriverRegisterPage } from './pages/DriverRegisterPage';
 import { RegisterPage } from './pages/RegisterPage';
@@ -24,6 +25,7 @@ function App() {
     <SessionGate>
     <Router>
       <Header />
+      <StorePush />
       <Routes>
         <Route path="/" element={<Navigate to="/shop" replace />} />
         <Route path="/login" element={<LoginPage />} />

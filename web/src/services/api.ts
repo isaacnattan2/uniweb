@@ -72,9 +72,14 @@ export interface StoreOrder {
 
 export type StoreOrderAction = 'requeue' | 'cancel';
 
-export async function getStoreOrders(businessId: string, offset: number, signal: AbortSignal) {
+export async function getStorePushIdentity() {
+  const { data } = await api.get<{ externalId: string; token: string }>('/auth/me/push-identity');
+  return data;
+}
+
+export async function getStoreOrders(businessId: string, offset: number, signal: AbortSignal, orderId?: string) {
   const response = await api.get<{ items: StoreOrder[]; nextOffset: number | null }>(
-    `/businesses/${businessId}/orders`, { params: { offset }, signal }
+    `/businesses/${businessId}/orders`, { params: { offset, orderId }, signal }
   );
   return response.data;
 }

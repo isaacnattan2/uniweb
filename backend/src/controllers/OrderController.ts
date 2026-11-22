@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { notifyStoreOrders } from '../services/OrderPush';
 import { AsaasPixKeyMissingError, checkoutIdPattern, checkoutUrl, createAsaasCheckout, getAsaasConfig, getAsaasInstallmentCount } from '../services/AsaasCheckout';
 import { v4 as uuidv4 } from 'uuid';
 import { Response } from 'express';
@@ -262,6 +263,7 @@ export class OrderController {
       }
       await client.query('COMMIT');
       inTransaction = false;
+      void notifyStoreOrders(orderIds).catch((error) => console.warn('Falha ao preparar push dos pedidos', error));
       return res.status(201).json({ orderId: orderIds[0], orderIds, status: 'pending', ...(paymentUrl && { checkoutUrl: paymentUrl }) });
     } catch (error: unknown) {
       if (client && inTransaction) {
