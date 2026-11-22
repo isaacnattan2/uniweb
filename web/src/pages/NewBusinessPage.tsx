@@ -10,7 +10,7 @@ export function NewBusinessPage() {
   const [formData, setFormData] = useState({
     name: '',
     description: '',
-    category: 'geral',
+    category: '',
     ownerId: '',
   });
   const [error, setError] = useState('');

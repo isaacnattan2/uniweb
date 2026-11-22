@@ -100,7 +100,7 @@ export function StorePublicPage() {
             <div className="store-logo" aria-hidden="true">🏬</div>
             <div>
               <h1>{business.name}</h1>
-              <p className="store-category">{business.category}</p>
+              <p className="store-category">{business.category_label || business.category}</p>
               <p className="store-rating"><RatingLabel {...business} /></p>
             </div>
           </div>
@@ -124,7 +124,7 @@ export function StorePublicPage() {
                   </Link>
                   <h3 className="card-row-2"><Link to={`?product=${encodeURIComponent(product.id)}`}>{product.name}</Link></h3>
                   {product.description && <p className="product-desc card-row-3">{product.description.substring(0, 60)}</p>}
-                  <p className="product-category card-row-4">{product.category}</p>
+                  <p className="product-category card-row-4">{product.category_label || product.category}</p>
                   <p className="product-price card-row-5">R$ {Number(product.price).toFixed(2)}</p>
                   <p className="product-stock card-row-6">{product.stock > 0 ? `${product.stock} em estoque` : 'Fora de estoque'}</p>
                   <button onClick={() => handleAddToCart(product)} disabled={product.stock <= 0} className="btn-primary card-footer card-row-7">+ Carrinho</button>
@@ -144,7 +144,7 @@ export function StorePublicPage() {
               </div>
               <div className="modal-info">
                 <h2 id="product-detail-title">{selectedProduct.name}</h2>
-                <p className="product-category">{selectedProduct.category}</p>
+                <p className="product-category">{selectedProduct.category_label || selectedProduct.category}</p>
                 <p className="product-description">{selectedProduct.description}</p>
                 <p><RatingLabel {...selectedProduct} /></p>
                 <RatingControl key={selectedProduct.id} kind="product" id={selectedProduct.id}

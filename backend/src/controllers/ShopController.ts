@@ -72,8 +72,9 @@ export class ShopController {
   async getAllBusinesses(req: any, res: Response) {
     try {
       const result = await query(
-        `SELECT b.id, b.name, b.description, b.category, b.logo_url, b.rating, b.rating_count, b.status
+        `SELECT b.id, b.name, b.description, b.category, COALESCE(c.label, b.category) AS category_label, b.logo_url, b.rating, b.rating_count, b.status
          FROM businesses b JOIN users u ON u.id = b.owner_id
+         LEFT JOIN marketplace_categories c ON c.kind = 'business' AND c.value = LOWER(TRIM(b.category))
          WHERE b.status = 'active' AND b.deleted_at IS NULL AND u.status = 'active'
          ORDER BY b.created_at DESC`
       );
@@ -87,8 +88,9 @@ export class ShopController {
     try {
       const { businessId } = req.params;
       const result = await query(
-        `SELECT b.id, b.name, b.description, b.category, b.logo_url, b.rating, b.rating_count, b.status, b.payment_methods, b.max_card_installments
+        `SELECT b.id, b.name, b.description, b.category, COALESCE(c.label, b.category) AS category_label, b.logo_url, b.rating, b.rating_count, b.status, b.payment_methods, b.max_card_installments
          FROM businesses b JOIN users u ON u.id = b.owner_id
+         LEFT JOIN marketplace_categories c ON c.kind = 'business' AND c.value = LOWER(TRIM(b.category))
          WHERE b.deleted_at IS NULL AND b.id = $1 AND b.status = 'active' AND u.status = 'active'`,
         [businessId]
       );
@@ -107,8 +109,9 @@ export class ShopController {
     try {
       const { businessId } = req.params;
       const result = await query(
-        `SELECT p.id, p.business_id, p.name, p.description, p.price, p.stock, p.category, p.rating, p.rating_count, p.status
+        `SELECT p.id, p.business_id, p.name, p.description, p.price, p.stock, p.category, COALESCE(c.label, p.category) AS category_label, p.rating, p.rating_count, p.status
          FROM products p JOIN businesses b ON b.id = p.business_id JOIN users u ON u.id = b.owner_id
+         LEFT JOIN marketplace_categories c ON c.kind = 'product' AND c.value = LOWER(TRIM(p.category))
          WHERE p.business_id = $1 AND p.status = 'active' AND p.deleted_at IS NULL
            AND b.status = 'active' AND b.deleted_at IS NULL AND u.status = 'active'
          ORDER BY p.created_at DESC`,

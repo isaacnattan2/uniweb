@@ -29,6 +29,65 @@ router.post('/categories', async (req, res, next) => {
   }
 });
 
+function categorySource(kind: string) {
+  if (kind === 'business') return 'businesses';
+  if (kind === 'product') return 'products';
+  return null;
+}
+
+router.put('/categories/:kind/:value', async (req, res, next) => {
+  const { kind, value } = req.params;
+  const source = categorySource(kind);
+  const input = req.body?.label;
+  const label = typeof input === 'string' ? input.trim().replace(/\s+/g, ' ') : '';
+  if (!source || !value.trim() || value.length > 100 || !label || label.length > 100) {
+    return res.status(400).json({ error: 'Informe uma categoria válida e um nome de até 100 caracteres.' });
+  }
+  try {
+    const result = await query(
+      `INSERT INTO marketplace_categories (kind, value, label)
+       SELECT $1, $2, $3 WHERE EXISTS (
+         SELECT FROM marketplace_categories WHERE kind = $1 AND value = $2
+         UNION ALL
+         SELECT FROM ${source} WHERE LOWER(TRIM(category)) = $2 AND deleted_at IS NULL
+       )
+       ON CONFLICT (kind, value) DO UPDATE SET label = EXCLUDED.label
+       RETURNING kind, value, label`,
+      [kind, value, label]
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'Categoria não encontrada.' });
+    res.json(result.rows[0]);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete('/categories/:kind/:value', async (req, res, next) => {
+  const { kind, value } = req.params;
+  const source = categorySource(kind);
+  if (!source || !value.trim() || value.length > 100) {
+    return res.status(400).json({ error: 'Categoria inválida.' });
+  }
+  try {
+    const result = await query(
+      `WITH usage AS (
+         SELECT EXISTS (SELECT FROM ${source} WHERE LOWER(TRIM(category)) = $2 AND deleted_at IS NULL) AS in_use
+       ), removed AS (
+         DELETE FROM marketplace_categories WHERE kind = $1 AND value = $2 AND NOT (SELECT in_use FROM usage)
+         RETURNING value
+       )
+       SELECT usage.in_use, EXISTS (SELECT FROM removed) AS deleted FROM usage`,
+      [kind, value]
+    );
+    const { in_use, deleted } = result.rows[0];
+    if (in_use) return res.status(409).json({ error: 'Esta categoria está em uso. Altere a categoria das lojas ou produtos vinculados antes de excluir.' });
+    if (!deleted) return res.status(404).json({ error: 'Categoria não encontrada.' });
+    res.sendStatus(204);
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get('/sellers', async (req, res, next) => {
   try {
     const result = await query(

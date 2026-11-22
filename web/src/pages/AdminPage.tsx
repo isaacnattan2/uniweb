@@ -112,26 +112,28 @@ export function AdminPage() {
         </div>
         {error && <p className="error-message" role="alert">{error}</p>}
         {notice && <p role="status">{notice}</p>}
-        <section id="cadastrar-lojista" className="form-box" tabIndex={-1}>
-          <h2>Cadastrar lojista</h2>
-          <form onSubmit={handleCreateSeller}>
-            <div className="form-group">
-              <label htmlFor="seller-name">Nome</label>
-              <input id="seller-name" required value={form.fullName} onChange={(event) => setForm({ ...form, fullName: event.target.value })} />
-            </div>
-            <div className="form-group">
-              <label htmlFor="seller-email">E-mail</label>
-              <input id="seller-email" type="email" required value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} />
-            </div>
-            <div className="form-group">
-              <label htmlFor="seller-password">Senha inicial</label>
-              <input id="seller-password" type="password" autoComplete="new-password" minLength={8} required value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} />
-            </div>
-            <button type="submit" className="btn-primary" disabled={saving}>Cadastrar lojista</button>
-          </form>
-        </section>
+        <div className="admin-setup-grid">
+          <section id="cadastrar-lojista" className="form-box" tabIndex={-1}>
+            <h2>Cadastrar lojista</h2>
+            <form onSubmit={handleCreateSeller}>
+              <div className="form-group">
+                <label htmlFor="seller-name">Nome</label>
+                <input id="seller-name" required value={form.fullName} onChange={(event) => setForm({ ...form, fullName: event.target.value })} />
+              </div>
+              <div className="form-group">
+                <label htmlFor="seller-email">E-mail</label>
+                <input id="seller-email" type="email" required value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} />
+              </div>
+              <div className="form-group">
+                <label htmlFor="seller-password">Senha inicial</label>
+                <input id="seller-password" type="password" autoComplete="new-password" minLength={8} required value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} />
+              </div>
+              <button type="submit" className="btn-primary" disabled={saving}>Cadastrar lojista</button>
+            </form>
+          </section>
 
-        <AdminCategories />
+          <AdminCategories />
+        </div>
 
         <section aria-labelledby="sellers-heading">
           <h2 id="sellers-heading">Lojistas</h2>

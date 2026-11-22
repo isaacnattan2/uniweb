@@ -39,6 +39,7 @@ export interface PublicProduct extends RatingSummary {
   name: string;
   description?: string;
   category?: string;
+  category_label?: string;
   price: string | number;
   stock: number;
   images?: Array<{ id?: string; image_url: string; order_index?: number }>;
@@ -51,6 +52,7 @@ export interface PublicBusiness extends RatingSummary {
   name: string;
   description?: string;
   category?: string;
+  category_label?: string;
 }
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
@@ -199,6 +201,15 @@ export async function getMarketplaceCategories(): Promise<MarketplaceCategory[]>
 export async function createMarketplaceCategory(kind: MarketplaceCategory['kind'], label: string): Promise<MarketplaceCategory> {
   const response = await api.post('/admin/categories', { kind, label });
   return response.data;
+}
+
+export async function renameMarketplaceCategory(category: MarketplaceCategory, label: string): Promise<MarketplaceCategory> {
+  const response = await api.put('/admin/categories/' + category.kind + '/' + encodeURIComponent(category.value), { label });
+  return response.data;
+}
+
+export async function deleteMarketplaceCategory(category: MarketplaceCategory) {
+  await api.delete('/admin/categories/' + category.kind + '/' + encodeURIComponent(category.value));
 }
 
 export async function rateMarketplaceItem(kind: MarketplaceCategory['kind'], id: string, rating: number): Promise<RatingSummary> {

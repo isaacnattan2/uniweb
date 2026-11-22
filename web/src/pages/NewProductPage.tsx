@@ -16,7 +16,7 @@ export function NewProductPage() {
     description: '',
     price: '',
     quantity: '',
-    category: 'geral',
+    category: '',
   });
   const [images, setImages] = useState<string[]>([]);
   const [error, setError] = useState('');
@@ -146,6 +146,7 @@ export function NewProductPage() {
               value={formData.category}
               onChange={handleChange}
             >
+              <option value="">Selecione uma categoria</option>
               <CategoryOptions kind="product" current={formData.category} />
             </select>
           </div>

@@ -136,7 +136,7 @@ export function ShopPage() {
                   <article key={business.id} className="business-card card-layout">
                     <Link to={`/store/${business.id}`} className="business-logo card-row-1" aria-label={`Visitar ${business.name}`}>🏬</Link>
                     <h3 className="card-row-2"><Link to={`/store/${business.id}`}>{business.name}</Link></h3>
-                    <p className="business-category card-row-3">{business.category}</p>
+                    <p className="business-category card-row-3">{business.category_label || business.category}</p>
                     {business.description && <p className="business-desc card-row-4">{business.description.substring(0, 80)}</p>}
                     <div className="business-rating card-row-5"><RatingLabel {...business} /></div>
                     <Link className="shop-secondary-link card-footer card-row-6" to={`/store/${business.id}`}>Visitar loja →</Link>

@@ -15,7 +15,7 @@ export function EditProductPage() {
     description: '',
     price: '',
     quantity: '',
-    category: 'geral',
+    category: '',
   });
   const [images, setImages] = useState<string[]>([]);
   const [error, setError] = useState('');
@@ -48,7 +48,7 @@ export function EditProductPage() {
           description: product.description || '',
           price: product.price.toString(),
           quantity: product.stock?.toString() || '',
-          category: product.category || 'geral',
+          category: product.category || '',
         });
 
         if (product.images && Array.isArray(product.images)) {
@@ -178,6 +178,7 @@ export function EditProductPage() {
               value={formData.category}
               onChange={handleChange}
             >
+              <option value="">Selecione uma categoria</option>
               <CategoryOptions kind="product" current={formData.category} />
             </select>
           </div>

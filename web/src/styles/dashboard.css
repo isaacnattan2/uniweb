@@ -72,3 +72,47 @@
 .card-actions button {
   flex: 1;
 }
+
+.admin-setup-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.25rem;
+  margin-block: 1.25rem;
+}
+
+.admin-setup-grid > .form-box {
+  max-width: none;
+  min-width: 0;
+  margin: 0;
+}
+
+.admin-category-list {
+  list-style: none;
+  max-block-size: 16rem;
+  overflow-y: auto;
+  padding: 0;
+  margin: 1rem 0 0;
+}
+
+.admin-category-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.55rem 0.35rem;
+  border-top: 1px solid #e5e7eb;
+  overflow-wrap: anywhere;
+}
+
+.admin-category-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+@media (min-width: 800px) {
+  .admin-setup-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
