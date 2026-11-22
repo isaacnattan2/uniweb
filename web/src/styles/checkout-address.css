@@ -1,0 +1,65 @@
+.checkout-address {
+  min-width: 0;
+  padding: 0;
+  margin-block-start: 1rem;
+  border: 0;
+}
+
+.checkout-address legend {
+  font-weight: 700;
+}
+
+.checkout-address input,
+.checkout-address select {
+  width: 100%;
+  min-width: 0;
+  min-height: 2.5rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+}
+
+.checkout-cep-row,
+.checkout-address-pair,
+.checkout-address-city {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.checkout-cep-row,
+.checkout-address-city {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.checkout-address-pair {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+}
+
+.checkout-address-city select {
+  min-width: 4.25rem;
+}
+
+.checkout-cep-row button {
+  white-space: nowrap;
+}
+
+.checkout-address label {
+  display: block;
+  margin-block: 0.75rem 0.4rem;
+  font-weight: 600;
+}
+
+.auth-address-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-block: 1rem;
+}
+
+.auth-address-toggle input {
+  width: auto;
+}
+
+.auth-box .checkout-address {
+  margin-bottom: 1rem;
+}

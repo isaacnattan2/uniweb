@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { registerUser } from '../services/api';
 import { useAuthStore } from '../context/store';
+import { CheckoutAddress, emptyDeliveryAddress, isDeliveryAddressComplete } from '../components/CheckoutAddress';
 import '../styles/auth.css';
 
 export function RegisterPage() {
@@ -14,16 +15,22 @@ export function RegisterPage() {
     fullName: '',
     phone: '',
   });
+  const [addAddress, setAddAddress] = useState(false);
+  const [address, setAddress] = useState(emptyDeliveryAddress);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   async function handleRegister(e: React.FormEvent) {
     e.preventDefault();
     setError('');
+    if (addAddress && !isDeliveryAddressComplete(address)) {
+      setError('Informe CEP, logradouro, número, cidade e UF para salvar seu endereço.');
+      return;
+    }
     setLoading(true);
 
     try {
-      const { user, token } = await registerUser(formData.email, formData.password, formData.fullName, 'customer');
+      const { user, token } = await registerUser(formData.email, formData.password, formData.fullName, 'customer', addAddress ? address : undefined, formData.phone);
       login(token, user.id, user.user_type);
       navigate(location.state?.from === '/cart' ? '/cart' : '/shop', { replace: true });
     } catch (err: any) {
@@ -97,6 +104,12 @@ export function RegisterPage() {
               required
             />
           </div>
+
+          <label className="auth-address-toggle">
+            <input type="checkbox" checked={addAddress} disabled={loading} onChange={(event) => setAddAddress(event.target.checked)} />
+            Cadastrar endereço de entrega (opcional)
+          </label>
+          {addAddress && <CheckoutAddress address={address} onChange={setAddress} disabled={loading} />}
 
           <button type="submit" disabled={loading} className="btn-primary">
             {loading ? 'Criando conta...' : 'Criar Conta'}

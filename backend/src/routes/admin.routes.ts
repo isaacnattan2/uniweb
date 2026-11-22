@@ -1,3 +1,4 @@
+import { deleteAd, listAdminAds, saveAd } from '../controllers/MarketplaceAd';
 import { Router } from 'express';
 import { query } from '../config/database';
 import { authMiddleware, requireAdmin } from '../middleware/auth';
@@ -214,5 +215,10 @@ router.put('/businesses/:businessId/owner', async (req, res, next) => {
     next(error);
   }
 });
+
+router.get('/ads', (req, res, next) => listAdminAds(req, res).catch(next));
+router.post('/ads', (req, res, next) => saveAd(req, res).catch(next));
+router.put('/ads/:id', (req, res, next) => saveAd(req, res).catch(next));
+router.delete('/ads/:id', (req, res, next) => deleteAd(req, res).catch(next));
 
 export default router;

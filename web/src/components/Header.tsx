@@ -71,7 +71,12 @@ export function Header() {
                 <Link to="/cart" className="nav-link">
                   🛒 Carrinho ({cartItems.length})
                 </Link>
-                {token && <Link to="/orders" className="nav-link">Pedidos</Link>}
+                {token && (
+                  <>
+                    <Link to="/orders" className="nav-link">Pedidos</Link>
+                    <Link to="/account" className="nav-link">Minha conta</Link>
+                  </>
+                )}
               </>
             )}
             {token && userType === 'admin' && (

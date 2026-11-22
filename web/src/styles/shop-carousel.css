@@ -1,0 +1,89 @@
+.shop-carousel {
+  position: relative;
+  inline-size: 100%;
+  block-size: 35vh;
+  block-size: 35svh;
+  margin-block-end: 1.25rem;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #e9eef5;
+}
+
+.shop-carousel-slide,
+.shop-carousel-slide a,
+.shop-carousel-slide img {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+}
+
+.shop-carousel-slide img {
+  object-fit: cover;
+  object-position: center;
+}
+
+.shop-carousel-slide a:focus-visible {
+  outline: 3px solid #155cdb;
+  outline-offset: -4px;
+}
+
+.shop-carousel-arrow {
+  position: absolute;
+  inset-block-start: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  inline-size: 2.5rem;
+  block-size: 2.5rem;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.93);
+  color: #174ea6;
+  font-size: 1.75rem;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 2px 8px #0f172a33;
+}
+
+.shop-carousel-prev { inset-inline-start: 0.65rem; }
+.shop-carousel-next { inset-inline-end: 0.65rem; }
+
+.shop-carousel-dots {
+  position: absolute;
+  inset-block-end: 0.55rem;
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  max-inline-size: 70%;
+  overflow-x: auto;
+  border-radius: 1rem;
+  background: #111827aa;
+}
+
+.shop-carousel-dots button {
+  display: grid;
+  place-items: center;
+  flex: 0 0 1.5rem;
+  block-size: 1.5rem;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+}
+
+.shop-carousel-dots button::after {
+  content: '';
+  inline-size: 0.5rem;
+  block-size: 0.5rem;
+  border: 1px solid white;
+  border-radius: 50%;
+}
+
+.shop-carousel-dots button[aria-current]::after {
+  background: white;
+}
+
+.shop-carousel-dots button:focus-visible {
+  outline: 2px solid white;
+  outline-offset: -3px;
+}

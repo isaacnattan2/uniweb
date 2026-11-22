@@ -1,3 +1,4 @@
+import { listPublishedAds } from '../controllers/MarketplaceAd';
 import { Router } from 'express';
 import { authMiddleware } from '../middleware/auth';
 import { getMarketplaceComments, getMyMarketplaceReview, rateMarketplaceItem } from '../controllers/MarketplaceReview';
@@ -14,5 +15,7 @@ router.get('/businesses/:businessId', ShopController.getBusinessPublic);
 router.get('/businesses/:businessId/products', ShopController.getProductsPublic);
 router.get('/products/recent', ShopController.getRecentProducts);
 router.get('/search', ShopController.searchProducts);
+
+router.get('/ads', (req, res, next) => listPublishedAds(req, res).catch(next));
 
 export default router;

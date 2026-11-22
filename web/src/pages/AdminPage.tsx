@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AdminBusiness, Seller, createSeller, getAdminBusinesses, getSellers, setAdminBlock, transferBusiness, updateSeller } from '../services/api';
+import { AdminAds } from '../components/AdminAds';
 import { AdminCategories } from '../components/AdminCategories';
 import '../styles/dashboard.css';
 import '../styles/product-form.css';
@@ -134,6 +135,8 @@ export function AdminPage() {
 
           <AdminCategories />
         </div>
+
+        <AdminAds businesses={businesses} />
 
         <section aria-labelledby="sellers-heading">
           <h2 id="sellers-heading">Lojistas</h2>

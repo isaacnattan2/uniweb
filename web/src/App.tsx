@@ -14,6 +14,7 @@ import { EditProductPage } from './pages/EditProductPage';
 import { ShopPage } from './pages/ShopPage';
 import { StorePublicPage } from './pages/StorePublicPage';
 import { CartPage } from './pages/CartPage';
+import { CustomerAccountPage } from './pages/CustomerAccountPage';
 import { OrdersPage } from './pages/OrdersPage';
 import './styles/global.css';
 
@@ -29,6 +30,7 @@ function App() {
         <Route path="/shop" element={<ShopPage />} />
         <Route path="/store/:businessId" element={<StorePublicPage />} />
         <Route path="/cart" element={<CartPage />} />
+        <Route path="/account" element={<ProtectedRoute roles={['customer']}><CustomerAccountPage /></ProtectedRoute>} />
         <Route
           path="/orders"
           element={

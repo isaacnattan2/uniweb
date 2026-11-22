@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { Response } from 'express';
 import { PoolClient } from 'pg';
 import { AuthRequest } from '../middleware/auth';
+import { formatDeliveryAddress, normalizeDeliveryAddress } from '../services/DeliveryAddress';
 import { getClient, query } from '../config/database';
 import { applyCoupon, Coupon, CouponError, normalizeCouponCode } from '../services/StoreCoupons';
 
@@ -74,7 +75,8 @@ export class OrderController {
       if (!['pickup', 'delivery', 'shipping'].includes(deliveryType)) {
         throw new CheckoutError(400, 'Selecione uma forma de entrega válida.');
       }
-      const address = typeof deliveryAddress === 'string' ? deliveryAddress.trim() : '';
+      const savedAddress = deliveryType === 'pickup' ? null : normalizeDeliveryAddress(deliveryAddress);
+      const address = deliveryType === 'pickup' && typeof deliveryAddress !== 'string' ? '' : formatDeliveryAddress(deliveryAddress) || '';
       if (deliveryType !== 'pickup' && !address) {
         throw new CheckoutError(400, 'Informe o endereço de entrega.');
       }
@@ -215,6 +217,13 @@ export class OrderController {
           await client.query('UPDATE products SET stock = stock - $2 WHERE id = $1', [product.id, item.quantity]);
         }
         orderIds.push(orderId);
+      }
+
+      if (savedAddress) {
+        await client.query(
+          'INSERT INTO customer_addresses (user_id, address) VALUES ($1, $2::jsonb) ON CONFLICT (user_id, address) DO NOTHING',
+          [req.userId, JSON.stringify(savedAddress)]
+        );
       }
 
       let paymentUrl: string | undefined;

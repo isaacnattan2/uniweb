@@ -306,3 +306,47 @@ test('checkout com cupom grava subtotal e desconto e envia o mesmo total ao Asaa
   const payload = JSON.parse(provider.mock.calls[0].arguments[1].body);
   assert.deepEqual(payload.items.map(({ value, quantity }) => [value, quantity]), [[11.99, 1], [12, 1]]);
 });
+
+test('consulta CEP no ViaCEP e normaliza o endereco de entrega sem exigir complemento', async (t) => {
+  const { lookupPostalCode, formatDeliveryAddress } = require('../dist/services/DeliveryAddress');
+  const viaCep = t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({
+    logradouro: 'Praca da Se', bairro: 'Se', localidade: 'Sao Paulo', uf: 'SP',
+  })));
+  const invalid = response();
+  await lookupPostalCode({ params: { cep: '01001' } }, invalid);
+  assert.equal(invalid.statusCode, 400);
+  assert.equal(viaCep.mock.callCount(), 0);
+
+  const result = response();
+  await lookupPostalCode({ params: { cep: '01001000' } }, result);
+  assert.equal(viaCep.mock.calls[0].arguments[0], 'https://viacep.com.br/ws/01001000/json/');
+  const address = { ...result.body, cep: '01001-000', number: 'S/N' };
+  assert.equal(formatDeliveryAddress(address), 'Praca da Se, S/N \u00b7 Se \u00b7 Sao Paulo/SP \u00b7 CEP 01001-000');
+  assert.equal(formatDeliveryAddress({ ...address, uf: 'SP', state: 'XX' }), null);
+  assert.equal(formatDeliveryAddress({ ...address, number: '' }), null);
+
+  viaCep.mock.mockImplementation(async () => new Response(JSON.stringify({ erro: true })));
+  const missing = response();
+  await lookupPostalCode({ params: { cep: '99999999' } }, missing);
+  assert.equal(missing.statusCode, 404);
+});
+
+test('salva o endereco estruturado no pedido e rejeita dados incompletos', async () => {
+  const req = request();
+  req.body.deliveryAddress = { cep: '01001-000', street: 'Praca da Se', city: 'Sao Paulo', state: 'SP' };
+  const rejected = response();
+  await controller.createOrder(req, rejected);
+  assert.equal(rejected.statusCode, 400);
+
+  req.body.deliveryAddress.number = '1';
+  const client = mockClient();
+  database.getClient = async () => client;
+  const accepted = response();
+  await controller.createOrder(req, accepted);
+  assert.equal(accepted.statusCode, 201);
+  const address = client.calls.find(([sql]) => sql.includes('INSERT INTO orders'))[1][7];
+  const saved = client.calls.find(([sql]) => sql.includes('INSERT INTO customer_addresses'))[1];
+  assert.equal(saved[0], req.userId);
+  assert.equal(JSON.parse(saved[1]).cep, '01001-000');
+  assert.equal(address, 'Praca da Se, 1 \u00b7 Sao Paulo/SP \u00b7 CEP 01001-000');
+});

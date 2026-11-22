@@ -1,14 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { getAllBusinesses, getMarketplaceCategories, getRecentProducts, resolveAssetUrl, searchProducts } from '../services/api';
-import type { MarketplaceCategory, PublicBusiness, PublicProduct } from '../services/api';
+import { getAllBusinesses, getMarketplaceCategories, getRecentProducts, getShopAds, resolveAssetUrl, searchProducts } from '../services/api';
+import type { MarketplaceAd, MarketplaceCategory, PublicBusiness, PublicProduct } from '../services/api';
 import { useCartStore } from '../context/store';
 import { RatingLabel } from '../components/RatingControl';
+import { ShopCarousel } from '../components/ShopCarousel';
 import '../styles/shop.css';
 
 export function ShopPage() {
   const [params, setParams] = useSearchParams();
   const category = params.get('category') || '';
+  const [ads, setAds] = useState<MarketplaceAd[]>([]);
   const [categories, setCategories] = useState<MarketplaceCategory[]>([]);
   const [categoryError, setCategoryError] = useState(false);
   const query = (params.get('q') || '').trim();
@@ -19,6 +21,13 @@ export function ShopPage() {
   const [error, setError] = useState('');
   const [storesError, setStoresError] = useState(false);
   const [addedName, setAddedName] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    getShopAds().then((data) => { if (active) setAds(data); })
+      .catch(() => { if (active) setAds([]); });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -76,6 +85,7 @@ export function ShopPage() {
         <p>Pesquise, compare e compre no marketplace UniWeb.</p>
       </div>
       <div className="container">
+        {!query && <ShopCarousel ads={ads} />}
         {addedName && <p className="shop-notice" role="status">{addedName} adicionado ao carrinho. <Link to="/cart">Ver carrinho</Link></p>}
         <select className="shop-category-filter" aria-label="Categoria dos produtos" value={category}
           disabled={categoryError && !category}

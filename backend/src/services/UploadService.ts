@@ -22,7 +22,7 @@ export const upload = multer({
 });
 
 export class UploadService {
-  static async uploadImages(files: Express.Multer.File[]): Promise<string[]> {
+  static async uploadImages(files: Express.Multer.File[], folder: 'products' | 'avatars' = 'products'): Promise<string[]> {
     const { AWS_ENDPOINT_URL_S3, AWS_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, NEON_STORAGE_BUCKET } = process.env;
     if (!AWS_ENDPOINT_URL_S3 || !AWS_REGION || !AWS_ACCESS_KEY_ID || !AWS_SECRET_ACCESS_KEY || !NEON_STORAGE_BUCKET) {
       throw new Error('Configuração do armazenamento de imagens incompleta');
@@ -44,7 +44,7 @@ export class UploadService {
 
     try {
       for (const file of files) {
-        const key = `products/${randomUUID()}.${extensions[file.mimetype]}`;
+        const key = `${folder}/${randomUUID()}.${extensions[file.mimetype]}`;
         keys.push(key);
         await client.send(new PutObjectCommand({
           Bucket: NEON_STORAGE_BUCKET,

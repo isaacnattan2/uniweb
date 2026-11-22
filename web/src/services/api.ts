@@ -82,8 +82,8 @@ api.interceptors.request.use((config) => {
 });
 
 // Auth
-export async function registerUser(email: string, password: string, fullName: string, userType: string = 'customer') {
-  const response = await api.post('/auth/register', { email, password, fullName, userType });
+export async function registerUser(email: string, password: string, fullName: string, userType: string = 'customer', deliveryAddress?: DeliveryAddress, phone?: string) {
+  const response = await api.post('/auth/register', { email, password, fullName, userType, deliveryAddress, phone });
   return response.data;
 }
 
@@ -244,11 +244,34 @@ export async function rateMarketplaceItem(kind: ReviewKind, id: string, input: M
 export type PaymentMethod = 'pix' | 'credit_card' | 'debit_card' | 'wallet';
 export type DeliveryType = 'pickup' | 'delivery' | 'shipping';
 
+export interface DeliveryAddress {
+  cep: string;
+  street: string;
+  number: string;
+  neighborhood: string;
+  city: string;
+  state: string;
+  complement: string;
+}
+
+export async function lookupPostalCode(cep: string, signal: AbortSignal): Promise<Pick<DeliveryAddress, 'street' | 'neighborhood' | 'city' | 'state'>> {
+  return (await api.get('/auth/postal-code/' + cep, { signal })).data;
+}
+
+export interface SavedDeliveryAddress {
+  id: string;
+  address: DeliveryAddress;
+}
+
+export async function getSavedDeliveryAddresses(signal: AbortSignal): Promise<SavedDeliveryAddress[]> {
+  return (await api.get('/auth/me/addresses', { signal })).data;
+}
+
 export async function createOrder(
   items: Array<{ productId: string; quantity: number; price: number }>,
   paymentMethod: PaymentMethod,
   deliveryType: DeliveryType,
-  deliveryAddress: string,
+  deliveryAddress: DeliveryAddress | string,
   checkoutId: string,
   couponCode?: string
 ): Promise<{ orderIds: string[]; checkoutUrl: string | null }> {
@@ -312,4 +335,62 @@ export async function saveStoreCoupon(businessId: string, input: StoreCouponInpu
 
 export async function deleteStoreCoupon(businessId: string, couponId: string) {
   await api.delete('/businesses/' + businessId + '/coupons/' + couponId);
+}
+
+export interface MarketplaceAd {
+  id: string;
+  business_id: string;
+  title: string;
+  image_url: string;
+}
+
+export interface AdminAd extends MarketplaceAd {
+  position: number;
+  published: boolean;
+}
+
+export async function getShopAds(): Promise<MarketplaceAd[]> {
+  return (await api.get('/shop/ads')).data;
+}
+
+export async function getAdminAds(): Promise<AdminAd[]> {
+  return (await api.get('/admin/ads')).data;
+}
+
+export async function saveAdminAd(data: {
+  businessId: string; title: string; position: number; published: boolean; imageUrl: string;
+}, id?: string): Promise<AdminAd> {
+  return (id ? await api.put('/admin/ads/' + id, data) : await api.post('/admin/ads', data)).data;
+}
+
+export async function deleteAdminAd(id: string) {
+  await api.delete('/admin/ads/' + id);
+}
+
+export interface CustomerProfile {
+  full_name: string;
+  email: string;
+  phone: string | null;
+  avatar_url: string | null;
+}
+
+export async function getCustomerProfile(signal: AbortSignal): Promise<CustomerProfile> {
+  return (await api.get('/auth/me/profile', { signal })).data;
+}
+
+export async function saveCustomerProfile(data: {
+  fullName: string; email: string; phone: string; currentPassword: string;
+}): Promise<CustomerProfile> {
+  return (await api.put('/auth/me/profile', data)).data;
+}
+
+export async function saveCustomerAvatar(file: File): Promise<{ avatar_url: string }> {
+  const form = new FormData();
+  form.append('image', file);
+  return (await api.post('/auth/me/avatar', form, { headers: { 'Content-Type': 'multipart/form-data' } })).data;
+}
+
+export async function saveCustomerAddress(address: DeliveryAddress, id?: string): Promise<SavedDeliveryAddress> {
+  const path = '/auth/me/addresses';
+  return (id ? await api.put(path + '/' + id, address) : await api.post(path, address)).data;
 }

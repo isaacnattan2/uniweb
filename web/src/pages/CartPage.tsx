@@ -1,8 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { StorePaymentMethod } from '../context/store';
-import { createOrder, getBusinessPublic } from '../services/api';
+import { createOrder, getBusinessPublic, getSavedDeliveryAddresses } from '../services/api';
+import type { SavedDeliveryAddress } from '../services/api';
 import { DEFAULT_CARD_INSTALLMENTS, useCartStore, useAuthStore } from '../context/store';
+import { CheckoutAddress, emptyDeliveryAddress, isDeliveryAddressComplete } from '../components/CheckoutAddress';
 import '../styles/cart.css';
 
 export function CartPage() {
@@ -20,7 +22,12 @@ export function CartPage() {
   const [couponCode, setCouponCode] = useState('');
   const [availability, setAvailability] = useState<{ key: string; methods: StorePaymentMethod[]; maxCardInstallments?: number; failed?: boolean }>();
   const [deliveryType, setDeliveryType] = useState('');
-  const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [deliveryAddress, setDeliveryAddress] = useState(emptyDeliveryAddress);
+  const [addressBook, setAddressBook] = useState<{ userId: string; entries: SavedDeliveryAddress[]; failed?: boolean }>();
+  const [selectedAddressId, setSelectedAddressId] = useState('');
+  const savedAddresses = addressBook?.userId === userId ? addressBook : undefined;
+  const activeAddressId = selectedAddressId || savedAddresses?.entries[0]?.id || 'new';
+  const activeAddress = activeAddressId === 'new' ? deliveryAddress : savedAddresses?.entries.find((entry) => entry.id === activeAddressId)?.address;
   const checkoutAttempt = useRef<{ signature: string; id: string } | null>(null);
   const submitting = useRef(false);
 
@@ -47,6 +54,20 @@ export function CartPage() {
     return () => { active = false; };
   }, [selectedStore, token, userType]);
 
+  useEffect(() => {
+    setAddressBook(undefined);
+    setSelectedAddressId('');
+    setDeliveryAddress(emptyDeliveryAddress);
+    if (!token || userType !== 'customer' || !userId) return;
+    const request = new AbortController();
+    getSavedDeliveryAddresses(request.signal).then((entries) => {
+      if (!request.signal.aborted) setAddressBook({ userId, entries });
+    }).catch(() => {
+      if (!request.signal.aborted) setAddressBook({ userId, entries: [], failed: true });
+    });
+    return () => request.abort();
+  }, [token, userId, userType]);
+
   async function handleCheckout() {
     if (submitting.current) return;
     if (!token || !userId) {
@@ -65,11 +86,12 @@ export function CartPage() {
       setError('Selecione uma forma de entrega.');
       return;
     }
-    if (deliveryType !== 'pickup' && !deliveryAddress.trim()) {
-      setError('Informe o endereço de entrega.');
+    if (deliveryType !== 'pickup' && (!savedAddresses || !activeAddress || !isDeliveryAddressComplete(activeAddress))) {
+      setError('Informe CEP, logradouro, número, cidade e UF para continuar.');
       return;
     }
 
+    const address = deliveryType === 'pickup' ? '' : activeAddress ?? '';
     submitting.current = true;
     setLoading(true);
     setError('');
@@ -81,12 +103,12 @@ export function CartPage() {
         price: item.price,
       }));
 
-      const signature = JSON.stringify([userId, items, paymentMethod, deliveryType, deliveryAddress.trim(), couponCode.trim()]);
+      const signature = JSON.stringify([userId, items, paymentMethod, deliveryType, address, couponCode.trim()]);
       if (checkoutAttempt.current?.signature !== signature) {
         checkoutAttempt.current = { signature, id: crypto.randomUUID() };
       }
       const { checkoutUrl } = await createOrder(
-        items, selectedMethod, deliveryType, deliveryAddress.trim(), checkoutAttempt.current.id, couponCode.trim()
+        items, selectedMethod, deliveryType, address, checkoutAttempt.current.id, couponCode.trim()
       );
       removeStoreFromCart(selectedStore);
       if (checkoutUrl) {
@@ -241,10 +263,32 @@ export function CartPage() {
                     <option value="shipping">Envio</option>
                   </select>
                   {(deliveryType === 'delivery' || deliveryType === 'shipping') && (
-                    <>
-                      <label htmlFor="delivery-address">Endereço de entrega</label>
-                      <textarea id="delivery-address" value={deliveryAddress} onChange={(event) => setDeliveryAddress(event.target.value)} maxLength={1000} disabled={loading} />
-                    </>
+                    <div className="checkout-saved-address">
+                      {!savedAddresses ? <p role="status">Consultando endereços da conta…</p> : (
+                        <>
+                          {savedAddresses.failed && <p role="status">Não foi possível carregar seus endereços. Você pode informar o endereço abaixo.</p>}
+                          {!!savedAddresses.entries.length && (
+                            <>
+                              <label htmlFor="checkout-saved-address">Endereço de entrega</label>
+                              <select id="checkout-saved-address" value={activeAddressId} disabled={loading}
+                                onChange={(event) => setSelectedAddressId(event.target.value)}>
+                                {savedAddresses.entries.map(({ id, address }, index) => (
+                                  <option key={id} value={id}>{index === 0 ? 'Padrão — ' : ''}{address.street}, {address.number}{address.complement && ' · ' + address.complement} · {address.city}/{address.state} · {address.cep}</option>
+                                ))}
+                                <option value="new">Usar outro endereço</option>
+                              </select>
+                            </>
+                          )}
+                          {activeAddressId === 'new' ? (
+                            <CheckoutAddress address={deliveryAddress} onChange={setDeliveryAddress} disabled={loading} />
+                          ) : activeAddress && (
+                            <p>{activeAddress.street}, {activeAddress.number}{activeAddress.complement && ' · ' + activeAddress.complement}
+                              {activeAddress.neighborhood && ' · ' + activeAddress.neighborhood}
+                              {' · ' + activeAddress.city + '/' + activeAddress.state + ' · CEP ' + activeAddress.cep}</p>
+                          )}
+                        </>
+                      )}
+                    </div>
                   )}
                   {selectedMethod === 'credit_card' && (
                     <p>{maxCardInstallments === 1 ? 'Cartão à vista.' : `Até ${maxCardInstallments}× no cartão.`}</p>
@@ -270,7 +314,7 @@ export function CartPage() {
               ) : userType === 'customer' ? (
                 <button
                   onClick={handleCheckout}
-                  disabled={loading || !available?.methods.length}
+                  disabled={loading || !available?.methods.length || (deliveryType !== 'pickup' && !!deliveryType && !savedAddresses)}
                   className="btn-checkout"
                 >
                   {loading ? 'Processando...' : storeCount > 1 ? 'Pagar esta loja' : '✓ Finalizar Compra'}
