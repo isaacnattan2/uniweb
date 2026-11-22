@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { checkoutIdPattern, checkoutUrl, createAsaasCheckout, getAsaasConfig } from '../services/AsaasCheckout';
+import { checkoutIdPattern, checkoutUrl, createAsaasCheckout, getAsaasConfig, getAsaasInstallmentCount } from '../services/AsaasCheckout';
 import { v4 as uuidv4 } from 'uuid';
 import { Response } from 'express';
 import { PoolClient } from 'pg';
@@ -249,7 +249,7 @@ export class OrderController {
 
       const result = await query(
         `SELECT o.id, o.total AS total_amount, o.order_status AS status, o.created_at,
-                o.payment_method, o.payment_status, o.delivery_type, o.delivery_address, c.provider_id,
+                o.payment_method, o.payment_status, o.delivery_type, o.delivery_address, c.provider_id, c.installment_count,
                 COALESCE(json_agg(
                   json_build_object('productId', oi.product_id, 'quantity', oi.quantity, 'unitPrice', oi.product_price, 'productName', oi.product_name)
                 ) FILTER (WHERE oi.id IS NOT NULL), '[]'::json) AS items
@@ -257,7 +257,7 @@ export class OrderController {
          LEFT JOIN order_items oi ON o.id = oi.order_id
          LEFT JOIN asaas_checkouts c ON c.id = o.asaas_checkout_id
          WHERE o.id = $1 AND o.user_id = $2
-         GROUP BY o.id, o.total, o.order_status, o.created_at, o.payment_method, o.payment_status, o.delivery_type, o.delivery_address, c.provider_id`,
+         GROUP BY o.id, o.total, o.order_status, o.created_at, o.payment_method, o.payment_status, o.delivery_type, o.delivery_address, c.provider_id, c.installment_count`,
         [orderId, req.userId]
       );
 
@@ -266,6 +266,21 @@ export class OrderController {
       }
 
       const { provider_id, ...order } = result.rows[0];
+      if (provider_id && order.payment_method === 'credit_card' && order.payment_status === 'paid' &&
+          order.installment_count === null) {
+        try {
+          const count = await getAsaasInstallmentCount(provider_id);
+          if (count !== null) {
+            await query(
+              'UPDATE asaas_checkouts SET installment_count = $1 WHERE provider_id = $2 AND installment_count IS NULL',
+              [count, provider_id]
+            );
+            order.installment_count = count;
+          }
+        } catch {
+          console.warn('N?o foi poss?vel consultar o parcelamento do pedido no Asaas.');
+        }
+      }
       res.json({
         ...order,
         checkoutUrl: provider_id && order.payment_status === 'pending' ? checkoutUrl(provider_id) : null,

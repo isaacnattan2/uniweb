@@ -66,3 +66,38 @@ export async function createAsaasCheckout(
   }
   return data.id;
 }
+
+export async function getAsaasInstallmentCount(checkoutId: string): Promise<number | null> {
+  const key = process.env.ASAAS_API_KEY?.trim();
+  const apiUrl = process.env.ASAAS_API_URL || sandboxApi;
+  if (!key || apiUrl !== sandboxApi) return null;
+
+  const signal = AbortSignal.timeout(4000);
+  const headers = { access_token: key, 'User-Agent': 'Uniweb' };
+  type CardPayment = { checkoutSession?: string; installment?: string | null };
+  async function listPayments(params: URLSearchParams) {
+    params.set('billingType', 'CREDIT_CARD');
+    const response = await fetch(apiUrl + '/payments?' + params, { headers, signal });
+    if (!response.ok) throw new Error('Asaas payments lookup HTTP ' + response.status);
+    return await response.json() as { data?: CardPayment[]; hasMore?: boolean };
+  }
+
+  const filtered = await listPayments(new URLSearchParams({ checkoutSession: checkoutId, limit: '20' }));
+  let payment = filtered.data?.find((entry) => entry.checkoutSession === checkoutId);
+  // Sandbox can omit matching payments when the checkoutSession filter is present.
+  for (let offset = 0; !payment && offset < 300; offset += 100) {
+    const page = await listPayments(new URLSearchParams({ limit: '100', offset: String(offset) }));
+    payment = page.data?.find((entry) => entry.checkoutSession === checkoutId);
+    if (!page.hasMore) break;
+  }
+  if (!payment) return null;
+  if (!payment.installment) return 1;
+
+  const plan = await fetch(apiUrl + '/installments/' + encodeURIComponent(payment.installment) + '/payments', {
+    headers, signal,
+  });
+  if (!plan.ok) throw new Error('Asaas installment lookup HTTP ' + plan.status);
+  const { totalCount } = await plan.json() as { totalCount?: number };
+  return typeof totalCount === 'number' && Number.isInteger(totalCount) && totalCount >= 2 && totalCount <= 21
+    ? totalCount : null;
+}
