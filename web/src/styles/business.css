@@ -37,8 +37,97 @@
   color: #166534;
 }
 
+.store-order-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.store-order {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) minmax(0, 1.5fr);
+  align-items: center;
+  gap: 1rem;
+  border-top: 1px solid #e5e7eb;
+  padding-block: 1rem;
+}
+
+.store-order h3 {
+  font-size: 1rem;
+  margin: 0 0 0.25rem;
+  overflow-wrap: anywhere;
+}
+
+.store-order time,
+.store-order-state > span:not(.order-status) {
+  color: #4b5563;
+  font-size: 0.875rem;
+}
+
+.store-order-state {
+  display: grid;
+  justify-items: start;
+  gap: 0.25rem;
+}
+
+.store-order-actions,
+.store-order-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.store-order-actions button,
+.store-order-pagination button {
+  min-height: 44px;
+}
+
+.store-order-actions .store-order-cancel {
+  color: #991b1b;
+}
+
+@media (max-width: 720px) {
+  .store-order {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
+  }
+
+  .store-order-actions {
+    justify-content: flex-start;
+  }
+}
+
 .business-edit-actions {
   max-width: 440px;
+}
+
+.business-edit-form {
+  max-width: 760px;
+}
+
+.business-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 1rem;
+}
+
+.business-edit-grid input,
+.business-edit-grid select,
+.business-edit-form .checkout-address input,
+.business-edit-form .checkout-address select,
+.business-edit-form .checkout-cep-row button {
+  min-height: 44px;
+}
+
+.business-address-clear {
+  margin-block-start: 0.75rem;
+}
+
+@media (max-width: 520px) {
+  .business-edit-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .business-info p {

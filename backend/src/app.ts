@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import path from 'path';
 import { errorHandler } from './middleware/auth';
+import cartRoutes from './routes/cart.routes';
 import authRoutes from './routes/auth.routes';
 import businessRoutes from './routes/business.routes';
 import productRoutes from './routes/product.routes';
@@ -30,6 +31,7 @@ app.use('/api/businesses', businessRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/shop', shopRoutes);
 app.use('/api/orders', orderRoutes);
+app.use('/api/cart', cartRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/admin', adminRoutes);
 

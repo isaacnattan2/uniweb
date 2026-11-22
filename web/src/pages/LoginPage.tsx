@@ -24,7 +24,7 @@ export function LoginPage() {
       const from = location.state?.from;
       const customerDestination = typeof from === 'string' && (from === '/cart' || /^\/store\/[\da-f-]{36}(?:\?product=[\da-f-]{36})?$/i.test(from)) ? from : '/shop';
       navigate(user.user_type === 'admin' ? '/admin' : user.user_type === 'business' ? '/dashboard' :
-        customerDestination, { replace: true });
+        user.user_type === 'driver' ? '/driver' : customerDestination, { replace: true });
     } catch (err: any) {
       setError(err.response?.data?.error || 'Não foi possível entrar. Verifique seus dados e tente novamente.');
     } finally {
@@ -36,7 +36,7 @@ export function LoginPage() {
     <div className="auth-container">
       <div className="auth-box">
         <h1>🛍️ Entrar na Uniweb</h1>
-        <p>Acesso de clientes, lojistas e administradores</p>
+        <p>Acesso de clientes, lojistas, entregadores e administradores</p>
         
         <form onSubmit={handleLogin}>
           {error && <div className="error-message">{error}</div>}
@@ -70,6 +70,7 @@ export function LoginPage() {
           </button>
         </form>
 
+        <p className="register-link"><Link to="/register/driver">Cadastrar como entregador</Link></p>
         <p className="register-link">
           Não tem conta? <Link to="/register" state={location.state}>Criar conta</Link>
         </p>

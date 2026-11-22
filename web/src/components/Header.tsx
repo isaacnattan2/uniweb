@@ -10,14 +10,14 @@ export function Header() {
   const cartItems = useCartStore((state) => state.items);
   const [search, setSearch] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
-  const isAuthPage = location.pathname === '/login' || location.pathname === '/register';
+  const isAuthPage = location.pathname === '/login' || location.pathname === '/register' || location.pathname === '/register/driver';
   const isShopper = !token || userType === 'customer';
   const profileLabel = userType === 'admin' ? 'Admin' :
     userType === 'business' ? 'Lojista' :
     userType === 'customer' ? 'Cliente' :
     userType === 'driver' ? 'Entregador' : null;
   const homePath = token && userType === 'admin' ? '/admin' :
-    token && userType === 'business' ? '/dashboard' : '/shop';
+    token && userType === 'business' ? '/dashboard' : token && userType === 'driver' ? '/driver' : '/shop';
 
   useEffect(() => {
     if (location.pathname === '/shop') {
@@ -85,6 +85,7 @@ export function Header() {
                 <Link to="/admin#transferir-loja" className="nav-link">Transferir loja</Link>
               </>
             )}
+            {token && userType === 'driver' && <Link to="/driver" className="nav-link">Meu cadastro</Link>}
             {token && userType === 'business' && <Link to="/dashboard" className="nav-link">Minhas Lojas</Link>}
           </nav>}
 

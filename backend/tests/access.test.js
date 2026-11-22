@@ -5,13 +5,14 @@ const database = require('../dist/config/database');
 const app = require('../dist/app').default;
 const { generateToken } = require('../dist/config/jwt');
 
-test('admin and sellers can manage only their permitted stores', async (t) => {
+test('restricts store management and available deliveries by account role', async (t) => {
   const ids = {
     admin: '00000000-0000-4000-8000-000000000001',
     seller1: '00000000-0000-4000-8000-000000000002',
     seller2: '00000000-0000-4000-8000-000000000003',
     customer: '00000000-0000-4000-8000-000000000004',
     store: '00000000-0000-4000-8000-000000000005',
+    driver: '00000000-0000-4000-8000-000000000007',
     product: '00000000-0000-4000-8000-000000000006',
   };
   const users = {
@@ -19,6 +20,7 @@ test('admin and sellers can manage only their permitted stores', async (t) => {
     [ids.seller1]: 'business',
     [ids.seller2]: 'business',
     [ids.customer]: 'customer',
+    [ids.driver]: 'driver',
   };
   const passwordHash = await bcrypt.hash('test-password', 4);
   let owner = ids.seller1;
@@ -70,6 +72,13 @@ test('admin and sellers can manage only their permitted stores', async (t) => {
       createdStore = { id: params[0], owner_id: params[1], name: params[2] };
       return { rows: [createdStore] };
     }
+    if (sql.includes('AS destination_area')) {
+      assert.deepEqual(params, [2, 0]);
+      assert.match(sql, /payment_status = 'paid'/);
+      assert.match(sql, /delivery_driver_id IS NULL/);
+      const item = { id: ids.product, order_number: '123', store_id: ids.store, store_name: 'Loja', delivery_fee: null };
+      return { rows: [item, item] };
+    }
     throw new Error(`Unexpected query: ${sql}`);
   };
   t.after(async () => {
@@ -87,6 +96,17 @@ test('admin and sellers can manage only their permitted stores', async (t) => {
     const result = await fetch(base + url, { method, headers, body: body && JSON.stringify(body) });
     return { status: result.status, body: await result.json() };
   }
+
+  const available = '/api/orders/available-deliveries';
+  assert.equal((await request(available)).status, 401);
+  assert.equal((await request(available, ids.customer)).status, 403);
+  assert.equal((await request(available + '?limit=51', ids.driver)).status, 400);
+  const deliveries = await request(available + '?limit=1', ids.driver);
+  assert.equal(deliveries.status, 200);
+  assert.equal(deliveries.body.items.length, 1);
+  assert.equal(deliveries.body.items[0].orderId, ids.product);
+  assert.equal(deliveries.body.items[0].deliveryFee, null);
+  assert.equal(deliveries.body.nextOffset, 1);
 
   const login = await request('/api/auth/login', null, 'POST', { email: 'seller@example.test', password: 'test-password' });
   assert.equal(login.body.user.user_type, 'business');

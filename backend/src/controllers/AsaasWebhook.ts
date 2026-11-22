@@ -27,8 +27,9 @@ export async function asaasWebhook(req: Request, res: Response) {
       const id = session.rows[0].id;
       if (paid) {
         await client.query(
-          `UPDATE orders SET payment_status = 'paid', order_status = 'confirmed'
-           WHERE asaas_checkout_id = $1 AND payment_status = 'pending' AND order_status = 'pending'`, [id]
+          `UPDATE orders SET payment_status = 'paid',
+             order_status = CASE WHEN order_status = 'pending' THEN 'confirmed' ELSE order_status END
+           WHERE asaas_checkout_id = $1 AND payment_status = 'pending' AND order_status IN ('pending', 'cancelled')`, [id]
         );
       } else {
         await client.query(
@@ -41,6 +42,10 @@ export async function asaasWebhook(req: Request, res: Response) {
              JOIN cancelled c ON c.id = i.order_id GROUP BY i.product_id
            )
            UPDATE products p SET stock = p.stock + r.units FROM restock r WHERE p.id = r.product_id`, [id]
+        );
+        await client.query(
+          `UPDATE orders SET payment_status = 'failed' WHERE asaas_checkout_id = $1
+           AND payment_status = 'pending' AND order_status = 'cancelled'`, [id]
         );
       }
     }

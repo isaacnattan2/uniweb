@@ -2,12 +2,14 @@ import { Router } from 'express';
 import { upload } from '../services/UploadService';
 import { getCustomerProfile, listCustomerAddresses, requireCustomer, saveCustomerAddress, updateCustomerProfile, uploadCustomerAvatar } from '../controllers/CustomerAccount';
 import { lookupPostalCode } from '../services/DeliveryAddress';
+import { getDriverRegistration, registerDriver } from '../controllers/DriverRegistration';
 import AuthController from '../controllers/AuthController';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 
 const router = Router();
 
 router.post('/register', (req, res) => AuthController.register(req, res));
+router.post('/register/driver', (req, res, next) => registerDriver(req, res).catch(next));
 router.post('/login', (req, res) => AuthController.login(req, res));
 router.get('/me', authMiddleware, (req: AuthRequest, res) => {
   res.json({ id: req.userId, user_type: req.userType });
@@ -25,5 +27,7 @@ router.post('/me/avatar', authMiddleware, requireCustomer, (req, res, next) => {
 router.get('/me/addresses', authMiddleware, requireCustomer, (req, res, next) => listCustomerAddresses(req, res).catch(next));
 router.post('/me/addresses', authMiddleware, requireCustomer, (req, res, next) => saveCustomerAddress(req, res).catch(next));
 router.put('/me/addresses/:id', authMiddleware, requireCustomer, (req, res, next) => saveCustomerAddress(req, res).catch(next));
+
+router.get('/me/driver', authMiddleware, (req, res, next) => getDriverRegistration(req, res).catch(next));
 
 export default router;

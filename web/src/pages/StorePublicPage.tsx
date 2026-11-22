@@ -12,6 +12,7 @@ export function StorePublicPage() {
   const [params, setParams] = useSearchParams();
   const productId = params.get('product');
   const addToCart = useCartStore((state) => state.addToCart);
+  const cartError = useCartStore((state) => state.error);
   const [business, setBusiness] = useState<PublicBusiness | null>(null);
   const [products, setProducts] = useState<PublicProduct[]>([]);
   const [loading, setLoading] = useState(true);
@@ -75,9 +76,10 @@ export function StorePublicPage() {
     };
   }, [selectedProductId, setParams]);
 
-  function handleAddToCart(product: PublicProduct) {
+  async function handleAddToCart(product: PublicProduct) {
     if (!businessId || !business) return;
-    addToCart({
+    setAddedName('');
+    const added = await addToCart({
       productId: product.id,
       name: product.name,
       price: Number(product.price),
@@ -85,7 +87,8 @@ export function StorePublicPage() {
       businessName: business.name,
       quantity: 1,
     });
-    setAddedName(product.name);
+    if (added) setAddedName(product.name);
+    return added;
   }
 
   if (loading) return <div className="container"><p>Carregando loja...</p></div>;
@@ -105,11 +108,13 @@ export function StorePublicPage() {
             </div>
           </div>
         </div>
+        {cartError && !selectedProduct && <p className="error-message" role="alert">{cartError}</p>}
         {addedName && <p className="store-notice" role="status">{addedName} adicionado ao carrinho. <Link to="/cart">Ver carrinho</Link></p>}
         {productId && !selectedProduct && <p role="alert">Produto não encontrado nesta loja. <Link to={`/store/${businessId}`}>Ver produtos da loja</Link></p>}
         <div className="store-description">
           <h2>Sobre a loja</h2>
           <p>{business.description}</p>
+          {business.address && <p><strong>Endereço:</strong> {business.address}</p>}
           <RatingControl key={business.id} kind="business" id={business.id}
             onRated={(summary) => setBusiness((current) => current?.id === business.id ? { ...current, ...summary } : current)} />
         </div>
@@ -149,7 +154,8 @@ export function StorePublicPage() {
                 <p><RatingLabel {...selectedProduct} /></p>
                 <p className="product-price-large">R$ {Number(selectedProduct.price).toFixed(2)}</p>
                 <p className="product-stock">{selectedProduct.stock > 0 ? `${selectedProduct.stock} em estoque` : 'Fora de estoque'}</p>
-                <button onClick={() => { handleAddToCart(selectedProduct); setParams({}, { replace: true }); }} disabled={selectedProduct.stock <= 0} className="btn-primary btn-large">+ Adicionar ao carrinho</button>
+                {cartError && <p className="error-message" role="alert">{cartError}</p>}
+                <button onClick={async () => { if (await handleAddToCart(selectedProduct)) setParams({}, { replace: true }); }} disabled={selectedProduct.stock <= 0} className="btn-primary btn-large">+ Adicionar ao carrinho</button>
               </div>
             </div>
             <div className="product-review-section">

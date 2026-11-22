@@ -1,0 +1,5 @@
+ALTER TABLE deliveries
+  ADD COLUMN IF NOT EXISTS tracking_latitude DOUBLE PRECISION,
+  ADD COLUMN IF NOT EXISTS tracking_longitude DOUBLE PRECISION,
+  ADD COLUMN IF NOT EXISTS tracking_updated_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS tracking_route_requested_at TIMESTAMPTZ;

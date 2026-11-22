@@ -302,6 +302,13 @@ uniweb/
 
 ---
 
+## Acompanhamento de entregas
+
+Configure `GOOGLE_ROUTES_API_KEY` em `backend/.env` com acesso à Routes API.
+Configure `VITE_GOOGLE_MAPS_WEB_KEY` em `web/.env` com acesso à Maps JavaScript API e restrição aos domínios do Uniweb.
+Aplique `backend/migrations/add_delivery_tracking.sql` e reinicie o backend e o Vite.
+O botão **Entrega em tempo real** aparece nos pedidos em andamento e consulta a última posição publicada pelo UniEntregador.
+
 ## 🔧 Troubleshooting
 
 | Problema | Solução |

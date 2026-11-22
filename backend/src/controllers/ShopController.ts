@@ -89,7 +89,7 @@ export class ShopController {
     try {
       const { businessId } = req.params;
       const result = await query(
-        `SELECT b.id, b.name, b.description, b.category, COALESCE(c.label, b.category) AS category_label, b.logo_url, b.rating, b.rating_count, b.status, b.payment_methods, b.max_card_installments
+        `SELECT b.id, b.name, b.description, b.category, COALESCE(c.label, b.category) AS category_label, b.logo_url, b.rating, b.rating_count, b.status, b.address, b.payment_methods, b.max_card_installments
          FROM businesses b JOIN users u ON u.id = b.owner_id
          LEFT JOIN marketplace_categories c ON c.kind = 'business' AND c.value = LOWER(TRIM(b.category))
          WHERE b.deleted_at IS NULL AND b.id = $1 AND b.status = 'active' AND u.status = 'active'`,

@@ -116,6 +116,7 @@ export function RegisterPage() {
           </button>
         </form>
 
+        <p className="register-link"><Link to="/register/driver">Cadastrar como entregador</Link></p>
         <p className="register-link">
           Já tem conta? <Link to="/login" state={location.state}>Fazer login</Link>
         </p>

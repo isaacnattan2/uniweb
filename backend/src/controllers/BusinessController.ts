@@ -59,7 +59,7 @@ export class BusinessController {
       if (!req.userId || (req.userType !== 'admin' && req.userType !== 'business')) {
         return res.status(403).json({ error: 'Sem acesso a esta loja' });
       }
-      const allowed = ['name', 'description', 'category', 'payment_methods', 'max_card_installments'];
+      const allowed = ['name', 'description', 'category', 'address', 'payment_methods', 'max_card_installments'];
       if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
         return res.status(400).json({ error: 'Campos de loja inválidos' });
       }
@@ -85,6 +85,13 @@ export class BusinessController {
           return res.status(400).json({ error: 'Descrição inválida' });
         }
         data.description = typeof req.body.description === 'string' ? req.body.description.trim() : null;
+      }
+      if ('address' in req.body) {
+        const address = req.body.address;
+        if (address !== null && (typeof address !== 'string' || address.trim().length > 300)) {
+          return res.status(400).json({ error: 'O endereço da loja deve ter até 300 caracteres.' });
+        }
+        data.address = address?.trim() || null;
       }
       if ('payment_methods' in req.body) {
         const methods = req.body.payment_methods;

@@ -15,6 +15,7 @@ export function ShopPage() {
   const [categoryError, setCategoryError] = useState(false);
   const query = (params.get('q') || '').trim();
   const addToCart = useCartStore((state) => state.addToCart);
+  const cartError = useCartStore((state) => state.error);
   const [businesses, setBusinesses] = useState<PublicBusiness[]>([]);
   const [products, setProducts] = useState<PublicProduct[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,8 +67,9 @@ export function ShopPage() {
     return () => { active = false; };
   }, [query, category]);
 
-  function handleAddToCart(product: PublicProduct) {
-    addToCart({
+  async function handleAddToCart(product: PublicProduct) {
+    setAddedName('');
+    const added = await addToCart({
       productId: product.id,
       name: product.name,
       price: Number(product.price),
@@ -75,7 +77,7 @@ export function ShopPage() {
       businessName: product.business_name || 'Loja',
       quantity: 1,
     });
-    setAddedName(product.name);
+    if (added) setAddedName(product.name);
   }
 
   return (
@@ -86,6 +88,7 @@ export function ShopPage() {
       </div>
       <div className="container">
         {!query && <ShopCarousel ads={ads} />}
+        {cartError && <p className="error-message" role="alert">{cartError}</p>}
         {addedName && <p className="shop-notice" role="status">{addedName} adicionado ao carrinho. <Link to="/cart">Ver carrinho</Link></p>}
         <select className="shop-category-filter" aria-label="Categoria dos produtos" value={category}
           disabled={categoryError && !category}

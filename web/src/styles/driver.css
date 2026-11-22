@@ -1,0 +1,61 @@
+.driver-register.auth-box {
+  max-width: 680px;
+}
+
+.driver-register fieldset {
+  min-width: 0;
+  padding: 0;
+  margin: 0 0 1rem;
+  border: 0;
+}
+
+.driver-register legend {
+  margin-block-end: 0.75rem;
+  font-weight: 600;
+}
+
+.driver-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+  gap: 0 1rem;
+}
+
+.driver-register select {
+  width: 100%;
+  min-height: 2.65rem;
+  padding: 0.6rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: white;
+  font: inherit;
+}
+
+.driver-page {
+  padding-block: 2rem;
+}
+
+.driver-page h1 {
+  margin-bottom: 1.25rem;
+}
+
+.driver-page .driver-fields {
+  gap: 1rem;
+}
+
+.driver-card {
+  min-width: 0;
+  padding: 1.25rem;
+  border: 1px solid #dce2ea;
+  border-radius: 12px;
+  background: white;
+}
+
+.driver-card dt {
+  margin-top: 0.6rem;
+  font-weight: 600;
+}
+
+.driver-card dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}

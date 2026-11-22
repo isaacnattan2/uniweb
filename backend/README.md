@@ -71,3 +71,11 @@ npm start
 4. Reinicie o backend e finalize uma compra fictícia. Use os cartões de teste do Sandbox. O pedido aparece como pago após o webhook, e uma sessão cancelada ou expirada devolve os itens ao estoque.
 
 O checkout hospedado aceita Pix e cartão em até 3 parcelas sem juros. Um carrinho com várias lojas gera um pedido por loja e uma cobrança única na conta Asaas configurada. Os repasses aos lojistas precisam de uma integração de split.
+
+## Entregas disponíveis para o UniEntregador
+
+`GET /api/orders/available-deliveries?limit=20&offset=0`
+
+Envie `Authorization: Bearer <token do entregador>` com o JWT do login Uniweb. A consulta lista pedidos pagos para entrega local, com entrega pendente e sem entregador atribuído, do mais antigo ao mais recente. `limit` aceita de 1 a 50 registros.
+
+O retorno contém `items` e `nextOffset` (nulo na última página). Cada item contém `orderId`, `orderNumber`, `createdAt`, `pickup` com os dados da loja, `destinationArea` com cidade/UF quando disponível, e `deliveryFee` com a taxa de entrega registrada, como decimal em reais ou `null` quando ainda não definida. O endereço completo do cliente fica fora da listagem.

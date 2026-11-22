@@ -43,6 +43,8 @@
 
 .order-header {
   display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 20px;
@@ -67,7 +69,7 @@
   border-radius: 20px;
   font-weight: bold;
   font-size: 0.9em;
-  white-space: nowrap;
+  text-align: center;
 }
 
 .order-status.status-pending {
@@ -80,19 +82,53 @@
   color: #155724;
 }
 
-.order-status.status-processing {
+.order-status.status-processing,
+.order-status.status-delivery_in_progress {
   background: #d1ecf1;
   color: #0c5460;
 }
 
-.order-status.status-completed {
+.order-status.status-completed,
+.order-status.status-delivery_completed {
   background: #d4edda;
   color: #155724;
 }
 
-.order-status.status-cancelled {
+.order-status.status-cancelled,
+.order-status.status-delivery_driver_cancelled {
   background: #f8d7da;
   color: #721c24;
+}
+
+.order-confirmation-code {
+  margin-block: 1rem;
+  padding: 0.875rem 1rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.order-code-digits {
+  display: block;
+  margin-block: 0.25rem;
+  font-size: 1.75rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.2em;
+}
+
+.order-tracking {
+  margin-block: 1rem;
+}
+
+.live-delivery {
+  margin-top: 0.75rem;
+}
+
+.live-delivery-map {
+  width: 100%;
+  height: clamp(250px, 50vw, 380px);
+  border-radius: 8px;
+  background: #eaf2ff;
 }
 
 .order-items {

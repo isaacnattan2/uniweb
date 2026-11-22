@@ -14,7 +14,7 @@ export function ProtectedRoute({ children, roles }: ProtectedRouteProps) {
     return <Navigate to="/login" replace />;
   }
   if (roles && (!userType || !roles.includes(userType))) {
-    return <Navigate to={userType === 'admin' ? '/admin' : userType === 'business' ? '/dashboard' : '/shop'} replace />;
+    return <Navigate to={userType === 'admin' ? '/admin' : userType === 'business' ? '/dashboard' : userType === 'driver' ? '/driver' : '/shop'} replace />;
   }
 
   return <>{children}</>;

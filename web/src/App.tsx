@@ -4,6 +4,7 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { Header } from './components/Header';
 import { SessionGate } from './components/SessionGate';
 import { LoginPage } from './pages/LoginPage';
+import { DriverPage, DriverRegisterPage } from './pages/DriverRegisterPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { AdminPage } from './pages/AdminPage';
@@ -27,6 +28,8 @@ function App() {
         <Route path="/" element={<Navigate to="/shop" replace />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/register/driver" element={<DriverRegisterPage />} />
+        <Route path="/driver" element={<ProtectedRoute roles={['driver']}><DriverPage /></ProtectedRoute>} />
         <Route path="/shop" element={<ShopPage />} />
         <Route path="/store/:businessId" element={<StorePublicPage />} />
         <Route path="/cart" element={<CartPage />} />

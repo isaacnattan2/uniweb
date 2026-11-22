@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { getMyOrders, getOrder } from '../services/api';
 import { useCartStore } from '../context/store';
+import { OrderStatus } from '../components/OrderStatus';
+import { LiveDelivery } from '../components/LiveDelivery';
 import '../styles/orders.css';
 
 const paymentLabels: Record<string, string> = { pix: 'Pix', credit_card: 'Cartão de crédito', debit_card: 'Cartão de débito', wallet: 'Carteira' };
@@ -17,24 +19,43 @@ export function OrdersPage() {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [trackingOrder, setTrackingOrder] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
-    async function loadOrders() {
+    let requesting = false;
+    async function loadOrders(initial = false) {
+      if (requesting) return;
+      requesting = true;
       try {
-        setLoading(true);
-        setError('');
+        if (initial) {
+          setLoading(true);
+          setError('');
+        }
         const data = orderId ? [await getOrder(orderId)] : await getMyOrders();
-        if (active) setOrders(data);
+        if (active) {
+          setOrders(data);
+          setError('');
+        }
       } catch (err: any) {
-        if (active) setError(err.response?.data?.error || 'Erro ao carregar pedidos');
+        if (active && initial) setError(err.response?.data?.error || 'Erro ao carregar pedidos');
       } finally {
-        if (active) setLoading(false);
+        requesting = false;
+        if (active && initial) setLoading(false);
       }
     }
 
-    loadOrders();
-    return () => { active = false; };
+    function refreshVisibleOrders() {
+      if (document.visibilityState === 'visible') void loadOrders();
+    }
+    void loadOrders(true);
+    const interval = window.setInterval(refreshVisibleOrders, 15000);
+    document.addEventListener('visibilitychange', refreshVisibleOrders);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', refreshVisibleOrders);
+    };
   }, [orderId]);
 
   if (loading) {
@@ -70,16 +91,13 @@ export function OrdersPage() {
                   <div>
                     <h3>Pedido #{order.id.substring(0, 8).toUpperCase()}</h3>
                     <p className="order-date">
-                      {new Date(order.created_at).toLocaleDateString('pt-BR')}
+                      {orderId && 'Pedido realizado em '}
+                      {new Date(order.created_at).toLocaleString('pt-BR', {
+                        dateStyle: 'short', timeStyle: 'short',
+                      })}
                     </p>
                   </div>
-                  <div className={`order-status status-${order.status}`}>
-                    {order.status === 'pending' && '⏳ Pendente'}
-                    {order.status === 'confirmed' && '✅ Confirmado'}
-                    {order.status === 'processing' && '🔄 Processando'}
-                    {order.status === 'completed' && '✓ Entregue'}
-                    {order.status === 'cancelled' && '❌ Cancelado'}
-                  </div>
+                  <OrderStatus order={order} />
                 </div>
 
                 <div className="order-items">
@@ -102,6 +120,25 @@ export function OrdersPage() {
                     )}
                     <p><strong>Entrega:</strong> {deliveryLabels[order.delivery_type] || order.delivery_type}</p>
                     {order.delivery_address && <p><strong>Endereço:</strong> {order.delivery_address}</p>}
+                    {order.delivery_confirmation_code && (
+                      <div className="order-confirmation-code">
+                        <p><strong>Código de entrega</strong></p>
+                        <strong className="order-code-digits">{order.delivery_confirmation_code}</strong>
+                        <p>Informe este código ao entregador somente ao receber seu pedido.</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {order.delivery_type === 'delivery' && order.status !== 'cancelled' &&
+                  ['processing', 'in_transit'].includes(order.delivery_status) && (
+                  <div className="order-tracking">
+                    <button type="button" className="btn-secondary"
+                      aria-expanded={trackingOrder === order.id} aria-controls={'tracking-' + order.id}
+                      onClick={() => setTrackingOrder((current) => current === order.id ? null : order.id)}>
+                      {trackingOrder === order.id ? 'Fechar acompanhamento' : 'Entrega em tempo real'}
+                    </button>
+                    {trackingOrder === order.id && <LiveDelivery key={order.id} orderId={order.id} panelId={'tracking-' + order.id} />}
                   </div>
                 )}
 

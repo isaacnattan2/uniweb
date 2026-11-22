@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
-import type { Business, StorePaymentMethod, UserType } from '../context/store';
+import type { Business, CartItem, StorePaymentMethod, UserType } from '../context/store';
 
 export interface Seller {
   id: string;
@@ -46,6 +46,7 @@ export interface PublicProduct extends RatingSummary {
 }
 
 export interface PublicBusiness extends RatingSummary {
+  address?: string | null;
   payment_methods?: StorePaymentMethod[];
   max_card_installments?: number;
   id: string;
@@ -56,6 +57,31 @@ export interface PublicBusiness extends RatingSummary {
 }
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+
+export interface StoreOrder {
+  id: string;
+  order_number: string;
+  created_at: string | null;
+  total: string;
+  status: string;
+  payment_status: string;
+  delivery_type: string;
+  delivery_status: string | null;
+  delivery_assigned: boolean;
+}
+
+export type StoreOrderAction = 'requeue' | 'cancel';
+
+export async function getStoreOrders(businessId: string, offset: number, signal: AbortSignal) {
+  const response = await api.get<{ items: StoreOrder[]; nextOffset: number | null }>(
+    `/businesses/${businessId}/orders`, { params: { offset }, signal }
+  );
+  return response.data;
+}
+
+export async function updateStoreOrder(businessId: string, orderId: string, action: StoreOrderAction) {
+  await api.patch(`/businesses/${businessId}/orders/${orderId}`, { action });
+}
 
 export function resolveAssetUrl(url: string): string {
   if (!url) return '';
@@ -75,7 +101,7 @@ const api: AxiosInstance = axios.create({
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
-  if (token) {
+  if (token && !config.headers.Authorization) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
@@ -141,7 +167,7 @@ export async function getBusiness(id: string): Promise<Business> {
   return response.data;
 }
 
-export async function updateBusiness(id: string, data: { name: string; category: string; description: string } | { payment_methods: StorePaymentMethod[]; max_card_installments: number }): Promise<Business> {
+export async function updateBusiness(id: string, data: { name: string; category: string; description: string; address?: string | null } | { payment_methods: StorePaymentMethod[]; max_card_installments: number }): Promise<Business> {
   const response = await api.put(`/businesses/${id}`, data);
   return response.data;
 }
@@ -289,6 +315,19 @@ export async function getOrder(orderId: string) {
   return response.data;
 }
 
+export interface TrackedPosition {
+  latitude: number;
+  longitude: number;
+  updatedAt: string;
+}
+
+export async function getDeliveryTracking(orderId: string, signal: AbortSignal) {
+  const response = await api.get<{ active: boolean; position: TrackedPosition | null }>(
+    `/orders/${encodeURIComponent(orderId)}/tracking`, { signal, timeout: 7000 }
+  );
+  return response.data;
+}
+
 // Upload
 export async function uploadImages(files: File[]) {
   const formData = new FormData();
@@ -393,4 +432,52 @@ export async function saveCustomerAvatar(file: File): Promise<{ avatar_url: stri
 export async function saveCustomerAddress(address: DeliveryAddress, id?: string): Promise<SavedDeliveryAddress> {
   const path = '/auth/me/addresses';
   return (id ? await api.put(path + '/' + id, address) : await api.post(path, address)).data;
+}
+
+export type CustomerCartAction =
+  | { action: 'add' | 'set'; productId: string; quantity: number }
+  | { action: 'remove'; productId: string }
+  | { action: 'merge'; items: Array<{ productId: string; quantity: number }> };
+
+export async function getCustomerCart(token: string): Promise<CartItem[]> {
+  return (await api.get('/cart', { headers: { Authorization: 'Bearer ' + token } })).data;
+}
+
+export async function changeCustomerCart(token: string, change: CustomerCartAction): Promise<CartItem[]> {
+  return (await api.post('/cart', change, { headers: { Authorization: 'Bearer ' + token } })).data;
+}
+
+export interface DriverRegistrationInput {
+  fullName: string;
+  email: string;
+  phone: string;
+  cpf: string;
+  password: string;
+  vehicleType: string;
+  manufacturer: string;
+  brand: string;
+  color: string;
+  plate: string;
+}
+
+export interface DriverRegistration {
+  full_name: string;
+  email: string;
+  phone: string;
+  vehicle_type: string;
+  vehicle_manufacturer: string | null;
+  vehicle_brand: string | null;
+  vehicle_color: string | null;
+  vehicle_plate: string | null;
+}
+
+export async function registerDriver(data: DriverRegistrationInput): Promise<{
+  user: { id: string; user_type: 'driver' };
+  token: string;
+}> {
+  return (await api.post('/auth/register/driver', data)).data;
+}
+
+export async function getDriverRegistration(signal: AbortSignal): Promise<DriverRegistration> {
+  return (await api.get('/auth/me/driver', { signal })).data;
 }

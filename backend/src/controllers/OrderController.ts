@@ -5,6 +5,7 @@ import { Response } from 'express';
 import { PoolClient } from 'pg';
 import { AuthRequest } from '../middleware/auth';
 import { formatDeliveryAddress, normalizeDeliveryAddress } from '../services/DeliveryAddress';
+import { lockCart } from '../services/CustomerCart';
 import { getClient, query } from '../config/database';
 import { applyCoupon, Coupon, CouponError, normalizeCouponCode } from '../services/StoreCoupons';
 
@@ -127,6 +128,7 @@ export class OrderController {
           });
         }
       }
+      if (config) await lockCart(client, req.userId);
       const result = await client.query<CheckoutProduct>(
         `SELECT p.id, p.business_id, p.name, p.price, p.stock, p.category, b.payment_methods, b.max_card_installments
          FROM products p
@@ -245,6 +247,17 @@ export class OrderController {
           [checkoutId, req.userId, requestHash, providerId]
         );
         await client.query('UPDATE orders SET asaas_checkout_id = $1 WHERE id = ANY($2::uuid[])', [checkoutId, orderIds]);
+        await client.query(
+          `WITH purchased AS (
+             SELECT * FROM UNNEST($2::uuid[], $3::int[]) AS items(product_id, quantity)
+           ), removed AS (
+             DELETE FROM customer_cart_items c USING purchased p
+             WHERE c.user_id = $1 AND c.product_id = p.product_id AND c.quantity <= p.quantity
+           )
+           UPDATE customer_cart_items c SET quantity = c.quantity - p.quantity FROM purchased p
+           WHERE c.user_id = $1 AND c.product_id = p.product_id AND c.quantity > p.quantity`,
+          [req.userId, [...itemById.keys()], [...itemById.values()].map((item) => item.quantity)]
+        );
         paymentUrl = checkoutUrl(providerId);
       }
       await client.query('COMMIT');
@@ -278,6 +291,7 @@ export class OrderController {
 
       const result = await query(
         `SELECT o.id, o.total AS total_amount, o.order_status AS status, o.created_at, o.payment_status,
+                o.delivery_type, o.delivery_status, (o.delivery_driver_id IS NOT NULL) AS delivery_assigned,
                 COALESCE(json_agg(
                   json_build_object('productId', oi.product_id, 'quantity', oi.quantity, 'unitPrice', oi.product_price, 'productName', oi.product_name)
                 ) FILTER (WHERE oi.id IS NOT NULL), '[]'::json) AS items
@@ -306,6 +320,10 @@ export class OrderController {
       const result = await query(
         `SELECT o.id, o.total AS total_amount, o.order_status AS status, o.created_at,
                 o.payment_method, o.payment_status, o.delivery_type, o.delivery_address, o.subtotal, o.discount, o.coupon_code,
+                o.delivery_status, (o.delivery_driver_id IS NOT NULL) AS delivery_assigned,
+                CASE WHEN o.delivery_type = 'delivery' AND o.payment_status = 'paid'
+                  AND o.order_status IN ('confirmed', 'processing') AND o.delivery_status IN ('processing', 'in_transit')
+                  THEN o.delivery_confirmation_code END AS delivery_confirmation_code,
                 c.provider_id, c.installment_count,
                 COALESCE(json_agg(
                   json_build_object('productId', oi.product_id, 'quantity', oi.quantity, 'unitPrice', oi.product_price, 'productName', oi.product_name)
@@ -338,9 +356,10 @@ export class OrderController {
           console.warn('N?o foi poss?vel consultar o parcelamento do pedido no Asaas.');
         }
       }
+      res.set('Cache-Control', 'no-store');
       res.json({
         ...order,
-        checkoutUrl: provider_id && order.payment_status === 'pending' ? checkoutUrl(provider_id) : null,
+        checkoutUrl: provider_id && order.payment_status === 'pending' && order.status === 'pending' ? checkoutUrl(provider_id) : null,
       });
     } catch (error: any) {
       res.status(500).json({ error: error.message });

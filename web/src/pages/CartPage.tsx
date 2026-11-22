@@ -13,14 +13,17 @@ export function CartPage() {
   const getTotal = useCartStore((state) => state.getTotal);
   const removeFromCart = useCartStore((state) => state.removeFromCart);
   const updateQuantity = useCartStore((state) => state.updateQuantity);
-  const removeStoreFromCart = useCartStore((state) => state.removeStoreFromCart);
+  const cartReady = useCartStore((state) => state.ready);
+  const cartSyncing = useCartStore((state) => state.syncing);
+  const cartError = useCartStore((state) => state.error);
+  const refreshCart = useCartStore((state) => state.refresh);
   const { userId, token, userType } = useAuthStore();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
   const [checkoutStore, setCheckoutStore] = useState('');
   const [couponCode, setCouponCode] = useState('');
-  const [availability, setAvailability] = useState<{ key: string; methods: StorePaymentMethod[]; maxCardInstallments?: number; failed?: boolean }>();
+  const [availability, setAvailability] = useState<{ key: string; methods: StorePaymentMethod[]; maxCardInstallments?: number; pickupAddress?: string | null; failed?: boolean }>();
   const [deliveryType, setDeliveryType] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState(emptyDeliveryAddress);
   const [addressBook, setAddressBook] = useState<{ userId: string; entries: SavedDeliveryAddress[]; failed?: boolean }>();
@@ -47,7 +50,7 @@ export function CartPage() {
     let active = true;
     getBusinessPublic(selectedStore).then((business) => {
       const methods = business.payment_methods ?? ['pix', 'credit_card'];
-      if (active) setAvailability({ key: selectedStore, methods, maxCardInstallments: business.max_card_installments });
+      if (active) setAvailability({ key: selectedStore, methods, maxCardInstallments: business.max_card_installments, pickupAddress: business.address });
     }).catch(() => {
       if (active) setAvailability({ key: selectedStore, methods: [], failed: true });
     });
@@ -69,7 +72,7 @@ export function CartPage() {
   }, [token, userId, userType]);
 
   async function handleCheckout() {
-    if (submitting.current) return;
+    if (submitting.current || useCartStore.getState().syncing > 0) return;
     if (!token || !userId) {
       navigate('/login', { state: { from: '/cart' } });
       return;
@@ -110,11 +113,12 @@ export function CartPage() {
       const { checkoutUrl } = await createOrder(
         items, selectedMethod, deliveryType, address, checkoutAttempt.current.id, couponCode.trim()
       );
-      removeStoreFromCart(selectedStore);
+      if (useAuthStore.getState().userId !== userId) return;
       if (checkoutUrl) {
         window.location.assign(checkoutUrl);
         return;
       }
+      await refreshCart();
       navigate('/orders');
     } catch (err: any) {
       setError(err.response?.data?.error || 'Erro ao criar pedido');
@@ -122,6 +126,16 @@ export function CartPage() {
       submitting.current = false;
       setLoading(false);
     }
+  }
+
+  if (!cartReady) {
+    return <div className="cart-page"><div className="container">
+      <h1>Meu carrinho</h1>
+      {cartError ? <>
+        <p className="error-message" role="alert">{cartError}</p>
+        <button type="button" className="btn-secondary" disabled={cartSyncing > 0} onClick={() => void refreshCart()}>Tentar novamente</button>
+      </> : <p role="status">Carregando seu carrinho…</p>}
+    </div></div>;
   }
 
   if (cart.length === 0) {
@@ -145,7 +159,7 @@ export function CartPage() {
       <div className="container">
         <h1>🛒 Meu Carrinho ({cart.length} itens)</h1>
 
-        {error && <div className="error-message" role="alert">{error}</div>}
+        {(error || cartError) && <div className="error-message" role="alert">{error || cartError}</div>}
 
         <div className="cart-content">
           <div className="cart-items">
@@ -168,27 +182,34 @@ export function CartPage() {
                     <td>R$ {Number(item.price).toFixed(2)}</td>
                     <td>
                       <div className="quantity-control">
-                        <button disabled={loading} aria-label={`Diminuir quantidade de ${item.name}`} onClick={() => updateQuantity(item.productId, item.quantity - 1)}>-</button>
+                        <button disabled={loading || cartSyncing > 0} aria-label={`Diminuir quantidade de ${item.name}`} onClick={() => updateQuantity(item.productId, item.quantity - 1)}>-</button>
                         <input
                           type="number"
                           min="1"
                           step="1"
-                          disabled={loading}
-                          value={item.quantity}
-                          onChange={(e) => {
-                            const quantity = Number(e.target.value);
-                            if (Number.isInteger(quantity) && quantity > 0) updateQuantity(item.productId, quantity);
+                          key={item.quantity}
+                          disabled={loading || cartSyncing > 0}
+                          defaultValue={item.quantity}
+                          onBlur={(event) => {
+                            const quantity = Number(event.currentTarget.value);
+                            if (Number.isInteger(quantity) && quantity > 0 && quantity !== item.quantity) {
+                              const input = event.currentTarget;
+                              void updateQuantity(item.productId, quantity).then((updated) => {
+                                if (!updated) input.value = String(item.quantity);
+                              });
+                            } else event.currentTarget.value = String(item.quantity);
                           }}
+                          onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }}
                           aria-label={`Quantidade de ${item.name}`}
                         />
-                        <button disabled={loading} aria-label={`Aumentar quantidade de ${item.name}`} onClick={() => updateQuantity(item.productId, item.quantity + 1)}>+</button>
+                        <button disabled={loading || cartSyncing > 0} aria-label={`Aumentar quantidade de ${item.name}`} onClick={() => updateQuantity(item.productId, item.quantity + 1)}>+</button>
                       </div>
                     </td>
                     <td>R$ {(item.price * item.quantity).toFixed(2)}</td>
                     <td>
                       <button
                         onClick={() => removeFromCart(item.productId)}
-                        disabled={loading}
+                        disabled={loading || cartSyncing > 0}
                         className="btn-remove"
                         aria-label={`Remover ${item.name}`}
                       >
@@ -262,6 +283,9 @@ export function CartPage() {
                     <option value="delivery">Entrega</option>
                     <option value="shipping">Envio</option>
                   </select>
+                  {deliveryType === 'pickup' && available?.pickupAddress && (
+                    <p><strong>Endereço para retirada:</strong> {available.pickupAddress}</p>
+                  )}
                   {(deliveryType === 'delivery' || deliveryType === 'shipping') && (
                     <div className="checkout-saved-address">
                       {!savedAddresses ? <p role="status">Consultando endereços da conta…</p> : (
@@ -314,7 +338,7 @@ export function CartPage() {
               ) : userType === 'customer' ? (
                 <button
                   onClick={handleCheckout}
-                  disabled={loading || !available?.methods.length || (deliveryType !== 'pickup' && !!deliveryType && !savedAddresses)}
+                  disabled={loading || cartSyncing > 0 || !available?.methods.length || (deliveryType !== 'pickup' && !!deliveryType && !savedAddresses)}
                   className="btn-checkout"
                 >
                   {loading ? 'Processando...' : storeCount > 1 ? 'Pagar esta loja' : '✓ Finalizar Compra'}

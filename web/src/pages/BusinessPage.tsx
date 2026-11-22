@@ -1,13 +1,24 @@
 import { CategoryOptions } from '../components/CategoryOptions';
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import { CheckoutAddress, emptyDeliveryAddress, isDeliveryAddressComplete } from '../components/CheckoutAddress';
+import type { DeliveryAddress } from '../services/api';
 import { StoreCoupons } from '../components/StoreCoupons';
+import { StoreOrders } from '../components/StoreOrders';
 import { StorePaymentSettings } from '../components/StorePaymentSettings';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getBusiness, getProductsByBusiness, updateBusiness } from '../services/api';
 import { useAuthStore, useBusinessStore, useProductStore } from '../context/store';
 import '../styles/business.css';
 import '../styles/product-form.css';
+
+function parseStoreAddress(value: string): DeliveryAddress | null {
+  const match = /^([^·]+), ([^,·]+)(?: · Complemento: ([^·]+))?(?: · Bairro: ([^·]+))? · ([^·]+)\/([A-Z]{2}) · CEP (\d{5}-\d{3})$/.exec(value);
+  if (!match) return null;
+  const [, street, number, complement = '', neighborhood = '', city, state, cep] = match;
+  const address = { street, number, complement, neighborhood, city, state, cep };
+  return isDeliveryAddressComplete(address) ? address : null;
+}
 
 export function BusinessPage() {
   const { businessId } = useParams<{ businessId: string }>();
@@ -25,6 +36,9 @@ export function BusinessPage() {
   const [editError, setEditError] = useState('');
   const [notice, setNotice] = useState('');
   const [form, setForm] = useState({ name: '', category: '', description: '' });
+  const [address, setAddress] = useState(emptyDeliveryAddress);
+  const [previousAddress, setPreviousAddress] = useState('');
+  const [addressVersion, setAddressVersion] = useState(0);
 
   useEffect(() => {
     if (!businessId) return;
@@ -55,6 +69,10 @@ export function BusinessPage() {
       category: currentBusiness.category || '',
       description: currentBusiness.description || '',
     });
+    const savedAddress = currentBusiness.address || '';
+    const parsedAddress = parseStoreAddress(savedAddress);
+    setAddress(parsedAddress ?? emptyDeliveryAddress);
+    setPreviousAddress(parsedAddress ? '' : savedAddress);
     setEditError('');
     setNotice('');
     setEditing(true);
@@ -67,10 +85,33 @@ export function BusinessPage() {
       setEditError('Informe o nome e a categoria da loja.');
       return;
     }
+    let storeAddress = previousAddress;
+    if (Object.values(address).some((value) => value.trim())) {
+      if (!isDeliveryAddressComplete(address)) {
+        setEditError('Preencha CEP, logradouro, número, cidade e UF para salvar o endereço.');
+        return;
+      }
+      const { street, number, complement, neighborhood, city, state, cep } = address;
+      if (Object.values(address).some((value) => value.includes('·')) || number.includes(',')) {
+        setEditError('Evite usar o caractere “·” nos campos de endereço e vírgulas no número.');
+        return;
+      }
+      storeAddress = [
+        street.trim() + ', ' + number.trim(),
+        complement.trim() && 'Complemento: ' + complement.trim(),
+        neighborhood.trim() && 'Bairro: ' + neighborhood.trim(),
+        city.trim() + '/' + state,
+        'CEP ' + cep,
+      ].filter(Boolean).join(' · ');
+      if (storeAddress.length > 300) {
+        setEditError('O endereço da loja deve ter até 300 caracteres no total.');
+        return;
+      }
+    }
     setSaving(true);
     setEditError('');
     try {
-      const business = await updateBusiness(businessId, form);
+      const business = await updateBusiness(businessId, { ...form, address: storeAddress || null });
       setCurrentBusiness(business);
       setEditing(false);
       setNotice('Dados da loja atualizados com sucesso.');
@@ -118,23 +159,37 @@ export function BusinessPage() {
           </div>
           {notice && <p className="business-notice" role="status">{notice}</p>}
           {editing ? (
-            <form onSubmit={handleSave}>
+            <form className="business-edit-form" onSubmit={handleSave}>
               {editError && <div className="error-message" role="alert">{editError}</div>}
-              <div className="form-group">
-                <label htmlFor="business-name">Nome da loja *</label>
-                <input id="business-name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} maxLength={255} required disabled={saving} />
-              </div>
-              <div className="form-group">
-                <label htmlFor="business-category">Categoria *</label>
-                <select id="business-category" value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} required disabled={saving}>
-                  <option value="">Selecione uma categoria</option>
-                  <CategoryOptions kind="business" current={form.category} />
-                </select>
+              <div className="business-edit-grid">
+                <div className="form-group">
+                  <label htmlFor="business-name">Nome da loja *</label>
+                  <input id="business-name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} maxLength={255} required disabled={saving} />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="business-category">Categoria *</label>
+                  <select id="business-category" value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} required disabled={saving}>
+                    <option value="">Selecione uma categoria</option>
+                    <CategoryOptions kind="business" current={form.category} />
+                  </select>
+                </div>
               </div>
               <div className="form-group">
                 <label htmlFor="business-description">Descrição</label>
                 <textarea id="business-description" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} rows={4} disabled={saving} />
               </div>
+              <CheckoutAddress key={addressVersion} address={address} onChange={setAddress} disabled={saving}
+                title="Endereço da loja (opcional)"
+                description="Exibido na página pública da loja e na opção de retirada." />
+              {previousAddress && <p><strong>Endereço atual:</strong> {previousAddress}</p>}
+              {(previousAddress || Object.values(address).some(Boolean)) && (
+                <button type="button" className="btn-secondary business-address-clear" disabled={saving}
+                  onClick={() => {
+                    setAddress(emptyDeliveryAddress);
+                    setPreviousAddress('');
+                    setAddressVersion((version) => version + 1);
+                  }}>Limpar endereço</button>
+              )}
               <div className="form-actions business-edit-actions">
                 <button type="button" className="btn-secondary" onClick={() => setEditing(false)} disabled={saving}>Cancelar</button>
                 <button type="submit" className="btn-primary" disabled={saving}>{saving ? 'Salvando...' : 'Salvar alterações'}</button>
@@ -144,10 +199,13 @@ export function BusinessPage() {
             <>
               <p><strong>Categoria:</strong> {currentBusiness.category || 'N/A'}</p>
               <p><strong>Descrição:</strong> {currentBusiness.description || 'Não informada'}</p>
+              <p><strong>Endereço:</strong> {currentBusiness.address || 'Não informado'}</p>
               <p><strong>Status:</strong> {currentBusiness.status}</p>
             </>
           )}
         </div>
+
+        <StoreOrders key={currentBusiness.id} businessId={currentBusiness.id} />
 
         <StorePaymentSettings key={currentBusiness.id} business={currentBusiness} onSave={setCurrentBusiness} />
 

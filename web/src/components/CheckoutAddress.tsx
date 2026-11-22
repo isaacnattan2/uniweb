@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useRef, useState } from 'react';
+﻿import React, { useEffect, useId, useRef, useState } from 'react';
 import axios from 'axios';
 import { lookupPostalCode } from '../services/api';
 import type { DeliveryAddress } from '../services/api';
@@ -14,11 +14,14 @@ export function isDeliveryAddressComplete(address: DeliveryAddress) {
     address.city.trim() && states.includes(address.state);
 }
 
-export function CheckoutAddress({ address, onChange, disabled }: {
+export function CheckoutAddress({ address, onChange, disabled, title = 'Dados do endere?o', description }: {
   address: DeliveryAddress;
   onChange: React.Dispatch<React.SetStateAction<DeliveryAddress>>;
   disabled: boolean;
+  title?: string;
+  description?: string;
 }) {
+  const id = useId();
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
@@ -82,9 +85,9 @@ export function CheckoutAddress({ address, onChange, disabled }: {
   return (
     <fieldset className="checkout-address" disabled={disabled}>
       <legend>Dados do endereço</legend>
-      <label htmlFor="checkout-cep">CEP</label>
+      <label htmlFor={id + '-cep'}>CEP</label>
       <div className="checkout-cep-row">
-        <input id="checkout-cep" autoComplete="shipping postal-code" inputMode="numeric" placeholder="00000-000"
+        <input id={id + '-cep'} autoComplete="shipping postal-code" inputMode="numeric" placeholder="00000-000"
           value={address.cep} onChange={(event) => changeCep(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter') {
@@ -97,33 +100,33 @@ export function CheckoutAddress({ address, onChange, disabled }: {
       </div>
       {error && <p role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
-      <label htmlFor="checkout-street">Logradouro</label>
-      <input id="checkout-street" ref={streetInput} autoComplete="shipping address-line1" maxLength={160}
+      <label htmlFor={id + '-street'}>Logradouro</label>
+      <input id={id + '-street'} ref={streetInput} autoComplete="shipping address-line1" maxLength={160}
         disabled={lockFields} value={address.street} onChange={(event) => setField('street', event.target.value)} />
       <div className="checkout-address-pair">
         <div>
-          <label htmlFor="checkout-number">Número</label>
-          <input id="checkout-number" ref={numberInput} maxLength={30} placeholder="Ex.: 120 ou S/N"
+          <label htmlFor={id + '-number'}>Número</label>
+          <input id={id + '-number'} ref={numberInput} maxLength={30} placeholder="Ex.: 120 ou S/N"
             disabled={lockFields} value={address.number} onChange={(event) => setField('number', event.target.value)} />
         </div>
         <div>
-          <label htmlFor="checkout-complement">Complemento</label>
-          <input id="checkout-complement" autoComplete="shipping address-line2" maxLength={120}
+          <label htmlFor={id + '-complement'}>Complemento</label>
+          <input id={id + '-complement'} autoComplete="shipping address-line2" maxLength={120}
             disabled={lockFields} value={address.complement} onChange={(event) => setField('complement', event.target.value)} />
         </div>
       </div>
-      <label htmlFor="checkout-neighborhood">Bairro</label>
-      <input id="checkout-neighborhood" autoComplete="shipping address-level3" maxLength={100}
+      <label htmlFor={id + '-neighborhood'}>Bairro</label>
+      <input id={id + '-neighborhood'} autoComplete="shipping address-level3" maxLength={100}
         disabled={lockFields} value={address.neighborhood} onChange={(event) => setField('neighborhood', event.target.value)} />
       <div className="checkout-address-city">
         <div>
-          <label htmlFor="checkout-city">Cidade</label>
-          <input id="checkout-city" autoComplete="shipping address-level2" maxLength={100}
+          <label htmlFor={id + '-city'}>Cidade</label>
+          <input id={id + '-city'} autoComplete="shipping address-level2" maxLength={100}
             disabled={lockFields} value={address.city} onChange={(event) => setField('city', event.target.value)} />
         </div>
         <div>
-          <label htmlFor="checkout-state">UF</label>
-          <select id="checkout-state" autoComplete="shipping address-level1"
+          <label htmlFor={id + '-state'}>UF</label>
+          <select id={id + '-state'} autoComplete="shipping address-level1"
             disabled={lockFields} value={address.state} onChange={(event) => setField('state', event.target.value)}>
             <option value="">UF</option>
             {states.map((state) => <option key={state} value={state}>{state}</option>)}
