@@ -2,12 +2,15 @@ import { create } from 'zustand';
 
 export type UserType = 'admin' | 'business' | 'customer' | 'driver';
 
+export type StorePaymentMethod = 'pix' | 'credit_card';
+
 export interface Business {
   id: string;
   name: string;
   description: string | null;
   category: string | null;
   status: string;
+  payment_methods?: StorePaymentMethod[];
 }
 
 interface Product {
@@ -59,6 +62,7 @@ interface CartState {
   addToCart: (item: CartItem) => void;
   removeFromCart: (productId: string) => void;
   updateQuantity: (productId: string, quantity: number) => void;
+  removeStoreFromCart: (businessId: string) => void;
   clearCart: () => void;
   getTotal: () => number;
 }
@@ -133,6 +137,13 @@ export const useCartStore = create<CartState>((set, get) => ({
       );
       localStorage.setItem('cart', JSON.stringify(newItems));
       return { items: newItems };
+    });
+  },
+  removeStoreFromCart: (businessId) => {
+    set((state) => {
+      const items = state.items.filter((item) => item.businessId !== businessId);
+      localStorage.setItem('cart', JSON.stringify(items));
+      return { items };
     });
   },
   clearCart: () => {

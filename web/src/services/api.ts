@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
-import type { Business, UserType } from '../context/store';
+import type { Business, StorePaymentMethod, UserType } from '../context/store';
 
 export interface Seller {
   id: string;
@@ -30,6 +30,7 @@ export interface PublicProduct {
 }
 
 export interface PublicBusiness {
+  payment_methods?: StorePaymentMethod[];
   id: string;
   name: string;
   description?: string;
@@ -115,7 +116,7 @@ export async function getBusiness(id: string): Promise<Business> {
   return response.data;
 }
 
-export async function updateBusiness(id: string, data: { name: string; category: string; description: string }): Promise<Business> {
+export async function updateBusiness(id: string, data: { name: string; category: string; description: string } | { payment_methods: StorePaymentMethod[] }): Promise<Business> {
   const response = await api.put(`/businesses/${id}`, data);
   return response.data;
 }

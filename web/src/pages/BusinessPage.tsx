@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import { StorePaymentSettings } from '../components/StorePaymentSettings';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getBusiness, getProductsByBusiness, updateBusiness } from '../services/api';
 import { useAuthStore, useBusinessStore, useProductStore } from '../context/store';
@@ -158,6 +159,8 @@ export function BusinessPage() {
             </>
           )}
         </div>
+
+        <StorePaymentSettings key={currentBusiness.id} business={currentBusiness} onSave={setCurrentBusiness} />
 
         <div className="products-section">
           <h2>Produtos ({products?.length || 0})</h2>

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { checkoutIdPattern, checkoutUrl, createAsaasCheckout, getAsaasConfig, getAsaasInstallmentCount } from '../services/AsaasCheckout';
+import { AsaasPixKeyMissingError, checkoutIdPattern, checkoutUrl, createAsaasCheckout, getAsaasConfig, getAsaasInstallmentCount } from '../services/AsaasCheckout';
 import { v4 as uuidv4 } from 'uuid';
 import { Response } from 'express';
 import { PoolClient } from 'pg';
@@ -24,6 +24,7 @@ interface CheckoutProduct {
   name: string;
   price: string;
   stock: number;
+  payment_methods: string[];
 }
 
 function formatCents(cents: bigint): string {
@@ -116,13 +117,13 @@ export class OrderController {
         }
       }
       const result = await client.query<CheckoutProduct>(
-        `SELECT p.id, p.business_id, p.name, p.price, p.stock
+        `SELECT p.id, p.business_id, p.name, p.price, p.stock, b.payment_methods
          FROM products p
          JOIN businesses b ON b.id = p.business_id
          WHERE p.id = ANY($1::uuid[]) AND p.status = 'active' AND p.deleted_at IS NULL
            AND b.status = 'active' AND b.deleted_at IS NULL
          ORDER BY p.id
-         FOR UPDATE OF p`,
+         FOR UPDATE OF p FOR SHARE OF b`,
         [[...itemById.keys()]]
       );
       if (result.rows.length !== itemById.size) {
@@ -133,6 +134,9 @@ export class OrderController {
       for (const product of result.rows) {
         const item = itemById.get(product.id);
         if (!item) throw new Error('Produto retornado não pertence ao carrinho.');
+        if (!product.payment_methods.includes(paymentMethod)) {
+          throw new CheckoutError(409, 'Uma loja do carrinho não aceita essa forma de pagamento. Escolha outra opção ou revise o carrinho.');
+        }
         if (product.stock < item.quantity) {
           throw new CheckoutError(409, `Estoque insuficiente para ${product.name}.`);
         }
@@ -182,6 +186,10 @@ export class OrderController {
         try {
           providerId = await createAsaasCheckout(config, checkoutId, paymentMethod, checkoutItems);
         } catch (error) {
+          if (error instanceof AsaasPixKeyMissingError) {
+            console.warn(error.message);
+            throw new CheckoutError(503, 'Pix indisponível no momento. Escolha cartão de crédito ou tente novamente mais tarde.');
+          }
           console.error('Falha ao abrir checkout Asaas:', error instanceof Error ? error.message : 'erro desconhecido');
           throw new CheckoutError(502, 'Não foi possível abrir o pagamento no Asaas. Tente novamente.');
         }

@@ -1,6 +1,8 @@
 export const MAX_INSTALLMENTS = 3;
 export const checkoutIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+export class AsaasPixKeyMissingError extends Error {}
+
 const sandboxApi = 'https://api-sandbox.asaas.com/v3';
 
 export function checkoutUrl(id: string): string {
@@ -52,6 +54,11 @@ export async function createAsaasCheckout(
   });
   if (!response.ok) {
     const failure = await response.json().catch(() => null) as { errors?: unknown } | null;
+    if (!card && response.status === 400 && Array.isArray(failure?.errors) &&
+        failure.errors.some((error) => error?.code === 'invalid_object' &&
+          typeof error.description === 'string' && /necessário criar uma chave Pix/i.test(error.description))) {
+      throw new AsaasPixKeyMissingError('O Asaas exige uma chave Pix cadastrada para abrir este checkout.');
+    }
     const codes = Array.isArray(failure?.errors)
       ? failure.errors.slice(0, 5).map((error) => error?.code)
         .filter((code): code is string => typeof code === 'string' && /^[a-z_]{1,60}$/.test(code))

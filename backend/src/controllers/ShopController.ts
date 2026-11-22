@@ -21,9 +21,9 @@ export class ShopController {
     try {
       const { businessId } = req.params;
       const result = await query(
-        `SELECT id, name, description, category, logo_url, rating, status 
-         FROM businesses 
-         WHERE id = $1 AND status = 'active'`,
+        `SELECT id, name, description, category, logo_url, rating, status, payment_methods
+         FROM businesses
+         WHERE deleted_at IS NULL AND id = $1 AND status = 'active'`,
         [businessId]
       );
       

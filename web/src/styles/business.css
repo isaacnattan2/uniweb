@@ -103,3 +103,46 @@
 .products-table button:hover {
   background: #1d4ed8;
 }
+
+.store-payment-settings .payment-simulation {
+  max-width: 20rem;
+  margin-top: 1rem;
+}
+
+.payment-method-grid {
+  --card-grid-gap: 1rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: var(--card-grid-gap);
+  margin-block: 1rem;
+}
+
+.payment-method-card {
+  gap: 0.65rem;
+  padding: 1rem;
+  border: 1px solid #dce2ea;
+  border-radius: 8px;
+}
+
+.payment-method-card h3,
+.payment-method-card p,
+.payment-method-card dl,
+.payment-method-card dd {
+  margin: 0;
+}
+
+.payment-method-card dl > div + div {
+  margin-top: 0.5rem;
+}
+
+.payment-method-card dt {
+  font-weight: 600;
+}
+
+.payment-method-card label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2rem;
+  cursor: pointer;
+}

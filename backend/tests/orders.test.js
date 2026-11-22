@@ -5,8 +5,8 @@ const controller = require('../dist/controllers/OrderController').default;
 const originalGetClient = database.getClient;
 
 const products = [
-  { id: '00000000-0000-0000-0000-000000000001', business_id: 'store-1', name: 'Produto A', price: '12.50', stock: 5 },
-  { id: '00000000-0000-0000-0000-000000000002', business_id: 'store-2', name: 'Produto B', price: '7.25', stock: 3 },
+  { id: '00000000-0000-0000-0000-000000000001', business_id: 'store-1', name: 'Produto A', price: '12.50', stock: 5, payment_methods: ['pix', 'credit_card'] },
+  { id: '00000000-0000-0000-0000-000000000002', business_id: 'store-2', name: 'Produto B', price: '7.25', stock: 3, payment_methods: ['pix', 'credit_card'] },
 ];
 
 after(async () => {
@@ -210,4 +210,20 @@ test('valida o token do webhook e confirma ou cancela os pedidos em transacao', 
   assert.equal(await asaasWebhook(req, res), 200);
   assert.ok(calls.some((sql) => sql.includes('stock = p.stock + r.units') && sql.includes("payment_status = 'pending'")));
   assert.equal(calls.at(-1), 'COMMIT');
+});
+
+test('bloqueia um meio de pagamento desativado por uma loja do carrinho', async () => {
+  const client = mockClient([
+    products[0],
+    { ...products[1], payment_methods: ['credit_card'] },
+  ]);
+  database.getClient = async () => client;
+
+  const res = response();
+  await controller.createOrder(request(), res);
+
+  assert.equal(res.statusCode, 409);
+  assert.ok(client.calls.some(([sql]) => sql.includes('FOR SHARE OF b')));
+  assert.equal(client.calls.some(([sql]) => sql.includes('INSERT INTO orders')), false);
+  assert.equal(client.calls.at(-1)[0], 'ROLLBACK');
 });

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { getMyOrders, getOrder } from '../services/api';
+import { useCartStore } from '../context/store';
 import '../styles/orders.css';
 
 const paymentLabels: Record<string, string> = { pix: 'Pix', credit_card: 'Cartão de crédito', debit_card: 'Cartão de débito', wallet: 'Carteira' };
@@ -11,6 +12,7 @@ export function OrdersPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const checkoutResult = searchParams.get('checkout');
+  const hasCartItems = useCartStore((state) => state.items.length > 0);
   const { orderId } = useParams<{ orderId: string }>();
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,6 +50,9 @@ export function OrdersPage() {
         {checkoutResult === 'success' && <p role="status">Consulte abaixo a confirmação do pagamento. Atualize a página se o status ainda estiver pendente.</p>}
         {checkoutResult === 'cancelled' && <p role="status">Você saiu da página de pagamento. Consulte o status nos detalhes do pedido.</p>}
         {checkoutResult === 'expired' && <p role="status">O prazo de pagamento terminou.</p>}
+        {checkoutResult && hasCartItems && (
+          <button type="button" className="btn-primary" onClick={() => navigate('/cart')}>Voltar ao carrinho para pagar outra loja</button>
+        )}
         {error && <div className="error-message">{error}</div>}
 
         {!error && (orders.length === 0 ? (

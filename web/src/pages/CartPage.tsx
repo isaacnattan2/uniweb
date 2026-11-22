@@ -1,6 +1,7 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createOrder } from '../services/api';
+import type { StorePaymentMethod } from '../context/store';
+import { createOrder, getBusinessPublic } from '../services/api';
 import { useCartStore, useAuthStore } from '../context/store';
 import '../styles/cart.css';
 
@@ -10,18 +11,39 @@ export function CartPage() {
   const getTotal = useCartStore((state) => state.getTotal);
   const removeFromCart = useCartStore((state) => state.removeFromCart);
   const updateQuantity = useCartStore((state) => state.updateQuantity);
-  const clearCart = useCartStore((state) => state.clearCart);
+  const removeStoreFromCart = useCartStore((state) => state.removeStoreFromCart);
   const { userId, token, userType } = useAuthStore();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
+  const [checkoutStore, setCheckoutStore] = useState('');
+  const [availability, setAvailability] = useState<{ key: string; methods: StorePaymentMethod[]; failed?: boolean }>();
   const [deliveryType, setDeliveryType] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const checkoutAttempt = useRef<{ signature: string; id: string } | null>(null);
   const submitting = useRef(false);
 
   const total = getTotal();
-  const storeCount = new Set(cart.map((item) => item.businessId)).size;
+  const storeIds = [...new Set(cart.map((item) => item.businessId))].sort();
+  const storeCount = storeIds.length;
+  const selectedStore = storeIds.includes(checkoutStore) ? checkoutStore : storeIds[0];
+  const storeItems = cart.filter((item) => item.businessId === selectedStore);
+  const storeTotal = storeItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const available = availability?.key === selectedStore ? availability : undefined;
+  const selectedMethod = available?.methods.find((method) => method === paymentMethod);
+
+  useEffect(() => {
+    if (!token || userType !== 'customer' || !selectedStore) return;
+
+    let active = true;
+    getBusinessPublic(selectedStore).then((business) => {
+      const methods = business.payment_methods ?? ['pix', 'credit_card'];
+      if (active) setAvailability({ key: selectedStore, methods });
+    }).catch(() => {
+      if (active) setAvailability({ key: selectedStore, methods: [], failed: true });
+    });
+    return () => { active = false; };
+  }, [selectedStore, token, userType]);
 
   async function handleCheckout() {
     if (submitting.current) return;
@@ -33,7 +55,7 @@ export function CartPage() {
       setError('Entre com uma conta de cliente para finalizar a compra.');
       return;
     }
-    if (paymentMethod !== 'pix' && paymentMethod !== 'credit_card') {
+    if (!selectedStore || !selectedMethod) {
       setError('Selecione uma forma de pagamento.');
       return;
     }
@@ -51,7 +73,7 @@ export function CartPage() {
     setError('');
 
     try {
-      const items = cart.map((item) => ({
+      const items = storeItems.map((item) => ({
         productId: item.productId,
         quantity: item.quantity,
         price: item.price,
@@ -62,9 +84,9 @@ export function CartPage() {
         checkoutAttempt.current = { signature, id: crypto.randomUUID() };
       }
       const { checkoutUrl } = await createOrder(
-        items, paymentMethod, deliveryType, deliveryAddress.trim(), checkoutAttempt.current.id
+        items, selectedMethod, deliveryType, deliveryAddress.trim(), checkoutAttempt.current.id
       );
-      clearCart();
+      removeStoreFromCart(selectedStore);
       if (checkoutUrl) {
         window.location.assign(checkoutUrl);
         return;
@@ -177,14 +199,33 @@ export function CartPage() {
 
               {token && userType === 'customer' && (
                 <div className="checkout-options">
-                  {storeCount > 1 && <p>Será criado um pedido separado para cada loja.</p>}
+                  {storeCount > 1 && (
+                    <>
+                      <label htmlFor="checkout-store">Loja que você quer pagar</label>
+                      <select id="checkout-store" value={selectedStore} disabled={loading} onChange={(event) => {
+                        setCheckoutStore(event.target.value);
+                        setPaymentMethod('');
+                        setError('');
+                      }}>
+                        {storeIds.map((id) => (
+                          <option key={id} value={id}>{cart.find((item) => item.businessId === id)?.businessName || 'Loja'}</option>
+                        ))}
+                      </select>
+                      <p><strong>Total desta cobrança:</strong> {storeTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}. Os itens das outras lojas ficam no carrinho.</p>
+                    </>
+                  )}
                   <label htmlFor="payment-method">Forma de pagamento</label>
-                  <select id="payment-method" value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} disabled={loading}>
+                  <select id="payment-method" value={selectedMethod || ''} onChange={(event) => setPaymentMethod(event.target.value)} disabled={loading || !available?.methods.length}>
                     <option value="">Selecione</option>
-                    <option value="pix">Pix</option>
-                    <option value="credit_card">Cartão de crédito</option>
+                    {available?.methods.includes('pix') && <option value="pix">Pix</option>}
+                    {available?.methods.includes('credit_card') && <option value="credit_card">Cartão de crédito</option>}
 
                   </select>
+                  {!available && <p role="status">Consultando formas de pagamento da loja…</p>}
+                  {available?.failed && <p role="alert">Não foi possível consultar as formas de pagamento. Atualize a página para tentar novamente.</p>}
+                  {available && !available.failed && !available.methods.length && (
+                    <p role="alert">Esta loja está sem formas de pagamento disponíveis.</p>
+                  )}
                   <label htmlFor="delivery-type">Forma de entrega</label>
                   <select id="delivery-type" value={deliveryType} onChange={(event) => setDeliveryType(event.target.value)} disabled={loading}>
                     <option value="">Selecione</option>
@@ -198,7 +239,7 @@ export function CartPage() {
                       <textarea id="delivery-address" value={deliveryAddress} onChange={(event) => setDeliveryAddress(event.target.value)} maxLength={1000} disabled={loading} />
                     </>
                   )}
-                  {paymentMethod === 'credit_card' && <p>Até 3× sem juros no cartão.</p>}
+                  {selectedMethod === 'credit_card' && <p>Até 3× sem juros no cartão.</p>}
                   <p>Você vai concluir o pagamento na página do Asaas. O total não inclui frete.</p>
                 </div>
               )}
@@ -220,10 +261,10 @@ export function CartPage() {
               ) : userType === 'customer' ? (
                 <button
                   onClick={handleCheckout}
-                  disabled={loading || cart.length === 0}
+                  disabled={loading || !available?.methods.length}
                   className="btn-checkout"
                 >
-                  {loading ? 'Processando...' : '✓ Finalizar Compra'}
+                  {loading ? 'Processando...' : storeCount > 1 ? 'Pagar esta loja' : '✓ Finalizar Compra'}
                 </button>
               ) : (
                 <p>Entre com uma conta de cliente para finalizar a compra.</p>

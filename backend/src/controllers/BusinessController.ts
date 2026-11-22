@@ -58,7 +58,7 @@ export class BusinessController {
       if (!req.userId || (req.userType !== 'admin' && req.userType !== 'business')) {
         return res.status(403).json({ error: 'Sem acesso a esta loja' });
       }
-      const allowed = ['name', 'description', 'category'];
+      const allowed = ['name', 'description', 'category', 'payment_methods'];
       if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
         return res.status(400).json({ error: 'Campos de loja inválidos' });
       }
@@ -84,6 +84,15 @@ export class BusinessController {
           return res.status(400).json({ error: 'Descrição inválida' });
         }
         data.description = typeof req.body.description === 'string' ? req.body.description.trim() : null;
+      }
+      if ('payment_methods' in req.body) {
+        const methods = req.body.payment_methods;
+        if (!Array.isArray(methods) || methods.length < 1 || methods.length > 2 ||
+            new Set(methods).size !== methods.length ||
+            !methods.every((method) => method === 'pix' || method === 'credit_card')) {
+          return res.status(400).json({ error: 'Selecione pelo menos uma forma de pagamento disponível.' });
+        }
+        data.payment_methods = methods;
       }
       const business = await BusinessService.updateBusiness(id, data, req.userType === 'admin' ? undefined : req.userId);
       if (!business) {
