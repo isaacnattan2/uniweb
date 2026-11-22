@@ -7,6 +7,31 @@ import { AuthRequest } from '../middleware/auth';
 
 const vehicleTypes = ['bicycle', 'motorcycle', 'car', 'utility', 'van', 'truck'];
 
+function driverProfile(input: Record<string, unknown>) {
+  const text = (field: string) => typeof input[field] === 'string' ? input[field].trim() : '';
+  return {
+    fullName: text('fullName'), email: text('email').toLowerCase(),
+    phone: text('phone').replace(/[()\s-]/g, '').replace(/^\+55/, ''),
+    type: text('vehicleType'), manufacturer: text('manufacturer'), brand: text('brand'), color: text('color'),
+    plate: text('plate').toUpperCase().replace(/[\s-]/g, ''),
+  };
+}
+
+function validContact({ fullName, email, phone }: ReturnType<typeof driverProfile>) {
+  return !!fullName && fullName.length <= 255 && email.length <= 255 &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && /^[0-9]{10,11}$/.test(phone);
+}
+
+function vehicleError({ type, manufacturer, brand, color, plate }: ReturnType<typeof driverProfile>) {
+  if (!vehicleTypes.includes(type) || !manufacturer || manufacturer.length > 100 ||
+      !brand || brand.length > 100 || !color || color.length > 50) {
+    return 'Selecione o veículo e informe fabricante, marca e cor.';
+  }
+  if ((type !== 'bicycle' || plate) && !/^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$/.test(plate)) {
+    return 'Informe uma placa válida, como ABC1234 ou ABC1D23.';
+  }
+}
+
 export function isValidCpf(cpf: string): boolean {
   if (!/^[0-9]{11}$/.test(cpf) || new Set(cpf).size === 1) return false;
   const digits = [...cpf].map(Number);
@@ -20,29 +45,17 @@ export function isValidCpf(cpf: string): boolean {
 export async function registerDriver(req: AuthRequest, res: Response) {
   const input = req.body || {};
   const text = (field: string) => typeof input[field] === 'string' ? input[field].trim() as string : '';
-  const fullName = text('fullName');
-  const email = text('email').toLowerCase();
-  const phone = text('phone').replace(/[()\s-]/g, '').replace(/^\+55/, '');
+  const profile = driverProfile(input);
+  const { fullName, email, phone, type, manufacturer, brand, color, plate } = profile;
   const password = typeof input.password === 'string' ? input.password : '';
   const cpf = text('cpf').replace(/[.\-]/g, '');
-  const type = text('vehicleType');
-  const manufacturer = text('manufacturer');
-  const brand = text('brand');
-  const color = text('color');
-  const plate = text('plate').toUpperCase().replace(/[\s-]/g, '');
 
-  if (!fullName || fullName.length > 255 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 255 ||
-      !/^[0-9]{10,11}$/.test(phone) || password.length < 8 || Buffer.byteLength(password, 'utf8') > 72) {
+  if (!validContact(profile) || password.length < 8 || Buffer.byteLength(password, 'utf8') > 72) {
     return res.status(400).json({ error: 'Informe nome, e-mail, telefone com DDD e uma senha de pelo menos 8 caracteres.' });
   }
   if (!isValidCpf(cpf)) return res.status(400).json({ error: 'Informe um CPF válido.' });
-  if (!vehicleTypes.includes(type) || !manufacturer || manufacturer.length > 100 ||
-      !brand || brand.length > 100 || !color || color.length > 50) {
-    return res.status(400).json({ error: 'Selecione o veículo e informe fabricante, marca e cor.' });
-  }
-  if ((type !== 'bicycle' || plate) && !/^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$/.test(plate)) {
-    return res.status(400).json({ error: 'Informe uma placa válida, como ABC1234 ou ABC1D23.' });
-  }
+  const error = vehicleError(profile);
+  if (error) return res.status(400).json({ error });
 
   try {
     const id = uuid();
@@ -79,4 +92,38 @@ export async function getDriverRegistration(req: AuthRequest, res: Response) {
   );
   if (!result.rows.length) return res.status(404).json({ error: 'Cadastro de entregador não encontrado.' });
   return res.json(result.rows[0]);
+}
+
+export async function updateDriverRegistration(req: AuthRequest, res: Response) {
+  if (req.userType !== 'driver' || !req.userId) return res.sendStatus(403);
+  res.set('Cache-Control', 'no-store');
+  const profile = driverProfile(req.body || {});
+  if (!validContact(profile)) {
+    return res.status(400).json({ error: 'Informe nome, e-mail e telefone com DDD válidos.' });
+  }
+  const error = vehicleError(profile);
+  if (error) return res.status(400).json({ error });
+  const { fullName, email, phone, type, manufacturer, brand, color, plate } = profile;
+  try {
+    const { rows: [updated] } = await query(
+      `WITH vehicle AS (
+         UPDATE drivers SET vehicle_type = $5, vehicle_manufacturer = $6, vehicle_brand = $7,
+           vehicle_color = $8, vehicle_plate = $9, updated_at = NOW()
+         WHERE user_id = $1 AND deleted_at IS NULL
+         RETURNING user_id, vehicle_type, vehicle_manufacturer, vehicle_brand, vehicle_color, vehicle_plate
+       )
+       UPDATE users u SET full_name = $2, email = $3, phone = $4, updated_at = NOW()
+       FROM vehicle v WHERE u.id = v.user_id
+       RETURNING u.full_name, u.email, u.phone, v.vehicle_type, v.vehicle_manufacturer,
+         v.vehicle_brand, v.vehicle_color, v.vehicle_plate`,
+      [req.userId, fullName, email, phone, type, manufacturer, brand, color, plate || null]
+    );
+    if (!updated) return res.status(404).json({ error: 'Cadastro de entregador não encontrado.' });
+    return res.json(updated);
+  } catch (err) {
+    if (typeof err === 'object' && err !== null && 'code' in err && err.code === '23505') {
+      return res.status(409).json({ error: 'Já existe um cadastro com este e-mail ou placa.' });
+    }
+    throw err;
+  }
 }

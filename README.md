@@ -304,8 +304,9 @@ uniweb/
 
 ## Acompanhamento de entregas
 
-Configure `GOOGLE_ROUTES_API_KEY` em `backend/.env` com acesso à Routes API.
-Configure `VITE_GOOGLE_MAPS_WEB_KEY` em `web/.env` com acesso à Maps JavaScript API e restrição aos domínios do Uniweb.
+Configure `NOMINATIM_SEARCH_URL` com o endpoint `/search` de um serviço compatível com Nominatim e `VALHALLA_ROUTE_URL` com o endpoint `/route` do Valhalla em `backend/.env` ou nas variáveis do serviço no Render. Use serviços próprios ou contratados para processar os endereços dos pedidos e calcular rotas de moto.
+
+O mapa web usa MapLibre com dados do OpenStreetMap servidos pelo OpenFreeMap. Para usar outro estilo compatível, configure `VITE_OSM_MAP_STYLE_URL` em `web/.env`.
 Aplique `backend/migrations/add_delivery_tracking.sql` e reinicie o backend e o Vite.
 O botão **Entrega em tempo real** aparece nos pedidos em andamento e consulta a última posição publicada pelo UniEntregador.
 

@@ -78,8 +78,9 @@ export async function clearDeliveryTracking(req: AuthRequest, res: Response) {
 
 export async function getDeliveryRoute(req: AuthRequest, res: Response) {
   if (!trackingRequest(req, res, 'driver')) return;
-  const key = process.env.GOOGLE_ROUTES_API_KEY?.trim();
-  if (!key) return res.status(503).json({ error: 'O cálculo de rotas ainda não está configurado.' });
+  const routeUrl = process.env.VALHALLA_ROUTE_URL?.trim();
+  const geocoderUrl = process.env.NOMINATIM_SEARCH_URL?.trim();
+  if (!routeUrl || !geocoderUrl) return res.status(503).json({ error: 'O cálculo de rotas ainda não está configurado.' });
   const { rows: [delivery] } = await query(
     `UPDATE deliveries d SET tracking_route_requested_at = NOW()
      FROM orders o WHERE o.id = $1 AND o.delivery_driver_id = $2 AND d.order_id = o.id
@@ -92,35 +93,60 @@ export async function getDeliveryRoute(req: AuthRequest, res: Response) {
   if (!delivery) return res.status(409).json({ error: 'Rota indisponível no momento. Aguarde a atualização da localização.' });
 
   try {
-    const response = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+    const signal = AbortSignal.timeout(8000);
+    const address = delivery.delivery_address?.trim();
+    if (!address) return res.status(422).json({ error: 'O pedido não tem um endereço de entrega.' });
+    const parts = address.split(' · ');
+    const postcode = /^CEP (\d{5}-\d{3})$/iu.exec(parts.at(-1) ?? '');
+    const cityAndState = /^(.+)\/([A-Z]{2})$/u.exec(parts.at(-2) ?? '');
+    const searchAddress = postcode && cityAndState && parts.length >= 3
+      ? [parts[0].replace(/, ([^,]+)$/u, ' $1'), cityAndState[1], cityAndState[2], postcode[1]].join(', ')
+      : parts.join(', ');
+    const search = new URL(geocoderUrl);
+    search.searchParams.set('q', searchAddress);
+    search.searchParams.set('format', 'jsonv2');
+    search.searchParams.set('countrycodes', 'br');
+    search.searchParams.set('limit', '1');
+    const geocoding = await fetch(search, { signal, redirect: 'error', headers: { 'User-Agent': 'Uniweb/1.0' } });
+    if (!geocoding.ok) throw new Error('Geocoding request failed');
+    const [destination] = await geocoding.json() as Array<{ lat: string; lon: string }>;
+    const lat = Number(destination?.lat);
+    const lon = Number(destination?.lon);
+    if (!validCoordinate(lat, 90) || !validCoordinate(lon, 180)) {
+      return res.status(422).json({ error: 'Endereço do pedido não encontrado no mapa.' });
+    }
+
+    const response = await fetch(routeUrl, {
       method: 'POST',
       redirect: 'error',
-      signal: AbortSignal.timeout(8000),
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Goog-Api-Key': key,
-        'X-Goog-FieldMask': 'routes.distanceMeters,routes.duration,routes.polyline.geoJsonLinestring',
-      },
+      signal,
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        origin: { location: { latLng: { latitude: delivery.tracking_latitude, longitude: delivery.tracking_longitude } } },
-        destination: { address: delivery.delivery_address.replaceAll(' · ', ', ') },
-        travelMode: 'TWO_WHEELER', routingPreference: 'TRAFFIC_AWARE',
-        regionCode: 'BR', languageCode: 'pt-BR', polylineEncoding: 'GEO_JSON_LINESTRING',
+        locations: [
+          { lat: delivery.tracking_latitude, lon: delivery.tracking_longitude },
+          { lat, lon },
+        ],
+        costing: 'motorcycle',
+        format: 'osrm',
+        shape_format: 'geojson',
       }),
     });
-    if (!response.ok) throw new Error('Routes API request failed');
-    const { routes } = await response.json() as {
-      routes?: Array<{ distanceMeters: number; duration: string; polyline: { geoJsonLinestring: { coordinates: number[][] } } }>;
+    const result = await response.json() as {
+      error_code?: number;
+      routes?: Array<{ distance: number; duration: number; geometry: { coordinates: number[][] } }>;
     };
-    const route = routes?.[0];
-    const points = route?.polyline?.geoJsonLinestring?.coordinates;
-    if (!Array.isArray(points) || points.length < 2 || !points.every(([lng, lat]) => validCoordinate(lng, 180) && validCoordinate(lat, 90))) {
+    if (!response.ok && ![170, 171, 442].includes(result.error_code ?? 0)) throw new Error('Routing request failed');
+    const route = result.routes?.[0];
+    const points = route?.geometry?.coordinates;
+    if (!route || !Number.isFinite(route.distance) || !Number.isFinite(route.duration) ||
+        !Array.isArray(points) || points.length < 2 ||
+        !points.every((point) => Array.isArray(point) && validCoordinate(point[0], 180) && validCoordinate(point[1], 90))) {
       return res.status(422).json({ error: 'Nenhuma rota encontrada para o endereço do pedido.' });
     }
     return res.json({
       points: points.map(([longitude, latitude]) => ({ latitude, longitude })),
-      distanceMeters: route!.distanceMeters,
-      durationSeconds: Number.parseFloat(route!.duration),
+      distanceMeters: route.distance,
+      durationSeconds: route.duration,
     });
   } catch {
     return res.status(502).json({ error: 'Não foi possível calcular a rota agora.' });

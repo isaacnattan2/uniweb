@@ -273,7 +273,7 @@ admin-dashboard/src/components/
 ### Mobile
 - **Framework**: React Native (Expo) ou Flutter
 - **State**: Redux Toolkit ou Riverpod
-- **Maps**: Google Maps API / Mapbox
+- **Mapas e rotas**: OpenStreetMap com MapLibre e Valhalla
 - **Auth**: JWT + Secure Storage
 
 ### Admin

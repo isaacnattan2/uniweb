@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { upload } from '../services/UploadService';
 import { getCustomerProfile, listCustomerAddresses, requireCustomer, saveCustomerAddress, updateCustomerProfile, uploadCustomerAvatar } from '../controllers/CustomerAccount';
 import { lookupPostalCode } from '../services/DeliveryAddress';
-import { getDriverRegistration, registerDriver } from '../controllers/DriverRegistration';
+import { getDriverRegistration, registerDriver, updateDriverRegistration } from '../controllers/DriverRegistration';
 import AuthController from '../controllers/AuthController';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 
@@ -29,5 +29,6 @@ router.post('/me/addresses', authMiddleware, requireCustomer, (req, res, next) =
 router.put('/me/addresses/:id', authMiddleware, requireCustomer, (req, res, next) => saveCustomerAddress(req, res).catch(next));
 
 router.get('/me/driver', authMiddleware, (req, res, next) => getDriverRegistration(req, res).catch(next));
+router.put('/me/driver', authMiddleware, (req, res, next) => updateDriverRegistration(req, res).catch(next));
 
 export default router;

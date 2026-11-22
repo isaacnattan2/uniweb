@@ -129,6 +129,8 @@
   height: clamp(250px, 50vw, 380px);
   border-radius: 8px;
   background: #eaf2ff;
+  overflow: hidden;
+  isolation: isolate;
 }
 
 .order-items {
