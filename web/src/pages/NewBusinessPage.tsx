@@ -1,3 +1,4 @@
+import { CategoryOptions } from '../components/CategoryOptions';
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createBusiness, getSellers, Seller } from '../services/api';
@@ -93,12 +94,7 @@ export function NewBusinessPage() {
               required
             >
               <option value="">Selecione uma categoria</option>
-              <option value="roupas">Roupas</option>
-              <option value="alimentos">Alimentos</option>
-              <option value="eletronicos">Eletrônicos</option>
-              <option value="livros">Livros</option>
-              <option value="servicos">Serviços</option>
-              <option value="geral">Geral</option>
+              <CategoryOptions kind="business" current={formData.category} />
             </select>
           </div>
 

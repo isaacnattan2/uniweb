@@ -1,3 +1,4 @@
+import { CategoryOptions } from '../components/CategoryOptions';
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { StorePaymentSettings } from '../components/StorePaymentSettings';
@@ -6,15 +7,6 @@ import { getBusiness, getProductsByBusiness, updateBusiness } from '../services/
 import { useAuthStore, useBusinessStore, useProductStore } from '../context/store';
 import '../styles/business.css';
 import '../styles/product-form.css';
-
-const categories = [
-  { value: 'roupas', label: 'Roupas' },
-  { value: 'alimentos', label: 'Alimentos' },
-  { value: 'eletronicos', label: 'Eletrônicos' },
-  { value: 'livros', label: 'Livros' },
-  { value: 'servicos', label: 'Serviços' },
-  { value: 'geral', label: 'Geral' },
-];
 
 export function BusinessPage() {
   const { businessId } = useParams<{ businessId: string }>();
@@ -117,9 +109,6 @@ export function BusinessPage() {
         <button className="page-back" onClick={() => navigate(dashboardPath)}>← Voltar</button>
         <div className="page-heading">
           <h1>{currentBusiness.name}</h1>
-          <button onClick={() => navigate(`/business/${businessId}/new-product`)} className="btn-primary">
-            + Adicionar Produto
-          </button>
         </div>
         <div className="business-info">
           <div className="business-info-heading">
@@ -138,8 +127,7 @@ export function BusinessPage() {
                 <label htmlFor="business-category">Categoria *</label>
                 <select id="business-category" value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} required disabled={saving}>
                   <option value="">Selecione uma categoria</option>
-                  {form.category && !categories.some((category) => category.value === form.category) && <option value={form.category}>{form.category}</option>}
-                  {categories.map((category) => <option key={category.value} value={category.value}>{category.label}</option>)}
+                  <CategoryOptions kind="business" current={form.category} />
                 </select>
               </div>
               <div className="form-group">
@@ -163,7 +151,12 @@ export function BusinessPage() {
         <StorePaymentSettings key={currentBusiness.id} business={currentBusiness} onSave={setCurrentBusiness} />
 
         <div className="products-section">
-          <h2>Produtos ({products?.length || 0})</h2>
+          <div className="business-info-heading">
+            <h2>Produtos ({products?.length || 0})</h2>
+            {!!products?.length && <button onClick={() => navigate('/business/' + businessId + '/new-product')} className="btn-primary">
+              + Adicionar produto
+            </button>}
+          </div>
           
           {!products || products.length === 0 ? (
             <div className="empty-state">

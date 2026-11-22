@@ -8,6 +8,27 @@ router.use(authMiddleware, requireAdmin);
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+router.post('/categories', async (req, res, next) => {
+  const { kind, label } = req.body || {};
+  const name = typeof label === 'string' ? label.trim().replace(/\s+/g, ' ') : '';
+  const value = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  if ((kind !== 'business' && kind !== 'product') || !value || name.length > 100) {
+    return res.status(400).json({ error: 'Informe um nome válido para a categoria.' });
+  }
+  try {
+    const result = await query(
+      `INSERT INTO marketplace_categories (kind, value, label) VALUES ($1, $2, $3)
+       ON CONFLICT (kind, value) DO NOTHING RETURNING kind, value, label`,
+      [kind, value, name]
+    );
+    if (!result.rows.length) return res.status(409).json({ error: 'Esta categoria já está cadastrada.' });
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get('/sellers', async (req, res, next) => {
   try {
     const result = await query(

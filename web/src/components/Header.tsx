@@ -80,7 +80,7 @@ export function Header() {
                 <Link to="/admin#transferir-loja" className="nav-link">Transferir loja</Link>
               </>
             )}
-            {token && userType === 'business' && <Link to="/dashboard" className="nav-link">Minha Loja</Link>}
+            {token && userType === 'business' && <Link to="/dashboard" className="nav-link">Minhas Lojas</Link>}
           </nav>}
 
           {!isAuthPage && <div className="header-actions">

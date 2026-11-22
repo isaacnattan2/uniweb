@@ -4,6 +4,7 @@ import { getBusinessPublic, getProductsPublic, resolveAssetUrl } from '../servic
 import type { PublicBusiness, PublicProduct } from '../services/api';
 import { useCartStore } from '../context/store';
 import { ImageGallery } from '../components/ImageGallery';
+import { RatingControl, RatingLabel } from '../components/RatingControl';
 import '../styles/store-public.css';
 
 export function StorePublicPage() {
@@ -46,8 +47,10 @@ export function StorePublicPage() {
     return () => { active = false; };
   }, [businessId]);
 
+  const selectedProductId = selectedProduct?.id;
+
   useEffect(() => {
-    if (!selectedProduct) return;
+    if (!selectedProductId) return;
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     closeRef.current?.focus();
     function handleKeyDown(event: KeyboardEvent) {
@@ -70,7 +73,7 @@ export function StorePublicPage() {
       document.removeEventListener('keydown', handleKeyDown);
       if (previousFocus?.isConnected) previousFocus.focus();
     };
-  }, [selectedProduct, setParams]);
+  }, [selectedProductId, setParams]);
 
   function handleAddToCart(product: PublicProduct) {
     if (!businessId || !business) return;
@@ -98,7 +101,7 @@ export function StorePublicPage() {
             <div>
               <h1>{business.name}</h1>
               <p className="store-category">{business.category}</p>
-              <p className="store-rating">⭐ {business.rating || 'N/A'}</p>
+              <p className="store-rating"><RatingLabel {...business} /></p>
             </div>
           </div>
         </div>
@@ -107,6 +110,8 @@ export function StorePublicPage() {
         <div className="store-description">
           <h2>Sobre a loja</h2>
           <p>{business.description}</p>
+          <RatingControl key={business.id} kind="business" id={business.id}
+            onRated={(summary) => setBusiness((current) => current?.id === business.id ? { ...current, ...summary } : current)} />
         </div>
         <div className="products-section">
           <h2>Produtos ({products.length})</h2>
@@ -141,6 +146,11 @@ export function StorePublicPage() {
                 <h2 id="product-detail-title">{selectedProduct.name}</h2>
                 <p className="product-category">{selectedProduct.category}</p>
                 <p className="product-description">{selectedProduct.description}</p>
+                <p><RatingLabel {...selectedProduct} /></p>
+                <RatingControl key={selectedProduct.id} kind="product" id={selectedProduct.id}
+                  onRated={(summary) => setProducts((items) => items.map((item) =>
+                    item.id === selectedProduct.id ? { ...item, ...summary } : item
+                  ))} />
                 <p className="product-price-large">R$ {Number(selectedProduct.price).toFixed(2)}</p>
                 <p className="product-stock">{selectedProduct.stock > 0 ? `${selectedProduct.stock} em estoque` : 'Fora de estoque'}</p>
                 <button onClick={() => { handleAddToCart(selectedProduct); setParams({}, { replace: true }); }} disabled={selectedProduct.stock <= 0} className="btn-primary btn-large">+ Adicionar ao carrinho</button>

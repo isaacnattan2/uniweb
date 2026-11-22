@@ -1,12 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { getAllBusinesses, getRecentProducts, resolveAssetUrl, searchProducts } from '../services/api';
-import type { PublicBusiness, PublicProduct } from '../services/api';
+import { getAllBusinesses, getMarketplaceCategories, getRecentProducts, resolveAssetUrl, searchProducts } from '../services/api';
+import type { MarketplaceCategory, PublicBusiness, PublicProduct } from '../services/api';
 import { useCartStore } from '../context/store';
+import { RatingLabel } from '../components/RatingControl';
 import '../styles/shop.css';
 
 export function ShopPage() {
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
+  const category = params.get('category') || '';
+  const [categories, setCategories] = useState<MarketplaceCategory[]>([]);
+  const [categoryError, setCategoryError] = useState(false);
   const query = (params.get('q') || '').trim();
   const addToCart = useCartStore((state) => state.addToCart);
   const [businesses, setBusinesses] = useState<PublicBusiness[]>([]);
@@ -15,6 +19,16 @@ export function ShopPage() {
   const [error, setError] = useState('');
   const [storesError, setStoresError] = useState(false);
   const [addedName, setAddedName] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    getMarketplaceCategories().then((data) => {
+      if (active) setCategories(data.filter((item) => item.kind === 'product'));
+    }).catch(() => {
+      if (active) setCategoryError(true);
+    });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -29,7 +43,7 @@ export function ShopPage() {
       return () => { active = false; };
     }
 
-    const loadProducts = (query ? searchProducts(query) : getRecentProducts()).then((data) => {
+    const loadProducts = (query ? searchProducts(query, category) : getRecentProducts(category)).then((data) => {
       if (active) setProducts(data);
     }).catch(() => {
       if (active) setError(query ? 'Não foi possível buscar produtos.' : 'Não foi possível carregar os produtos recentes.');
@@ -41,7 +55,7 @@ export function ShopPage() {
     });
     void Promise.all([loadProducts, loadStores]).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [query]);
+  }, [query, category]);
 
   function handleAddToCart(product: PublicProduct) {
     addToCart({
@@ -63,6 +77,23 @@ export function ShopPage() {
       </div>
       <div className="container">
         {addedName && <p className="shop-notice" role="status">{addedName} adicionado ao carrinho. <Link to="/cart">Ver carrinho</Link></p>}
+        <div className="shop-category-filter">
+          <label htmlFor="shop-category">Categoria dos produtos</label>
+          <select id="shop-category" value={category} onChange={(event) => {
+            const value = event.target.value;
+            setParams((current) => {
+              const next = new URLSearchParams(current);
+              if (value) next.set('category', value);
+              else next.delete('category');
+              return next;
+            });
+          }}>
+            <option value="">Todas as categorias</option>
+            {category && !categories.some((item) => item.value === category) && <option value={category}>{category}</option>}
+            {categories.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+          </select>
+          {categoryError && <p role="status">Categorias indisponíveis no momento.</p>}
+        </div>
         {loading ? <p className="shop-feedback">Carregando...</p> : (<>
           <section className="search-results">
             <h2>{query && !error ? 'Resultados para “' + query + '” (' + products.length + ')' : query ? 'Busca de produtos' : 'Últimos produtos'}</h2>
@@ -86,7 +117,7 @@ export function ShopPage() {
                       <p className="product-store card-row-3">{product.business_name || 'Loja'}</p>
                       {product.description && <p className="product-desc card-row-4">{product.description.substring(0, 60)}</p>}
                       <p className="product-price card-row-5">R$ {Number(product.price).toFixed(2)}</p>
-                      <p className="product-stock card-row-6">{product.stock > 0 ? `${product.stock} em estoque` : 'Fora de estoque'}</p>
+                      <p className="product-stock card-row-6">{product.stock > 0 ? `${product.stock} em estoque` : 'Fora de estoque'} · <RatingLabel {...product} /></p>
                       <div className="product-actions card-footer card-row-7">
                         <button onClick={() => handleAddToCart(product)} disabled={product.stock <= 0} className="btn-primary">+ Carrinho</button>
                         <Link className="shop-secondary-link" to={`/store/${product.business_id}`}>Ver loja</Link>
@@ -107,7 +138,7 @@ export function ShopPage() {
                     <h3 className="card-row-2"><Link to={`/store/${business.id}`}>{business.name}</Link></h3>
                     <p className="business-category card-row-3">{business.category}</p>
                     {business.description && <p className="business-desc card-row-4">{business.description.substring(0, 80)}</p>}
-                    <div className="business-rating card-row-5">⭐ {business.rating || 'N/A'}</div>
+                    <div className="business-rating card-row-5"><RatingLabel {...business} /></div>
                     <Link className="shop-secondary-link card-footer card-row-6" to={`/store/${business.id}`}>Visitar loja →</Link>
                   </article>
                 ))}

@@ -1,3 +1,4 @@
+import { CategoryOptions } from '../components/CategoryOptions';
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { getProductsByBusiness, resolveAssetUrl, updateProduct } from '../services/api';
@@ -177,12 +178,7 @@ export function EditProductPage() {
               value={formData.category}
               onChange={handleChange}
             >
-              <option value="geral">Geral</option>
-              <option value="roupas">Roupas</option>
-              <option value="alimentos">Alimentos</option>
-              <option value="eletronicos">Eletrônicos</option>
-              <option value="livros">Livros</option>
-              <option value="outros">Outros</option>
+              <CategoryOptions kind="product" current={formData.category} />
             </select>
           </div>
 

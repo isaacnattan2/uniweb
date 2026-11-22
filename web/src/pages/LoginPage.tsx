@@ -21,8 +21,10 @@ export function LoginPage() {
     try {
       const { user, token } = await loginUser(email, password);
       login(token, user.id, user.user_type);
+      const from = location.state?.from;
+      const customerDestination = typeof from === 'string' && (from === '/cart' || /^\/store\/[\da-f-]{36}(?:\?product=[\da-f-]{36})?$/i.test(from)) ? from : '/shop';
       navigate(user.user_type === 'admin' ? '/admin' : user.user_type === 'business' ? '/dashboard' :
-        location.state?.from === '/cart' ? '/cart' : '/shop', { replace: true });
+        customerDestination, { replace: true });
     } catch (err: any) {
       setError(err.response?.data?.error || 'Não foi possível entrar. Verifique seus dados e tente novamente.');
     } finally {

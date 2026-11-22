@@ -333,3 +333,29 @@
   }
 }
 
+
+.rating-control {
+  margin-block: 0.5rem;
+}
+
+.rating-control [role="group"] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.rating-control button {
+  min-width: 2.5rem;
+  min-height: 2.5rem;
+  border: 1px solid #e2c992;
+  border-radius: 5px;
+  background: #fffaf0;
+  color: #805600;
+  font-size: 1.25rem;
+  cursor: pointer;
+}
+
+.rating-control button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}

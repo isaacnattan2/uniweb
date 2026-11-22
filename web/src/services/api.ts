@@ -21,7 +21,18 @@ export interface AdminBusiness {
   status: 'active' | 'inactive' | 'suspended';
 }
 
-export interface PublicProduct {
+export interface RatingSummary {
+  rating?: string | number;
+  rating_count?: number;
+}
+
+export interface MarketplaceCategory {
+  kind: 'business' | 'product';
+  value: string;
+  label: string;
+}
+
+export interface PublicProduct extends RatingSummary {
   id: string;
   business_id: string;
   business_name?: string;
@@ -33,14 +44,13 @@ export interface PublicProduct {
   images?: Array<{ id?: string; image_url: string; order_index?: number }>;
 }
 
-export interface PublicBusiness {
+export interface PublicBusiness extends RatingSummary {
   payment_methods?: StorePaymentMethod[];
   max_card_installments?: number;
   id: string;
   name: string;
   description?: string;
   category?: string;
-  rating?: string | number;
 }
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
@@ -171,13 +181,28 @@ export async function getProductsPublic(businessId: string): Promise<PublicProdu
   return response.data;
 }
 
-export async function getRecentProducts(): Promise<PublicProduct[]> {
-  const response = await api.get('/shop/products/recent');
+export async function getRecentProducts(category?: string): Promise<PublicProduct[]> {
+  const response = await api.get('/shop/products/recent', { params: { category } });
   return response.data;
 }
 
-export async function searchProducts(query: string): Promise<PublicProduct[]> {
-  const response = await api.get(`/shop/search?q=${encodeURIComponent(query)}`);
+export async function searchProducts(query: string, category?: string): Promise<PublicProduct[]> {
+  const response = await api.get('/shop/search', { params: { q: query, category } });
+  return response.data;
+}
+
+export async function getMarketplaceCategories(): Promise<MarketplaceCategory[]> {
+  const response = await api.get('/shop/categories');
+  return response.data;
+}
+
+export async function createMarketplaceCategory(kind: MarketplaceCategory['kind'], label: string): Promise<MarketplaceCategory> {
+  const response = await api.post('/admin/categories', { kind, label });
+  return response.data;
+}
+
+export async function rateMarketplaceItem(kind: MarketplaceCategory['kind'], id: string, rating: number): Promise<RatingSummary> {
+  const response = await api.put('/shop/reviews/' + kind + '/' + id, { rating });
   return response.data;
 }
 
