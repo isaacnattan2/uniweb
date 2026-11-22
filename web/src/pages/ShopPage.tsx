@@ -77,9 +77,9 @@ export function ShopPage() {
       </div>
       <div className="container">
         {addedName && <p className="shop-notice" role="status">{addedName} adicionado ao carrinho. <Link to="/cart">Ver carrinho</Link></p>}
-        <div className="shop-category-filter">
-          <label htmlFor="shop-category">Categoria dos produtos</label>
-          <select id="shop-category" value={category} onChange={(event) => {
+        <select className="shop-category-filter" aria-label="Categoria dos produtos" value={category}
+          disabled={categoryError && !category}
+          onChange={(event) => {
             const value = event.target.value;
             setParams((current) => {
               const next = new URLSearchParams(current);
@@ -88,12 +88,10 @@ export function ShopPage() {
               return next;
             });
           }}>
-            <option value="">Todas as categorias</option>
-            {category && !categories.some((item) => item.value === category) && <option value={category}>{category}</option>}
-            {categories.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-          </select>
-          {categoryError && <p role="status">Categorias indisponíveis no momento.</p>}
-        </div>
+          <option value="">{categoryError ? 'Categorias indispon?veis' : 'Todas as categorias'}</option>
+          {category && !categories.some((item) => item.value === category) && <option value={category}>{category}</option>}
+          {categories.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+        </select>
         {loading ? <p className="shop-feedback">Carregando...</p> : (<>
           <section className="search-results">
             <h2>{query && !error ? 'Resultados para “' + query + '” (' + products.length + ')' : query ? 'Busca de produtos' : 'Últimos produtos'}</h2>

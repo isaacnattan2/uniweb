@@ -17,6 +17,7 @@ export function CartPage() {
   const [error, setError] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
   const [checkoutStore, setCheckoutStore] = useState('');
+  const [couponCode, setCouponCode] = useState('');
   const [availability, setAvailability] = useState<{ key: string; methods: StorePaymentMethod[]; maxCardInstallments?: number; failed?: boolean }>();
   const [deliveryType, setDeliveryType] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
@@ -80,12 +81,12 @@ export function CartPage() {
         price: item.price,
       }));
 
-      const signature = JSON.stringify([userId, items, paymentMethod, deliveryType, deliveryAddress.trim()]);
+      const signature = JSON.stringify([userId, items, paymentMethod, deliveryType, deliveryAddress.trim(), couponCode.trim()]);
       if (checkoutAttempt.current?.signature !== signature) {
         checkoutAttempt.current = { signature, id: crypto.randomUUID() };
       }
       const { checkoutUrl } = await createOrder(
-        items, selectedMethod, deliveryType, deliveryAddress.trim(), checkoutAttempt.current.id
+        items, selectedMethod, deliveryType, deliveryAddress.trim(), checkoutAttempt.current.id, couponCode.trim()
       );
       removeStoreFromCart(selectedStore);
       if (checkoutUrl) {
@@ -206,6 +207,7 @@ export function CartPage() {
                       <select id="checkout-store" value={selectedStore} disabled={loading} onChange={(event) => {
                         setCheckoutStore(event.target.value);
                         setPaymentMethod('');
+                        setCouponCode('');
                         setError('');
                       }}>
                         {storeIds.map((id) => (
@@ -215,6 +217,10 @@ export function CartPage() {
                       <p><strong>Total desta cobrança:</strong> {storeTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}. Os itens das outras lojas ficam no carrinho.</p>
                     </>
                   )}
+                  <label htmlFor="checkout-coupon">Cupom da loja (opcional)</label>
+                  <input id="checkout-coupon" type="text" value={couponCode} maxLength={30} disabled={loading}
+                    onChange={(event) => setCouponCode(event.target.value.toUpperCase())} />
+                  {couponCode.trim() && <p>O desconto será validado ao continuar e o valor final aparecerá no Asaas.</p>}
                   <label htmlFor="payment-method">Forma de pagamento</label>
                   <select id="payment-method" value={selectedMethod || ''} onChange={(event) => setPaymentMethod(event.target.value)} disabled={loading || !available?.methods.length}>
                     <option value="">Selecione</option>

@@ -1,6 +1,7 @@
 import { CategoryOptions } from '../components/CategoryOptions';
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import { StoreCoupons } from '../components/StoreCoupons';
 import { StorePaymentSettings } from '../components/StorePaymentSettings';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getBusiness, getProductsByBusiness, updateBusiness } from '../services/api';
@@ -149,6 +150,8 @@ export function BusinessPage() {
         </div>
 
         <StorePaymentSettings key={currentBusiness.id} business={currentBusiness} onSave={setCurrentBusiness} />
+
+        <StoreCoupons key={currentBusiness.id} businessId={currentBusiness.id} products={products ?? []} />
 
         <div className="products-section">
           <div className="business-info-heading">

@@ -108,6 +108,12 @@ export function OrdersPage() {
                 <div className="order-footer">
                   {orderId && order.checkoutUrl && <a href={order.checkoutUrl} className="btn-secondary">Continuar pagamento</a>}
                   <div className="order-total">
+                    {orderId && Number(order.discount) > 0 && (
+                      <>
+                        <p>Subtotal: R$ {Number(order.subtotal).toFixed(2)}</p>
+                        <p>Desconto{order.coupon_code ? ' (' + order.coupon_code + ')' : ''}: − R$ {Number(order.discount).toFixed(2)}</p>
+                      </>
+                    )}
                     <strong>Total: R$ {Number(order.total_amount).toFixed(2)}</strong>
                   </div>
                   {!orderId && <button

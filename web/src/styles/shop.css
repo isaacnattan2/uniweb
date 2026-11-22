@@ -264,18 +264,23 @@
 }
 
 .shop-category-filter {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 1rem;
-  padding: 0.75rem 1rem;
-  margin-bottom: 1.5rem;
+  display: block;
+  inline-size: 15rem;
+  max-inline-size: 100%;
+  min-block-size: 2.5rem;
+  margin-block-end: 1rem;
+  margin-inline-start: auto;
+  padding: 0.375rem 0.625rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
   background: white;
-  border-radius: 8px;
+  color: #1f2937;
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
 }
 
-.shop-category-filter select {
-  min-height: 2.5rem;
-  max-width: 100%;
-  padding: 0.4rem 0.6rem;
+.shop-category-filter:focus-visible {
+  outline: 2px solid #1d4ed8;
+  outline-offset: 2px;
 }

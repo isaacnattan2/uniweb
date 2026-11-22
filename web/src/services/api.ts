@@ -226,9 +226,10 @@ export async function createOrder(
   paymentMethod: PaymentMethod,
   deliveryType: DeliveryType,
   deliveryAddress: string,
-  checkoutId: string
+  checkoutId: string,
+  couponCode?: string
 ): Promise<{ orderIds: string[]; checkoutUrl: string | null }> {
-  const response = await api.post('/orders/checkout', { items, paymentMethod, deliveryType, deliveryAddress, checkoutId });
+  const response = await api.post('/orders/checkout', { items, paymentMethod, deliveryType, deliveryAddress, checkoutId, couponCode });
   return response.data;
 }
 
@@ -255,4 +256,37 @@ export async function uploadImages(files: File[]) {
     },
   });
   return response.data;
+}
+export interface StoreCoupon {
+  id: string;
+  code: string;
+  discount_type: 'percent' | 'fixed';
+  discount_value: number;
+  scope: 'store' | 'category' | 'products';
+  category: string | null;
+  product_ids: string[];
+  active: boolean;
+}
+
+export interface StoreCouponInput {
+  code: string;
+  discountType: StoreCoupon['discount_type'];
+  discountValue: number;
+  scope: StoreCoupon['scope'];
+  category: string;
+  productIds: string[];
+  active: boolean;
+}
+
+export async function getStoreCoupons(businessId: string): Promise<StoreCoupon[]> {
+  return (await api.get('/businesses/' + businessId + '/coupons')).data;
+}
+
+export async function saveStoreCoupon(businessId: string, input: StoreCouponInput, couponId?: string): Promise<StoreCoupon> {
+  const path = '/businesses/' + businessId + '/coupons';
+  return (couponId ? await api.put(path + '/' + couponId, input) : await api.post(path, input)).data;
+}
+
+export async function deleteStoreCoupon(businessId: string, couponId: string) {
+  await api.delete('/businesses/' + businessId + '/coupons/' + couponId);
 }

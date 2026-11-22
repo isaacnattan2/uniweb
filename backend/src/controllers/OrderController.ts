@@ -5,6 +5,7 @@ import { Response } from 'express';
 import { PoolClient } from 'pg';
 import { AuthRequest } from '../middleware/auth';
 import { getClient, query } from '../config/database';
+import { applyCoupon, Coupon, CouponError, normalizeCouponCode } from '../services/StoreCoupons';
 
 class CheckoutError extends Error {
   constructor(public status: number, message: string) {
@@ -24,6 +25,7 @@ interface CheckoutProduct {
   name: string;
   price: string;
   stock: number;
+  category: string | null;
   payment_methods: string[];
   max_card_installments: number;
 }
@@ -48,6 +50,11 @@ export class OrderController {
       const { items, paymentMethod, deliveryType, deliveryAddress } = req.body || {};
       const config = startPayment ? getAsaasConfig() : null;
       const checkoutId = req.body?.checkoutId;
+      const inputCode = req.body?.couponCode;
+      if (inputCode != null && (typeof inputCode !== 'string' || inputCode.length > 64)) {
+        throw new CheckoutError(400, 'Código de cupom inválido.');
+      }
+      const couponCode = inputCode ? normalizeCouponCode(inputCode) : '';
       if (startPayment && !config) {
         throw new CheckoutError(503, 'O pagamento online ainda não está configurado.');
       }
@@ -96,6 +103,7 @@ export class OrderController {
       inTransaction = true;
       const requestHash = createHash('sha256').update(JSON.stringify([
         paymentMethod, deliveryType, address, [...itemById.values()].sort((a, b) => a.productId.localeCompare(b.productId)),
+        ...(couponCode ? [couponCode] : []),
       ])).digest('hex');
       if (config) {
         await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))', [checkoutId]);
@@ -118,7 +126,7 @@ export class OrderController {
         }
       }
       const result = await client.query<CheckoutProduct>(
-        `SELECT p.id, p.business_id, p.name, p.price, p.stock, b.payment_methods, b.max_card_installments
+        `SELECT p.id, p.business_id, p.name, p.price, p.stock, p.category, b.payment_methods, b.max_card_installments
          FROM products p
          JOIN businesses b ON b.id = p.business_id
          JOIN users u ON u.id = b.owner_id
@@ -153,20 +161,52 @@ export class OrderController {
         groups.set(product.business_id, group);
       }
 
+      if (couponCode && groups.size !== 1) {
+        throw new CheckoutError(400, 'Use um cupom por compra de uma loja.');
+      }
+
       const orderIds: string[] = [];
+      const checkoutItems: Array<{ name: string; value: number; quantity: number }> = [];
       for (const [businessId, group] of groups) {
-        const total = group.reduce((sum, entry) => sum + entry.subtotal, 0n);
-        if (total > 999999999999999n) {
+        const subtotal = group.reduce((sum, entry) => sum + entry.subtotal, 0n);
+        if (subtotal > 999999999999999n) {
           throw new CheckoutError(400, 'O valor do pedido excede o limite permitido.');
         }
+        let pricedItems = group.map((entry) => ({ ...entry, discount: 0n }));
+        if (couponCode) {
+          const coupons = await client.query<Coupon>(
+            'SELECT * FROM business_coupons WHERE business_id = $1 AND code = $2 AND active FOR SHARE',
+            [businessId, couponCode]
+          );
+          if (!coupons.rows.length) throw new CouponError('Cupom inválido ou inativo para esta loja.');
+          pricedItems = applyCoupon(group, coupons.rows[0]);
+        }
+        const discount = pricedItems.reduce((sum, entry) => sum + entry.discount, 0n);
+        if (couponCode && subtotal === discount) {
+          throw new CouponError('Este cupom zera o pedido. Adicione outros itens ou use outro cupom.');
+        }
+
         const orderId = uuidv4();
-        const amount = formatCents(total);
+        const amount = formatCents(subtotal);
         await client.query(
-          `INSERT INTO orders (id, user_id, business_id, order_number, subtotal, total, payment_method, delivery_type, delivery_address)
-           VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8)`,
-          [orderId, req.userId, businessId, orderId, amount, paymentMethod, deliveryType, deliveryType === 'pickup' ? null : address]
+          `INSERT INTO orders (id, user_id, business_id, order_number, subtotal, total, payment_method, delivery_type, delivery_address, discount, coupon_code)
+           VALUES ($1, $2, $3, $4, $5, $9, $6, $7, $8, $10, $11)`,
+          [orderId, req.userId, businessId, orderId, amount, paymentMethod, deliveryType, deliveryType === 'pickup' ? null : address,
+            formatCents(subtotal - discount), formatCents(discount), couponCode || null]
         );
-        for (const { product, item, subtotal } of group) {
+        for (const { product, item, subtotal, discount: lineDiscount } of pricedItems) {
+          if (config) {
+            const quantity = BigInt(item.quantity);
+            const net = subtotal - lineDiscount;
+            const unitCents = net / quantity;
+            const remainder = Number(net % quantity);
+            if (unitCents > 0n || !couponCode) {
+              checkoutItems.push({ name: product.name, value: Number(formatCents(unitCents)), quantity: item.quantity - remainder });
+            }
+            if (remainder) {
+              checkoutItems.push({ name: product.name, value: Number(formatCents(unitCents + 1n)), quantity: remainder });
+            }
+          }
           await client.query(
             `INSERT INTO order_items (id, order_id, product_id, product_name, product_price, quantity, subtotal)
              VALUES ($1, $2, $3, $4, $5, $6, $7)`,
@@ -179,11 +219,6 @@ export class OrderController {
 
       let paymentUrl: string | undefined;
       if (config) {
-        const checkoutItems = result.rows.map((product) => ({
-          name: product.name,
-          value: Number(product.price),
-          quantity: itemById.get(product.id)!.quantity,
-        }));
         let providerId: string;
         try {
           const maxCardInstallments = Math.min(...result.rows.map((product) => product.max_card_installments));
@@ -215,6 +250,7 @@ export class OrderController {
           releaseError = rollbackError instanceof Error ? rollbackError : new Error('Falha ao desfazer transação.');
         }
       }
+      if (error instanceof CouponError) return res.status(400).json({ error: error.message });
       if (error instanceof CheckoutError) {
         return res.status(error.status).json({ error: error.message });
       }
@@ -260,7 +296,8 @@ export class OrderController {
 
       const result = await query(
         `SELECT o.id, o.total AS total_amount, o.order_status AS status, o.created_at,
-                o.payment_method, o.payment_status, o.delivery_type, o.delivery_address, c.provider_id, c.installment_count,
+                o.payment_method, o.payment_status, o.delivery_type, o.delivery_address, o.subtotal, o.discount, o.coupon_code,
+                c.provider_id, c.installment_count,
                 COALESCE(json_agg(
                   json_build_object('productId', oi.product_id, 'quantity', oi.quantity, 'unitPrice', oi.product_price, 'productName', oi.product_name)
                 ) FILTER (WHERE oi.id IS NOT NULL), '[]'::json) AS items

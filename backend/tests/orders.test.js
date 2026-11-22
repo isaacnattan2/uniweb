@@ -250,3 +250,59 @@ test('envia ao Asaas o limite da loja e omite parcelamento quando aceita apenas 
   assert.deepEqual(multiple.chargeTypes, ['DETACHED', 'INSTALLMENT']);
   assert.deepEqual(multiple.installment, { maxInstallmentCount: 12 });
 });
+
+test('calcula descontos em centavos e aplica apenas aos itens elegiveis', () => {
+  const { applyCoupon, CouponError } = require('../dist/services/StoreCoupons');
+  const items = [
+    { product: { id: 'a', category: 'Roupas' }, subtotal: 999n },
+    { product: { id: 'b', category: 'roupas' }, subtotal: 1999n },
+    { product: { id: 'c', category: 'livros' }, subtotal: 500n },
+  ];
+  const base = { code: 'TESTE', discount_type: 'fixed', discount_value: 1000, scope: 'category', category: 'roupas', product_ids: [] };
+  assert.deepEqual(applyCoupon(items, base).map((x) => x.discount), [333n, 667n, 0n]);
+  assert.deepEqual(applyCoupon(items, { ...base, scope: 'products', product_ids: ['c'], discount_value: 600 })
+    .map((x) => x.discount), [0n, 0n, 500n]);
+  assert.equal(applyCoupon(items, { ...base, scope: 'store', discount_type: 'percent' })
+    .reduce((sum, x) => sum + x.discount, 0n), 350n);
+  assert.throws(() => applyCoupon(items, { ...base, category: 'outros' }), CouponError);
+});
+
+test('checkout com cupom grava subtotal e desconto e envia o mesmo total ao Asaas', async (t) => {
+  const oldKey = process.env.ASAAS_API_KEY;
+  const oldToken = process.env.ASAAS_WEBHOOK_TOKEN;
+  t.after(() => {
+    if (oldKey === undefined) delete process.env.ASAAS_API_KEY;
+    else process.env.ASAAS_API_KEY = oldKey;
+    if (oldToken === undefined) delete process.env.ASAAS_WEBHOOK_TOKEN;
+    else process.env.ASAAS_WEBHOOK_TOKEN = oldToken;
+  });
+  process.env.ASAAS_API_KEY = 'sandbox-test-key';
+  process.env.ASAAS_WEBHOOK_TOKEN = 'mock-webhook-token-for-uniweb-tests';
+  const client = mockClient([products[0]]);
+  const query = client.query.bind(client);
+  client.query = async (sql, values) => {
+    const result = await query(sql, values);
+    if (sql.includes('FROM business_coupons')) {
+      assert.deepEqual(values, ['store-1', 'TESTE101']);
+      return { rows: [{ code: 'TESTE101', discount_type: 'fixed', discount_value: 101, scope: 'store', product_ids: [] }] };
+    }
+    return result;
+  };
+  database.getClient = async () => client;
+  const provider = t.mock.method(globalThis, 'fetch', async () =>
+    new Response(JSON.stringify({ id: '10000000-0000-0000-0000-000000000001' }), { status: 200 })
+  );
+  const req = request();
+  req.body.items = [req.body.items[0]];
+  req.body.checkoutId = '20000000-0000-0000-0000-000000000002';
+  req.body.couponCode = 'teste101';
+  const res = response();
+  await controller.createOrder(req, res, true);
+
+  assert.equal(res.statusCode, 201);
+  const orderValues = client.calls.find(([sql]) => sql.includes('INSERT INTO orders'))[1];
+  assert.equal(orderValues[4], '25.00');
+  assert.deepEqual(orderValues.slice(8), ['23.99', '1.01', 'TESTE101']);
+  const payload = JSON.parse(provider.mock.calls[0].arguments[1].body);
+  assert.deepEqual(payload.items.map(({ value, quantity }) => [value, quantity]), [[11.99, 1], [12, 1]]);
+});

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { deleteCoupon, listCoupons, saveCoupon } from '../services/StoreCoupons';
 import BusinessController from '../controllers/BusinessController';
 import { authMiddleware, requireAdmin, requireBusinessAccess } from '../middleware/auth';
 
@@ -8,5 +9,10 @@ router.post('/', authMiddleware, requireAdmin, (req, res) => BusinessController.
 router.get('/my-businesses', authMiddleware, (req, res) => BusinessController.getMyBusinesses(req, res));
 router.get('/:id', authMiddleware, requireBusinessAccess, (req, res) => BusinessController.getBusiness(req, res));
 router.put('/:id', authMiddleware, requireBusinessAccess, (req, res) => BusinessController.updateBusiness(req, res));
+
+router.get('/:id/coupons', authMiddleware, requireBusinessAccess, (req, res, next) => listCoupons(req, res).catch(next));
+router.post('/:id/coupons', authMiddleware, requireBusinessAccess, (req, res, next) => saveCoupon(req, res).catch(next));
+router.put('/:id/coupons/:couponId', authMiddleware, requireBusinessAccess, (req, res, next) => saveCoupon(req, res).catch(next));
+router.delete('/:id/coupons/:couponId', authMiddleware, requireBusinessAccess, (req, res, next) => deleteCoupon(req, res).catch(next));
 
 export default router;
