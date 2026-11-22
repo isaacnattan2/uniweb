@@ -6,10 +6,10 @@ export class ShopController {
   async getAllBusinesses(req: any, res: Response) {
     try {
       const result = await query(
-        `SELECT id, name, description, category, logo_url, rating, status 
-         FROM businesses 
-         WHERE status = 'active' 
-         ORDER BY created_at DESC`
+        `SELECT b.id, b.name, b.description, b.category, b.logo_url, b.rating, b.status
+         FROM businesses b JOIN users u ON u.id = b.owner_id
+         WHERE b.status = 'active' AND b.deleted_at IS NULL AND u.status = 'active'
+         ORDER BY b.created_at DESC`
       );
       res.json(result.rows);
     } catch (error: any) {
@@ -21,9 +21,9 @@ export class ShopController {
     try {
       const { businessId } = req.params;
       const result = await query(
-        `SELECT id, name, description, category, logo_url, rating, status, payment_methods
-         FROM businesses
-         WHERE deleted_at IS NULL AND id = $1 AND status = 'active'`,
+        `SELECT b.id, b.name, b.description, b.category, b.logo_url, b.rating, b.status, b.payment_methods, b.max_card_installments
+         FROM businesses b JOIN users u ON u.id = b.owner_id
+         WHERE b.deleted_at IS NULL AND b.id = $1 AND b.status = 'active' AND u.status = 'active'`,
         [businessId]
       );
       
@@ -41,10 +41,11 @@ export class ShopController {
     try {
       const { businessId } = req.params;
       const result = await query(
-        `SELECT id, business_id, name, description, price, stock, category, rating, status 
-         FROM products 
-         WHERE business_id = $1 AND status = 'active'
-         ORDER BY created_at DESC`,
+        `SELECT p.id, p.business_id, p.name, p.description, p.price, p.stock, p.category, p.rating, p.status
+         FROM products p JOIN businesses b ON b.id = p.business_id JOIN users u ON u.id = b.owner_id
+         WHERE p.business_id = $1 AND p.status = 'active' AND p.deleted_at IS NULL
+           AND b.status = 'active' AND b.deleted_at IS NULL AND u.status = 'active'
+         ORDER BY p.created_at DESC`,
         [businessId]
       );
       
@@ -71,7 +72,9 @@ export class ShopController {
                 b.name as business_name
          FROM products p
          JOIN businesses b ON p.business_id = b.id
+         JOIN users u ON u.id = b.owner_id
          WHERE (p.name ILIKE $1 OR p.description ILIKE $1) AND p.status = 'active' AND b.status = 'active'
+           AND p.deleted_at IS NULL AND b.deleted_at IS NULL AND u.status = 'active'
          ORDER BY p.created_at DESC
          LIMIT 20`,
         [`%${q}%`]

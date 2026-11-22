@@ -5,6 +5,8 @@ export interface Seller {
   id: string;
   full_name: string;
   email: string;
+  phone: string | null;
+  status: 'active' | 'inactive' | 'suspended';
 }
 
 export interface AdminBusiness {
@@ -15,6 +17,8 @@ export interface AdminBusiness {
   owner_id: string;
   owner_name: string;
   owner_email: string;
+  owner_status: Seller['status'] | 'deleted';
+  status: 'active' | 'inactive' | 'suspended';
 }
 
 export interface PublicProduct {
@@ -31,6 +35,7 @@ export interface PublicProduct {
 
 export interface PublicBusiness {
   payment_methods?: StorePaymentMethod[];
+  max_card_installments?: number;
   id: string;
   name: string;
   description?: string;
@@ -80,9 +85,17 @@ export async function getCurrentUser(): Promise<{ id: string; user_type: UserTyp
   return response.data;
 }
 
-export async function getSellers(): Promise<Seller[]> {
-  const response = await api.get('/admin/sellers');
+export async function getSellers(includeInactive = false): Promise<Seller[]> {
+  const response = await api.get('/admin/sellers', { params: { includeInactive } });
   return response.data;
+}
+
+export async function updateSeller(id: string, data: { fullName: string; email: string; phone: string }) {
+  await api.put('/admin/sellers/' + id, data);
+}
+
+export async function setAdminBlock(resource: 'sellers' | 'businesses', id: string, blocked: boolean) {
+  await api.put('/admin/' + resource + '/' + id + '/status', { blocked });
 }
 
 export async function createSeller(fullName: string, email: string, password: string) {
@@ -116,7 +129,7 @@ export async function getBusiness(id: string): Promise<Business> {
   return response.data;
 }
 
-export async function updateBusiness(id: string, data: { name: string; category: string; description: string } | { payment_methods: StorePaymentMethod[] }): Promise<Business> {
+export async function updateBusiness(id: string, data: { name: string; category: string; description: string } | { payment_methods: StorePaymentMethod[]; max_card_installments: number }): Promise<Business> {
   const response = await api.put(`/businesses/${id}`, data);
   return response.data;
 }

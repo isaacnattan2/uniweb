@@ -3,6 +3,8 @@ import { create } from 'zustand';
 export type UserType = 'admin' | 'business' | 'customer' | 'driver';
 
 export type StorePaymentMethod = 'pix' | 'credit_card';
+export const DEFAULT_CARD_INSTALLMENTS = 3;
+export const MAX_CARD_INSTALLMENTS = 12;
 
 export interface Business {
   id: string;
@@ -11,6 +13,7 @@ export interface Business {
   category: string | null;
   status: string;
   payment_methods?: StorePaymentMethod[];
+  max_card_installments?: number;
 }
 
 interface Product {

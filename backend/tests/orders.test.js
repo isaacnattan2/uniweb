@@ -5,8 +5,8 @@ const controller = require('../dist/controllers/OrderController').default;
 const originalGetClient = database.getClient;
 
 const products = [
-  { id: '00000000-0000-0000-0000-000000000001', business_id: 'store-1', name: 'Produto A', price: '12.50', stock: 5, payment_methods: ['pix', 'credit_card'] },
-  { id: '00000000-0000-0000-0000-000000000002', business_id: 'store-2', name: 'Produto B', price: '7.25', stock: 3, payment_methods: ['pix', 'credit_card'] },
+  { id: '00000000-0000-0000-0000-000000000001', business_id: 'store-1', name: 'Produto A', price: '12.50', stock: 5, max_card_installments: 8, payment_methods: ['pix', 'credit_card'] },
+  { id: '00000000-0000-0000-0000-000000000002', business_id: 'store-2', name: 'Produto B', price: '7.25', stock: 3, max_card_installments: 3, payment_methods: ['pix', 'credit_card'] },
 ];
 
 after(async () => {
@@ -226,4 +226,27 @@ test('bloqueia um meio de pagamento desativado por uma loja do carrinho', async 
   assert.ok(client.calls.some(([sql]) => sql.includes('FOR SHARE OF b')));
   assert.equal(client.calls.some(([sql]) => sql.includes('INSERT INTO orders')), false);
   assert.equal(client.calls.at(-1)[0], 'ROLLBACK');
+});
+
+test('envia ao Asaas o limite da loja e omite parcelamento quando aceita apenas cartao a vista', async (t) => {
+  const { createAsaasCheckout } = require('../dist/services/AsaasCheckout');
+  const providerId = '10000000-0000-0000-0000-000000000001';
+  const provider = t.mock.method(globalThis, 'fetch', async () =>
+    new Response(JSON.stringify({ id: providerId }), { status: 200 })
+  );
+  const config = {
+    key: 'sandbox-test-key',
+    apiUrl: 'https://api-sandbox.asaas.com/v3',
+    returnUrl: new URL('https://example.com/orders'),
+  };
+  const items = [{ name: 'Produto', quantity: 1, value: 300 }];
+
+  await createAsaasCheckout(config, 'checkout-1', 'credit_card', items, 1);
+  await createAsaasCheckout(config, 'checkout-2', 'credit_card', items, 12);
+  const [single, multiple] = provider.mock.calls.map(({ arguments: [, options] }) => JSON.parse(options.body));
+
+  assert.deepEqual(single.chargeTypes, ['DETACHED']);
+  assert.equal(single.installment, undefined);
+  assert.deepEqual(multiple.chargeTypes, ['DETACHED', 'INSTALLMENT']);
+  assert.deepEqual(multiple.installment, { maxInstallmentCount: 12 });
 });

@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../config/database';
 
-export type BusinessUpdate = Partial<Record<'name' | 'description' | 'category', string | null>> & { payment_methods?: string[] };
+export type BusinessUpdate = Partial<Record<'name' | 'description' | 'category', string | null>> & { payment_methods?: string[]; max_card_installments?: number };
 
 function generateSlug(text: string): string {
   return text

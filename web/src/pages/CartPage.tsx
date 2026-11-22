@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { StorePaymentMethod } from '../context/store';
 import { createOrder, getBusinessPublic } from '../services/api';
-import { useCartStore, useAuthStore } from '../context/store';
+import { DEFAULT_CARD_INSTALLMENTS, useCartStore, useAuthStore } from '../context/store';
 import '../styles/cart.css';
 
 export function CartPage() {
@@ -17,7 +17,7 @@ export function CartPage() {
   const [error, setError] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
   const [checkoutStore, setCheckoutStore] = useState('');
-  const [availability, setAvailability] = useState<{ key: string; methods: StorePaymentMethod[]; failed?: boolean }>();
+  const [availability, setAvailability] = useState<{ key: string; methods: StorePaymentMethod[]; maxCardInstallments?: number; failed?: boolean }>();
   const [deliveryType, setDeliveryType] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const checkoutAttempt = useRef<{ signature: string; id: string } | null>(null);
@@ -30,6 +30,7 @@ export function CartPage() {
   const storeItems = cart.filter((item) => item.businessId === selectedStore);
   const storeTotal = storeItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const available = availability?.key === selectedStore ? availability : undefined;
+  const maxCardInstallments = available?.maxCardInstallments ?? DEFAULT_CARD_INSTALLMENTS;
   const selectedMethod = available?.methods.find((method) => method === paymentMethod);
 
   useEffect(() => {
@@ -38,7 +39,7 @@ export function CartPage() {
     let active = true;
     getBusinessPublic(selectedStore).then((business) => {
       const methods = business.payment_methods ?? ['pix', 'credit_card'];
-      if (active) setAvailability({ key: selectedStore, methods });
+      if (active) setAvailability({ key: selectedStore, methods, maxCardInstallments: business.max_card_installments });
     }).catch(() => {
       if (active) setAvailability({ key: selectedStore, methods: [], failed: true });
     });
@@ -239,7 +240,9 @@ export function CartPage() {
                       <textarea id="delivery-address" value={deliveryAddress} onChange={(event) => setDeliveryAddress(event.target.value)} maxLength={1000} disabled={loading} />
                     </>
                   )}
-                  {selectedMethod === 'credit_card' && <p>Até 3× sem juros no cartão.</p>}
+                  {selectedMethod === 'credit_card' && (
+                    <p>{maxCardInstallments === 1 ? 'Cartão à vista.' : `Até ${maxCardInstallments}× sem juros no cartão.`}</p>
+                  )}
                   <p>Você vai concluir o pagamento na página do Asaas. O total não inclui frete.</p>
                 </div>
               )}

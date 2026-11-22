@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import BusinessService, { BusinessUpdate } from '../services/BusinessService';
+import { MAX_CARD_INSTALLMENTS } from '../services/AsaasCheckout';
 import { query } from '../config/database';
 
 export class BusinessController {
@@ -58,7 +59,7 @@ export class BusinessController {
       if (!req.userId || (req.userType !== 'admin' && req.userType !== 'business')) {
         return res.status(403).json({ error: 'Sem acesso a esta loja' });
       }
-      const allowed = ['name', 'description', 'category', 'payment_methods'];
+      const allowed = ['name', 'description', 'category', 'payment_methods', 'max_card_installments'];
       if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
         return res.status(400).json({ error: 'Campos de loja inválidos' });
       }
@@ -93,6 +94,13 @@ export class BusinessController {
           return res.status(400).json({ error: 'Selecione pelo menos uma forma de pagamento disponível.' });
         }
         data.payment_methods = methods;
+      }
+      if ('max_card_installments' in req.body) {
+        const count = req.body.max_card_installments;
+        if (!Number.isInteger(count) || count < 1 || count > MAX_CARD_INSTALLMENTS) {
+          return res.status(400).json({ error: 'Escolha um limite de 1 a 12 parcelas.' });
+        }
+        data.max_card_installments = count;
       }
       const business = await BusinessService.updateBusiness(id, data, req.userType === 'admin' ? undefined : req.userId);
       if (!business) {

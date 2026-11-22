@@ -1,4 +1,4 @@
-export const MAX_INSTALLMENTS = 3;
+export const MAX_CARD_INSTALLMENTS = 12;
 export const checkoutIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export class AsaasPixKeyMissingError extends Error {}
@@ -26,9 +26,11 @@ export async function createAsaasCheckout(
   config: NonNullable<ReturnType<typeof getAsaasConfig>>,
   reference: string,
   method: 'pix' | 'credit_card',
-  items: Array<{ name: string; quantity: number; value: number }>
+  items: Array<{ name: string; quantity: number; value: number }>,
+  maxCardInstallments: number
 ): Promise<string> {
   const card = method === 'credit_card';
+  const allowsInstallments = card && maxCardInstallments > 1;
   const callbackUrl = (result: string) => {
     const url = new URL(config.returnUrl);
     url.searchParams.set('checkout', result);
@@ -41,8 +43,8 @@ export async function createAsaasCheckout(
     body: JSON.stringify({
       externalReference: reference,
       billingTypes: [card ? 'CREDIT_CARD' : 'PIX'],
-      chargeTypes: card ? ['DETACHED', 'INSTALLMENT'] : ['DETACHED'],
-      ...(card && { installment: { maxInstallmentCount: MAX_INSTALLMENTS } }),
+      chargeTypes: allowsInstallments ? ['DETACHED', 'INSTALLMENT'] : ['DETACHED'],
+      ...(allowsInstallments && { installment: { maxInstallmentCount: maxCardInstallments } }),
       minutesToExpire: 30,
       callback: {
         successUrl: callbackUrl('success'),

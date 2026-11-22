@@ -25,6 +25,7 @@ interface CheckoutProduct {
   price: string;
   stock: number;
   payment_methods: string[];
+  max_card_installments: number;
 }
 
 function formatCents(cents: bigint): string {
@@ -117,13 +118,14 @@ export class OrderController {
         }
       }
       const result = await client.query<CheckoutProduct>(
-        `SELECT p.id, p.business_id, p.name, p.price, p.stock, b.payment_methods
+        `SELECT p.id, p.business_id, p.name, p.price, p.stock, b.payment_methods, b.max_card_installments
          FROM products p
          JOIN businesses b ON b.id = p.business_id
+         JOIN users u ON u.id = b.owner_id
          WHERE p.id = ANY($1::uuid[]) AND p.status = 'active' AND p.deleted_at IS NULL
-           AND b.status = 'active' AND b.deleted_at IS NULL
+           AND b.status = 'active' AND b.deleted_at IS NULL AND u.status = 'active'
          ORDER BY p.id
-         FOR UPDATE OF p FOR SHARE OF b`,
+         FOR UPDATE OF p FOR SHARE OF b, u`,
         [[...itemById.keys()]]
       );
       if (result.rows.length !== itemById.size) {
@@ -184,7 +186,8 @@ export class OrderController {
         }));
         let providerId: string;
         try {
-          providerId = await createAsaasCheckout(config, checkoutId, paymentMethod, checkoutItems);
+          const maxCardInstallments = Math.min(...result.rows.map((product) => product.max_card_installments));
+          providerId = await createAsaasCheckout(config, checkoutId, paymentMethod, checkoutItems, maxCardInstallments);
         } catch (error) {
           if (error instanceof AsaasPixKeyMissingError) {
             console.warn(error.message);
