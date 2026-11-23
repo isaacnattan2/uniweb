@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { getAdminDrivers, setAdminBlock, setDriverDeliveryRateLock } from '../services/api';
 import type { AdminDriver } from '../services/api';
 import { AdminDeliveryRates } from './AdminDeliveryRates';
+import { AdminDeliveryDispatch } from './AdminDeliveryDispatch';
 
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const statusLabels = { active: 'Ativo', inactive: 'Inativo', suspended: 'Bloqueado' };
@@ -70,6 +71,7 @@ export function AdminDrivers() {
     <section aria-labelledby="drivers-heading">
       <h2 id="drivers-heading">Entregadores</h2>
       <AdminDeliveryRates />
+      <AdminDeliveryDispatch />
       {error && <p className="error-message" role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
       {!drivers && !error && <p role="status">Carregando entregadores…</p>}

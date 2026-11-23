@@ -104,6 +104,8 @@ export interface StoreOrder {
   delivery_type: string;
   delivery_status: string | null;
   delivery_assigned: boolean;
+  dispatch_state?: string | null;
+  slot_at?: string | null;
 }
 
 export type StoreOrderAction = 'requeue' | 'cancel';
@@ -356,10 +358,57 @@ export async function createOrder(
   deliveryType: DeliveryType,
   deliveryAddress: DeliveryAddress | string,
   checkoutId: string,
-  couponCode?: string
+  couponCode?: string,
+  delivery?: { deliveryQuoteId: string; scheduledAt: string | null; deliveryFeeAccepted: true },
 ): Promise<{ orderIds: string[]; checkoutUrl: string | null }> {
-  const response = await api.post('/orders/checkout', { items, paymentMethod, deliveryType, deliveryAddress, checkoutId, couponCode });
+  const response = await api.post('/orders/checkout', { items, paymentMethod, deliveryType, deliveryAddress, checkoutId, couponCode, ...delivery });
   return response.data;
+}
+
+export interface DeliveryQuote {
+  id: string;
+  feeCents: number;
+  distanceMeters: number;
+  expiresAt: string;
+  slots: string[];
+  windowMinutes: number;
+  immediateMinutes: number | null;
+}
+
+export async function getDeliveryQuote(businessId: string, address: DeliveryAddress) {
+  return (await api.post<DeliveryQuote>('/orders/delivery-quote', { businessId, address })).data;
+}
+
+export async function getDeliveryAlternatives(orderId: string) {
+  return (await api.get<{ immediate: boolean; slots: string[]; windowMinutes: number }>(`/orders/${orderId}/delivery-alternatives`)).data;
+}
+
+export async function scheduleDeliveryAlternative(orderId: string, scheduledAt: string | null) {
+  await api.put(`/orders/${orderId}/delivery-alternatives`, { scheduledAt });
+}
+
+export async function getDispatchSettings() {
+  return (await api.get<{ radius_meters: number; subsidy_cents: number }>('/admin/delivery-dispatch/settings')).data;
+}
+
+export async function saveDispatchSettings(radiusMeters: number, subsidyCents: number) {
+  await api.put('/admin/delivery-dispatch/settings', { radiusMeters, subsidyCents });
+}
+
+export interface DispatchIncident {
+  order_id: string;
+  store_name: string;
+  state: string;
+  incident_reason: string | null;
+  refund_state: string | null;
+}
+
+export async function getDispatchIncidents() {
+  return (await api.get<DispatchIncident[]>('/admin/delivery-dispatch/incidents')).data;
+}
+
+export async function resolveDispatchIncident(orderId: string, action: string, reason: string) {
+  await api.put(`/admin/delivery-dispatch/incidents/${orderId}`, { action, reason });
 }
 
 export async function getMyOrders() {

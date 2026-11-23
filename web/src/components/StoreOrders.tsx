@@ -44,7 +44,8 @@ export function StoreOrders({ businessId }: { businessId: string }) {
 
   async function changeOrder(order: StoreOrder, action: StoreOrderAction) {
     if (action === 'cancel' && !window.confirm(order.payment_status === 'paid'
-      ? 'Cancelar este pedido? O pagamento já foi recebido e o cancelamento não emite estorno automático.'
+      ? order.dispatch_state ? 'Cancelar o pedido e solicitar o estorno?' :
+        'Cancelar este pedido? O pagamento já foi recebido e o cancelamento não emite estorno automático.'
       : 'Cancelar este pedido?')) return;
     setActionError('');
     setNotice('');
@@ -85,8 +86,9 @@ export function StoreOrders({ businessId }: { businessId: string }) {
       {!loadError && page.items.length > 0 && (!orderId || page.items[0].id === orderId) && (
         <ul className="store-order-list">
           {page.items.map((order) => {
-            const canCancel = ['pending', 'confirmed', 'processing'].includes(order.status) && order.delivery_status !== 'delivered';
-            const canRequeue = canCancel && order.payment_status === 'paid' && order.delivery_type === 'delivery' &&
+            const canCancel = ['pending', 'confirmed', 'processing'].includes(order.status) && order.delivery_status !== 'delivered' &&
+              (!order.dispatch_state || !['in_transit','incident'].includes(order.dispatch_state));
+            const canRequeue = !order.dispatch_state && canCancel && order.payment_status === 'paid' && order.delivery_type === 'delivery' &&
               order.delivery_status === 'cancelled' && order.delivery_assigned;
             return (
               <li key={order.id} className="store-order">
@@ -97,6 +99,9 @@ export function StoreOrders({ businessId }: { businessId: string }) {
                 <div className="store-order-state">
                   <OrderStatus order={order} />
                   <span>Pagamento: {payments[order.payment_status] || order.payment_status}</span>
+                  {order.slot_at && order.dispatch_state !== 'cancelled' && (
+                    <span>Retirada agendada a partir de {timestamp.format(new Date(order.slot_at))}</span>
+                  )}
                   <strong>{amount.format(Number(order.total))}</strong>
                 </div>
                 <div className="store-order-actions">

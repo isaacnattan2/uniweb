@@ -1,11 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { StorePaymentMethod } from '../context/store';
-import { createOrder, getBusinessPublic, getSavedDeliveryAddresses } from '../services/api';
-import type { SavedDeliveryAddress } from '../services/api';
+import { createOrder, getBusinessPublic, getDeliveryQuote, getSavedDeliveryAddresses } from '../services/api';
+import type { DeliveryQuote, SavedDeliveryAddress } from '../services/api';
 import { DEFAULT_CARD_INSTALLMENTS, useCartStore, useAuthStore } from '../context/store';
 import { CheckoutAddress, emptyDeliveryAddress, isDeliveryAddressComplete } from '../components/CheckoutAddress';
 import '../styles/cart.css';
+
+const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+const slotLabel = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+const hourLabel = new Intl.DateTimeFormat('pt-BR', { timeStyle: 'short' });
 
 export function CartPage() {
   const navigate = useNavigate();
@@ -25,6 +29,10 @@ export function CartPage() {
   const [couponCode, setCouponCode] = useState('');
   const [availability, setAvailability] = useState<{ key: string; methods: StorePaymentMethod[]; maxCardInstallments?: number; pickupAddress?: string | null; failed?: boolean }>();
   const [deliveryType, setDeliveryType] = useState('');
+  const [deliveryQuote, setDeliveryQuote] = useState<{ key: string; data: DeliveryQuote }>();
+  const [quoting, setQuoting] = useState(false);
+  const [deliverySelection, setDeliverySelection] = useState<{ quoteId: string; value: string }>();
+  const [acceptedFee, setAcceptedFee] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState(emptyDeliveryAddress);
   const [addressBook, setAddressBook] = useState<{ userId: string; entries: SavedDeliveryAddress[]; failed?: boolean }>();
   const [selectedAddressId, setSelectedAddressId] = useState('');
@@ -43,6 +51,41 @@ export function CartPage() {
   const available = availability?.key === selectedStore ? availability : undefined;
   const maxCardInstallments = available?.maxCardInstallments ?? DEFAULT_CARD_INSTALLMENTS;
   const selectedMethod = available?.methods.find((method) => method === paymentMethod);
+  const quoteKey = JSON.stringify([selectedStore, activeAddress, userId, deliveryType]);
+  const quote = deliveryQuote?.key === quoteKey ? deliveryQuote.data : undefined;
+  const selectedDelivery = quote && deliverySelection?.quoteId === quote.id ? deliverySelection.value : '';
+  const feeAccepted = !!quote && !!selectedDelivery && acceptedFee === quote.id + selectedDelivery;
+  const addressComplete = !!savedAddresses && !!activeAddress && isDeliveryAddressComplete(activeAddress);
+  const hasDeliveryOptions = !!quote && (quote.immediateMinutes !== null || quote.slots.length > 0);
+  let checkoutBlocker = '';
+  if (cartSyncing > 0) checkoutBlocker = 'Aguarde a atualização do carrinho.';
+  else if (!available) checkoutBlocker = 'Aguarde a consulta das formas de pagamento.';
+  else if (available.failed) checkoutBlocker = 'Atualize a página para consultar as formas de pagamento novamente.';
+  else if (!available.methods.length) checkoutBlocker = 'Esta loja está sem formas de pagamento disponíveis.';
+  else if (!selectedMethod) checkoutBlocker = 'Selecione uma forma de pagamento.';
+  else if (!deliveryType) checkoutBlocker = 'Selecione uma forma de entrega.';
+  else if (deliveryType !== 'pickup' && !addressComplete) checkoutBlocker = 'Informe o endereço de entrega completo.';
+  else if (deliveryType === 'delivery') {
+    if (quoting) checkoutBlocker = 'Aguarde o cálculo do frete.';
+    else if (!quote) checkoutBlocker = 'Clique em Calcular frete.';
+    else if (!hasDeliveryOptions) checkoutBlocker = 'Nenhum prazo disponível para este endereço. Atualize o frete ou escolha retirada na loja.';
+    else if (!selectedDelivery) checkoutBlocker = 'Escolha um prazo de entrega.';
+    else if (!feeAccepted) checkoutBlocker = 'Marque a opção “Aceito o frete” para continuar.';
+  }
+
+  async function calculateFreight() {
+    if (!selectedStore || !activeAddress || !isDeliveryAddressComplete(activeAddress) || quoting) return;
+    setQuoting(true);
+    setDeliveryQuote(undefined);
+    setError('');
+    try {
+      setDeliveryQuote({ key: quoteKey, data: await getDeliveryQuote(selectedStore, activeAddress) });
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Não foi possível calcular o frete.');
+    } finally {
+      setQuoting(false);
+    }
+  }
 
   useEffect(() => {
     if (!token || userType !== 'customer' || !selectedStore) return;
@@ -93,8 +136,15 @@ export function CartPage() {
       setError('Informe CEP, logradouro, número, cidade e UF para continuar.');
       return;
     }
+    if (deliveryType === 'delivery' && (!quote || !feeAccepted)) {
+      setError('Calcule o frete, escolha o prazo e aceite o valor da entrega.');
+      return;
+    }
 
     const address = deliveryType === 'pickup' ? '' : activeAddress ?? '';
+    const dispatch = deliveryType === 'delivery' && quote
+      ? { deliveryQuoteId: quote.id, scheduledAt: selectedDelivery === 'immediate' ? null : selectedDelivery, deliveryFeeAccepted: true as const }
+      : undefined;
     submitting.current = true;
     setLoading(true);
     setError('');
@@ -106,12 +156,12 @@ export function CartPage() {
         price: item.price,
       }));
 
-      const signature = JSON.stringify([userId, items, paymentMethod, deliveryType, address, couponCode.trim()]);
+      const signature = JSON.stringify([userId, items, paymentMethod, deliveryType, address, couponCode.trim(), dispatch]);
       if (checkoutAttempt.current?.signature !== signature) {
         checkoutAttempt.current = { signature, id: crypto.randomUUID() };
       }
       const { checkoutUrl } = await createOrder(
-        items, selectedMethod, deliveryType, address, checkoutAttempt.current.id, couponCode.trim()
+        items, selectedMethod, deliveryType, address, checkoutAttempt.current.id, couponCode.trim(), dispatch
       );
       if (useAuthStore.getState().userId !== userId) return;
       if (checkoutUrl) {
@@ -235,11 +285,11 @@ export function CartPage() {
               </div>
               <div className="summary-row">
                 <span>Frete:</span>
-                <span>Não calculado</span>
+                <span>{quote ? currency.format(quote.feeCents / 100) : deliveryType === 'pickup' ? 'Sem frete' : 'Não calculado'}</span>
               </div>
               <div className="summary-row total">
                 <span>Total:</span>
-                <span>R$ {total.toFixed(2)}</span>
+                <span>{currency.format(total + (quote?.feeCents ?? 0) / 100)}</span>
               </div>
 
               {token && userType === 'customer' && (
@@ -257,7 +307,7 @@ export function CartPage() {
                           <option key={id} value={id}>{cart.find((item) => item.businessId === id)?.businessName || 'Loja'}</option>
                         ))}
                       </select>
-                      <p><strong>Total desta cobrança:</strong> {storeTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}. Os itens das outras lojas ficam no carrinho.</p>
+                      <p><strong>Total desta cobrança:</strong> {currency.format(storeTotal + (quote?.feeCents ?? 0) / 100)}. Os itens das outras lojas ficam no carrinho.</p>
                     </>
                   )}
                   <label htmlFor="checkout-coupon">Cupom da loja (opcional)</label>
@@ -277,7 +327,7 @@ export function CartPage() {
                     <p role="alert">Esta loja está sem formas de pagamento disponíveis.</p>
                   )}
                   <label htmlFor="delivery-type">Forma de entrega</label>
-                  <select id="delivery-type" value={deliveryType} onChange={(event) => setDeliveryType(event.target.value)} disabled={loading}>
+                  <select id="delivery-type" value={deliveryType} onChange={(event) => { setDeliveryType(event.target.value); setDeliveryQuote(undefined); }} disabled={loading}>
                     <option value="">Selecione</option>
                     <option value="pickup">Retirada na loja</option>
                     <option value="delivery">Entrega</option>
@@ -314,10 +364,39 @@ export function CartPage() {
                       )}
                     </div>
                   )}
+                  {deliveryType === 'delivery' && (
+                    <>
+                      <button type="button" className="btn-secondary" disabled={loading || quoting || !activeAddress || !isDeliveryAddressComplete(activeAddress)}
+                        onClick={() => void calculateFreight()}>{quoting ? 'Calculando frete…' : quote ? 'Atualizar frete' : 'Calcular frete'}</button>
+                      {quote && quote.immediateMinutes === null && !quote.slots.length && (
+                        <p role="status">Nenhuma entrega disponível para este endereço agora.</p>
+                      )}
+                      {quote && hasDeliveryOptions && (
+                        <>
+                          <label htmlFor="checkout-delivery-slot">Prazo da entrega</label>
+                          <select id="checkout-delivery-slot" value={selectedDelivery} disabled={loading} onChange={(event) => {
+                            setAcceptedFee('');
+                            setDeliverySelection({ quoteId: quote.id, value: event.target.value });
+                          }}>
+                            <option value="">Selecione</option>
+                            {quote.immediateMinutes !== null && <option value="immediate">Entrega imediata · cerca de {quote.immediateMinutes} min após o pagamento</option>}
+                            {quote.slots.map((slot) => <option key={slot} value={slot}>
+                              Agendar de {slotLabel.format(new Date(slot))} até {hourLabel.format(new Date(Date.parse(slot) + quote.windowMinutes * 60000))}
+                            </option>)}
+                          </select>
+                          <label className="checkout-fee-consent">
+                            <input type="checkbox" disabled={loading || !selectedDelivery} checked={feeAccepted}
+                              onChange={(event) => setAcceptedFee(event.target.checked ? quote.id + selectedDelivery : '')} />
+                            <span>Aceito o frete de {currency.format(quote.feeCents / 100)}.</span>
+                          </label>
+                        </>
+                      )}
+                    </>
+                  )}
                   {selectedMethod === 'credit_card' && (
                     <p>{maxCardInstallments === 1 ? 'Cartão à vista.' : `Até ${maxCardInstallments}× no cartão.`}</p>
                   )}
-                  <p>Você vai concluir o pagamento na página do Asaas. O total não inclui frete.</p>
+                  <p>Você vai concluir o pagamento na página do Asaas.</p>
                 </div>
               )}
 
@@ -336,13 +415,17 @@ export function CartPage() {
                   </button>
                 </>
               ) : userType === 'customer' ? (
-                <button
-                  onClick={handleCheckout}
-                  disabled={loading || cartSyncing > 0 || !available?.methods.length || (deliveryType !== 'pickup' && !!deliveryType && !savedAddresses)}
-                  className="btn-checkout"
-                >
-                  {loading ? 'Processando...' : storeCount > 1 ? 'Pagar esta loja' : '✓ Finalizar Compra'}
-                </button>
+                <>
+                  {!loading && checkoutBlocker && <p id="checkout-blocker" className="checkout-blocker" role="status">{checkoutBlocker}</p>}
+                  <button
+                    onClick={handleCheckout}
+                    disabled={loading || !!checkoutBlocker}
+                    aria-describedby={!loading && checkoutBlocker ? 'checkout-blocker' : undefined}
+                    className="btn-checkout"
+                  >
+                    {loading ? 'Processando...' : storeCount > 1 ? 'Pagar esta loja' : '✓ Finalizar Compra'}
+                  </button>
+                </>
               ) : (
                 <p>Entre com uma conta de cliente para finalizar a compra.</p>
               )}
