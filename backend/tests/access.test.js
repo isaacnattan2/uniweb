@@ -30,11 +30,17 @@ test('restricts store management and available deliveries by account role', asyn
   let createdStore;
   let updatedStore;
   let transferDuringUpdate = false;
+  let driverTheme;
   let customerOrderCancelled = false;
   const originalQuery = database.query;
   database.query = async (sql, params = []) => {
     if (sql.includes('SELECT id, user_type FROM users')) {
       return { rows: users[params[0]] ? [{ id: params[0], user_type: users[params[0]] }] : [] };
+    }
+    if (sql.includes('FROM driver_app_theme')) return { rows: driverTheme ? [driverTheme] : [] };
+    if (sql.includes('INSERT INTO driver_app_theme')) {
+      driverTheme = { primary: params[0], secondary: params[1] };
+      return { rows: [driverTheme] };
     }
     if (sql.includes('WITH owned AS')) {
       assert.match(sql, /WHERE id = \$1 AND user_id = \$2 AND deleted_at IS NULL FOR UPDATE/);
@@ -108,6 +114,13 @@ test('restricts store management and available deliveries by account role', asyn
   }
 
   const available = '/api/orders/available-deliveries';
+  assert.deepEqual((await request('/api/app/theme')).body, { primary: '#1762d1', secondary: '#152844' });
+  const updateThemePath = '/api/admin/app/theme';
+  const theme = { primary: '#FACC15', secondary: '#334155' };
+  assert.equal((await request(updateThemePath, ids.seller1, 'PUT', theme)).status, 403);
+  assert.equal((await request(updateThemePath, ids.admin, 'PUT', { ...theme, primary: 'purple' })).status, 400);
+  assert.equal((await request(updateThemePath, ids.admin, 'PUT', theme)).status, 200);
+  assert.deepEqual((await request('/api/app/theme')).body, { primary: '#facc15', secondary: '#334155' });
   const cancellation = '/api/orders/' + ids.product + '/cancel';
   assert.equal((await request(cancellation, null, 'POST')).status, 401);
   assert.equal((await request(cancellation, ids.seller1, 'POST')).status, 403);

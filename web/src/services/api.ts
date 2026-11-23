@@ -58,6 +58,20 @@ export interface PublicBusiness extends RatingSummary {
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 
+export function formatOrderCode(orderId: string) {
+  return orderId.slice(0, 8).toUpperCase();
+}
+
+export type DriverAppTheme = { primary: string; secondary: string };
+
+export async function getDriverAppTheme(signal: AbortSignal) {
+  return (await api.get<DriverAppTheme>('/app/theme', { signal })).data;
+}
+
+export async function updateDriverAppTheme(theme: DriverAppTheme) {
+  return (await api.put<DriverAppTheme>('/admin/app/theme', theme)).data;
+}
+
 export interface StoreOrder {
   id: string;
   order_number: string;

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useSearchParams } from 'react-router-dom';
-import { getStoreOrders, updateStoreOrder } from '../services/api';
+import { formatOrderCode, getStoreOrders, updateStoreOrder } from '../services/api';
 import type { StoreOrder, StoreOrderAction } from '../services/api';
 import { OrderStatus } from './OrderStatus';
 import '../styles/orders.css';
@@ -91,7 +91,7 @@ export function StoreOrders({ businessId }: { businessId: string }) {
             return (
               <li key={order.id} className="store-order">
                 <div>
-                  <h3>Pedido #{order.order_number || order.id.slice(0, 8).toUpperCase()}</h3>
+                  <h3>Pedido #{formatOrderCode(order.id)}</h3>
                   {order.created_at && <time dateTime={order.created_at}>{timestamp.format(new Date(order.created_at))}</time>}
                 </div>
                 <div className="store-order-state">

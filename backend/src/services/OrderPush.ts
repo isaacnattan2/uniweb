@@ -46,7 +46,7 @@ async function sendOrderEvent(event: OrderEvent, orderIds: string[]) {
   if (!(web && event !== 'ready') && !(mobile && ['ready', 'cancelled', 'delivered'].includes(event))) return;
 
   const { rows } = await query(
-    `SELECT o.id, o.business_id, o.order_number, o.user_id, o.delivery_driver_id, b.owner_id
+    `SELECT o.id, o.business_id, o.user_id, o.delivery_driver_id, b.owner_id
      FROM orders o JOIN businesses b ON b.id = o.business_id
      WHERE o.id = ANY($1::uuid[])`, [orderIds],
   );
@@ -57,7 +57,8 @@ async function sendOrderEvent(event: OrderEvent, orderIds: string[]) {
   )).rows.map(({ id }) => driverPushAlias(id)!) : [];
 
   await Promise.all(rows.map(async (order) => {
-    const body = `Pedido #${order.order_number}${event === 'new' ? ' recebido' : ''}.`;
+    const orderCode = order.id.slice(0, 8).toUpperCase();
+    const body = `Pedido #${orderCode}${event === 'new' ? ' recebido' : ''}.`;
     const sends: Promise<void>[] = [];
     if (webApp && webKey && origin && web && event !== 'ready') {
       const storeUrl = new URL(`/business/${order.business_id}`, origin);

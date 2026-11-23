@@ -117,9 +117,23 @@
   }
 }
 
-.admin-ads.form-box {
+.admin-ads.form-box,
+.admin-app-theme.form-box {
   max-width: none;
   margin-block: 1.25rem;
+}
+
+.app-theme-swatch {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.app-theme-swatch input[type='color'] {
+  width: 3.25rem;
+  height: 2.5rem;
+  padding: 0.25rem;
+  cursor: pointer;
 }
 
 .admin-ads fieldset {

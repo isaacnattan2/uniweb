@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { cancelMyOrder, getMyOrders, getOrder } from '../services/api';
+import { cancelMyOrder, formatOrderCode, getMyOrders, getOrder } from '../services/api';
 import { useCartStore } from '../context/store';
 import { OrderStatus } from '../components/OrderStatus';
 import { LiveDelivery } from '../components/LiveDelivery';
@@ -113,7 +113,7 @@ export function OrdersPage() {
               <div key={order.id} className="order-card">
                 <div className="order-header">
                   <div>
-                    <h3>Pedido #{order.id.substring(0, 8).toUpperCase()}</h3>
+                    <h3>Pedido #{formatOrderCode(order.id)}</h3>
                     <p className="order-date">
                       {orderId && 'Pedido realizado em '}
                       {new Date(order.created_at).toLocaleString('pt-BR', {

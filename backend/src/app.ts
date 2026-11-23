@@ -11,6 +11,7 @@ import shopRoutes from './routes/shop.routes';
 import orderRoutes from './routes/orders.routes';
 import uploadRoutes from './routes/upload.routes';
 import adminRoutes from './routes/admin.routes';
+import { getDriverAppTheme } from './controllers/DriverAppTheme';
 
 const app = express();
 
@@ -34,6 +35,7 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/admin', adminRoutes);
+app.get('/api/app/theme', (req, res, next) => getDriverAppTheme(req, res).catch(next));
 
 // Health check
 app.get('/health', (req, res) => {

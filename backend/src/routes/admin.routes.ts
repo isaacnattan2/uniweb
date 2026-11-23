@@ -3,9 +3,11 @@ import { Router } from 'express';
 import { query } from '../config/database';
 import { authMiddleware, requireAdmin } from '../middleware/auth';
 import AuthService from '../services/AuthService';
+import { updateDriverAppTheme } from '../controllers/DriverAppTheme';
 
 const router = Router();
 router.use(authMiddleware, requireAdmin);
+router.put('/app/theme', (req, res, next) => updateDriverAppTheme(req, res).catch(next));
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
