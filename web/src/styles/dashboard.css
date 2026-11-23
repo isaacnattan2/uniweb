@@ -73,17 +73,74 @@
   flex: 1;
 }
 
-.admin-setup-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 1.25rem;
-  margin-block: 1.25rem;
+.admin-menu,
+.admin-section-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
 }
 
-.admin-setup-grid > .form-box {
+.admin-menu {
+  margin-top: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.admin-menu a {
+  border-radius: 6px;
+  padding: 0.65rem 0.85rem;
+  color: #374151;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.admin-menu a:hover,
+.admin-menu a[aria-current='page'] {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.admin-section-heading {
+  justify-content: space-between;
+}
+
+.admin-section-heading h2 {
+  margin-bottom: 0;
+}
+
+.admin-driver-card {
+  overflow-wrap: anywhere;
+}
+
+.admin-driver-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.admin-delivery-rate-form.form-box {
   max-width: none;
-  min-width: 0;
-  margin: 0;
+  margin: 0 0 1.5rem;
+}
+
+.admin-delivery-rate-form h3,
+.admin-delivery-rate-form form > p,
+.admin-rate-checkbox {
+  margin-bottom: 1rem;
+}
+
+.admin-rate-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  gap: 0 1rem;
+}
+
+.admin-rate-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .admin-category-list {
@@ -111,16 +168,16 @@
   gap: 0.5rem;
 }
 
-@media (min-width: 800px) {
-  .admin-setup-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
 .admin-ads.form-box,
 .admin-app-theme.form-box {
   max-width: none;
   margin-block: 1.25rem;
+}
+
+.app-theme-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 
 .app-theme-swatch {

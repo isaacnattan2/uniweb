@@ -1,15 +1,55 @@
 import React, { useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { AdminBusiness, Seller, createSeller, getAdminBusinesses, getSellers, setAdminBlock, transferBusiness, updateSeller } from '../services/api';
 import { AdminAds } from '../components/AdminAds';
 import { AdminAppTheme } from '../components/AdminAppTheme';
 import { AdminCategories } from '../components/AdminCategories';
+import { AdminDrivers } from '../components/AdminDrivers';
 import '../styles/dashboard.css';
 import '../styles/product-form.css';
 
+export const adminSections = [
+  { path: 'lojas', label: 'Lojas' },
+  { path: 'lojistas', label: 'Lojistas' },
+  { path: 'cadastrar-lojista', label: 'Cadastrar lojista' },
+  { path: 'entregadores', label: 'Entregadores' },
+  { path: 'categorias', label: 'Categorias' },
+  { path: 'anuncios', label: 'Anúncios' },
+  { path: 'cores-do-app', label: 'Cores do app' },
+] as const;
+
+type AdminSectionPath = typeof adminSections[number]['path'];
+
+export function AdminIndex() {
+  const { hash } = useLocation();
+  return <Navigate to={hash === '#cadastrar-lojista' ? '/admin/cadastrar-lojista' : '/admin/lojas'} replace />;
+}
+
 export function AdminPage() {
+  return (
+    <main className="dashboard admin-dashboard">
+      <div className="container">
+        <h1>Administração do marketplace</h1>
+        <nav className="admin-menu" aria-label="Menu administrativo">
+          {adminSections.map(({ path, label }) => (
+            <NavLink key={path} to={path}>{label}</NavLink>
+          ))}
+        </nav>
+        <Outlet />
+      </div>
+    </main>
+  );
+}
+
+export function AdminSection({ section }: { section: AdminSectionPath }) {
+  if (section === 'entregadores') return <AdminDrivers />;
+  if (section === 'categorias') return <AdminCategories />;
+  if (section === 'cores-do-app') return <AdminAppTheme />;
+  return <AdminManagementSection section={section} />;
+}
+
+function AdminManagementSection({ section }: { section: Exclude<AdminSectionPath, 'entregadores' | 'categorias' | 'cores-do-app'> }) {
   const navigate = useNavigate();
-  const location = useLocation();
   const [businesses, setBusinesses] = useState<AdminBusiness[]>([]);
   const [sellers, setSellers] = useState<Seller[]>([]);
   const [owners, setOwners] = useState<Record<string, string>>({});
@@ -23,27 +63,22 @@ export function AdminPage() {
   const [notice, setNotice] = useState('');
 
   async function loadData() {
-    const [businessData, sellerData] = await Promise.all([getAdminBusinesses(), getSellers(true)]);
+    const [businessData, sellerData] = await Promise.all([
+      section === 'lojas' || section === 'anuncios' ? getAdminBusinesses() : [],
+      section === 'lojas' || section === 'lojistas' ? getSellers(true) : [],
+    ]);
     setBusinesses(businessData);
     setSellers(sellerData);
     setOwners(Object.fromEntries(businessData.map((business) => [business.id, business.owner_id])));
   }
 
   useEffect(() => {
+    if (section === 'cadastrar-lojista') return;
     loadData().catch((err) => {
       console.error('Erro ao carregar painel administrativo:', err);
-      setError('Não foi possível carregar lojas e lojistas.');
+      setError('Não foi possível carregar os dados desta tela.');
     }).finally(() => setLoading(false));
-  }, []);
-
-  useEffect(() => {
-    if (location.hash !== '#cadastrar-lojista' && location.hash !== '#transferir-loja') return;
-    const section = document.getElementById(location.hash.slice(1));
-    if (!section) return;
-    section.focus({ preventScroll: true });
-    const headerHeight = document.querySelector('.header')?.getBoundingClientRect().height || 0;
-    window.scrollTo({ top: window.scrollY + section.getBoundingClientRect().top - headerHeight - 16, behavior: 'smooth' });
-  }, [location.hash, location.key]);
+  }, [section]);
 
   async function handleCreateSeller(event: React.FormEvent) {
     event.preventDefault();
@@ -54,7 +89,6 @@ export function AdminPage() {
       await createSeller(form.fullName, form.email, form.password);
       setForm({ fullName: '', email: '', password: '' });
       setNotice('Lojista cadastrado. Compartilhe a senha inicial com segurança.');
-      await loadData();
     } catch (err: any) {
       console.error('Erro ao cadastrar lojista:', err);
       setError(err.response?.data?.error || 'Não foi possível cadastrar o lojista.');
@@ -106,16 +140,11 @@ export function AdminPage() {
   }
 
   return (
-    <div className="dashboard">
-      <div className="container">
-        <div className="page-heading">
-          <h1>Administração do marketplace</h1>
-          <button onClick={() => navigate('/new-business')} className="btn-primary">+ Nova loja</button>
-        </div>
+    <>
         {error && <p className="error-message" role="alert">{error}</p>}
         {notice && <p role="status">{notice}</p>}
-        <div className="admin-setup-grid">
-          <section id="cadastrar-lojista" className="form-box" tabIndex={-1}>
+        {section === 'cadastrar-lojista' && (
+          <section className="form-box">
             <h2>Cadastrar lojista</h2>
             <form onSubmit={handleCreateSeller}>
               <div className="form-group">
@@ -133,14 +162,11 @@ export function AdminPage() {
               <button type="submit" className="btn-primary" disabled={saving}>Cadastrar lojista</button>
             </form>
           </section>
+        )}
 
-          <AdminCategories />
-        </div>
+        {section === 'anuncios' && <AdminAds businesses={businesses} />}
 
-        <AdminAds businesses={businesses} />
-        <AdminAppTheme />
-
-        <section aria-labelledby="sellers-heading">
+        {section === 'lojistas' && <section aria-labelledby="sellers-heading">
           <h2 id="sellers-heading">Lojistas</h2>
           {loading ? <p>Carregando...</p> : sellers.length === 0 ? <p>Nenhum lojista cadastrado.</p> : (
             <div className="business-grid card-grid card-grid-5">
@@ -196,10 +222,13 @@ export function AdminPage() {
               ))}
             </div>
           )}
-        </section>
+        </section>}
 
-        <section id="transferir-loja" tabIndex={-1}>
-          <h2>Lojas do marketplace</h2>
+        {section === 'lojas' && <section aria-labelledby="businesses-heading">
+          <div className="admin-section-heading">
+            <h2 id="businesses-heading">Lojas do marketplace</h2>
+            <Link to="/new-business" className="btn-primary">Nova loja</Link>
+          </div>
           {loading ? <p>Carregando...</p> : businesses.length === 0 ? <p>Nenhuma loja cadastrada.</p> :
             <div className="business-grid card-grid card-grid-6">
               {businesses.map((business) => (
@@ -232,8 +261,7 @@ export function AdminPage() {
                 </div>
               ))}
             </div>}
-        </section>
-      </div>
-    </div>
+        </section>}
+    </>
   );
 }

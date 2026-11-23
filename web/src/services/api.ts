@@ -21,6 +21,28 @@ export interface AdminBusiness {
   status: 'active' | 'inactive' | 'suspended';
 }
 
+export interface AdminDriver {
+  id: string;
+  full_name: string;
+  email: string;
+  phone: string | null;
+  status: 'active' | 'inactive' | 'suspended';
+  vehicle_type: string | null;
+  vehicle_manufacturer: string | null;
+  vehicle_brand: string | null;
+  vehicle_color: string | null;
+  vehicle_plate: string | null;
+  delivery_rate_cents: number | null;
+  delivery_rate_locked: boolean | null;
+}
+
+export interface DeliveryRatePolicy {
+  minimumCents: number | null;
+  maximumCents: number | null;
+  defaultCents: number;
+  allowCustom: boolean;
+}
+
 export interface RatingSummary {
   rating?: string | number;
   rating_count?: number;
@@ -151,7 +173,23 @@ export async function updateSeller(id: string, data: { fullName: string; email: 
   await api.put('/admin/sellers/' + id, data);
 }
 
-export async function setAdminBlock(resource: 'sellers' | 'businesses', id: string, blocked: boolean) {
+export async function getAdminDrivers(signal: AbortSignal) {
+  return (await api.get<AdminDriver[]>('/admin/drivers', { signal })).data;
+}
+
+export async function getAdminDeliveryRatePolicy(signal: AbortSignal) {
+  return (await api.get<DeliveryRatePolicy | null>('/admin/drivers/delivery-rate', { signal })).data;
+}
+
+export async function saveAdminDeliveryRatePolicy(policy: DeliveryRatePolicy) {
+  return (await api.put<DeliveryRatePolicy>('/admin/drivers/delivery-rate', policy)).data;
+}
+
+export async function setDriverDeliveryRateLock(id: string, locked: boolean) {
+  return (await api.put<{ locked: boolean }>('/admin/drivers/' + id + '/delivery-rate-lock', { locked })).data;
+}
+
+export async function setAdminBlock(resource: 'sellers' | 'businesses' | 'drivers', id: string, blocked: boolean) {
   await api.put('/admin/' + resource + '/' + id + '/status', { blocked });
 }
 

@@ -2,9 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { getDriverAppTheme, updateDriverAppTheme } from '../services/api';
 import type { DriverAppTheme } from '../services/api';
 
+const defaultTheme: DriverAppTheme = { primary: '#1762d1', secondary: '#152844' };
+
 export function AdminAppTheme() {
   const [theme, setTheme] = useState<DriverAppTheme>();
-  const [saving, setSaving] = useState(false);
+  const [pending, setPending] = useState<'save' | 'reset'>();
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
@@ -16,19 +18,19 @@ export function AdminAppTheme() {
     return () => controller.abort();
   }, []);
 
-  async function save(event: React.FormEvent) {
-    event.preventDefault();
-    if (!theme || saving) return;
-    setSaving(true);
+  async function applyTheme(action: 'save' | 'reset') {
+    if (!theme || pending) return;
+    const resetting = action === 'reset';
+    setPending(action);
     setNotice('');
     setError('');
     try {
-      setTheme(await updateDriverAppTheme(theme));
-      setNotice('Cores do UniEntregador atualizadas.');
+      setTheme(await updateDriverAppTheme(resetting ? defaultTheme : theme));
+      setNotice(resetting ? 'Cores padrão do UniEntregador restauradas.' : 'Cores do UniEntregador atualizadas.');
     } catch {
-      setError('Não foi possível salvar as cores do app.');
+      setError(resetting ? 'Não foi possível restaurar as cores padrão do app.' : 'Não foi possível salvar as cores do app.');
     } finally {
-      setSaving(false);
+      setPending(undefined);
     }
   }
 
@@ -38,13 +40,16 @@ export function AdminAppTheme() {
       {error && <p role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
       {!theme && !error && <p role="status">Carregando cores…</p>}
-      {theme && <form onSubmit={(event) => void save(event)}>
+      {theme && <form onSubmit={(event) => {
+        event.preventDefault();
+        void applyTheme('save');
+      }}>
         <div className="form-row">
           {(['primary', 'secondary'] as const).map((key) => (
             <div className="form-group" key={key}>
               <label htmlFor={`driver-app-${key}`}>{key === 'primary' ? 'Cor primária' : 'Cor secundária'}</label>
               <div className="app-theme-swatch">
-                <input id={`driver-app-${key}`} type="color" value={theme[key]} disabled={saving}
+                <input id={`driver-app-${key}`} type="color" value={theme[key]} disabled={!!pending}
                   onChange={(event) => {
                     setNotice('');
                     setTheme({ ...theme, [key]: event.target.value });
@@ -54,7 +59,14 @@ export function AdminAppTheme() {
             </div>
           ))}
         </div>
-        <button type="submit" className="btn-primary" disabled={saving}>{saving ? 'Salvando…' : 'Salvar cores'}</button>
+        <div className="app-theme-actions">
+          <button type="submit" className="btn-primary" disabled={!!pending}>
+            {pending === 'save' ? 'Salvando…' : 'Salvar cores'}
+          </button>
+          <button type="button" className="btn-secondary" disabled={!!pending} onClick={() => void applyTheme('reset')}>
+            {pending === 'reset' ? 'Restaurando…' : 'Restaurar cores padrão'}
+          </button>
+        </div>
       </form>}
     </section>
   );

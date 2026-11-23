@@ -8,7 +8,7 @@ import { LoginPage } from './pages/LoginPage';
 import { DriverPage, DriverRegisterPage } from './pages/DriverRegisterPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { DashboardPage } from './pages/DashboardPage';
-import { AdminPage } from './pages/AdminPage';
+import { AdminIndex, AdminPage, AdminSection, adminSections } from './pages/AdminPage';
 import { BusinessPage } from './pages/BusinessPage';
 import { NewBusinessPage } from './pages/NewBusinessPage';
 import { NewProductPage } from './pages/NewProductPage';
@@ -59,7 +59,12 @@ function App() {
               <AdminPage />
             </ProtectedRoute>
           }
-        />
+        >
+          <Route index element={<AdminIndex />} />
+          {adminSections.map(({ path }) => (
+            <Route key={path} path={path} element={<AdminSection key={path} section={path} />} />
+          ))}
+        </Route>
         <Route
           path="/dashboard"
           element={

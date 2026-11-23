@@ -80,10 +80,7 @@ export function Header() {
               </>
             )}
             {token && userType === 'admin' && (
-              <>
-                <Link to="/admin#cadastrar-lojista" className="nav-link">Cadastrar lojista</Link>
-                <Link to="/admin#transferir-loja" className="nav-link">Transferir loja</Link>
-              </>
+              <Link to="/admin" className="nav-link">Administração</Link>
             )}
             {token && userType === 'driver' && <Link to="/driver" className="nav-link">Meu cadastro</Link>}
             {token && userType === 'business' && <Link to="/dashboard" className="nav-link">Minhas Lojas</Link>}
