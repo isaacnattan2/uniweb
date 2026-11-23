@@ -4,12 +4,75 @@ import { query } from '../config/database';
 import { authMiddleware, requireAdmin } from '../middleware/auth';
 import AuthService from '../services/AuthService';
 import { updateDriverAppTheme } from '../controllers/DriverAppTheme';
+import { readDeliveryRatePolicy, updateDeliveryRatePolicy } from '../controllers/DriverDeliveryRates';
 
 const router = Router();
 router.use(authMiddleware, requireAdmin);
 router.put('/app/theme', (req, res, next) => updateDriverAppTheme(req, res).catch(next));
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+router.get('/drivers/delivery-rate', (req, res, next) => readDeliveryRatePolicy(req, res).catch(next));
+router.put('/drivers/delivery-rate', (req, res, next) => updateDeliveryRatePolicy(req, res).catch(next));
+
+router.get('/drivers', async (_req, res, next) => {
+  try {
+    const { rows } = await query(
+      `SELECT u.id, u.full_name, u.email, u.phone, u.status, d.vehicle_type,
+              d.vehicle_manufacturer, d.vehicle_brand, d.vehicle_color, d.vehicle_plate,
+              d.delivery_rate_cents, d.delivery_rate_locked
+       FROM users u
+       LEFT JOIN drivers d ON d.user_id = u.id AND d.deleted_at IS NULL
+       WHERE u.user_type = 'driver' AND u.status <> 'deleted'
+       ORDER BY u.full_name, u.id`
+    );
+    res.set('Cache-Control', 'no-store');
+    res.json(rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.put('/drivers/:id/delivery-rate-lock', async (req, res, next) => {
+  const { id } = req.params;
+  const { locked } = req.body ?? {};
+  if (!uuid.test(id) || typeof locked !== 'boolean') {
+    return res.status(400).json({ error: 'Entregador ou bloqueio de taxa inválido.' });
+  }
+  try {
+    const { rows } = await query(
+      `UPDATE drivers d SET delivery_rate_locked = $2, updated_at = NOW()
+       FROM users u WHERE u.id = $1 AND u.id = d.user_id AND u.user_type = 'driver'
+         AND u.status <> 'deleted' AND d.deleted_at IS NULL
+       RETURNING d.delivery_rate_locked AS locked`,
+      [id, locked]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Cadastro de entregador não encontrado.' });
+    res.json(rows[0]);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.put('/drivers/:id/status', async (req, res, next) => {
+  const { id } = req.params;
+  const { blocked } = req.body ?? {};
+  if (!uuid.test(id) || typeof blocked !== 'boolean') {
+    return res.status(400).json({ error: 'Entregador ou bloqueio inválido.' });
+  }
+  try {
+    const { rows } = await query(
+      `UPDATE users SET status = $2, updated_at = NOW()
+       WHERE id = $1 AND user_type = 'driver' AND status IN ('active', 'suspended')
+       RETURNING id, status`,
+      [id, blocked ? 'suspended' : 'active']
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Entregador indisponível para alteração de acesso.' });
+    res.json(rows[0]);
+  } catch (error) {
+    next(error);
+  }
+});
 
 router.post('/categories', async (req, res, next) => {
   const { kind, label } = req.body || {};

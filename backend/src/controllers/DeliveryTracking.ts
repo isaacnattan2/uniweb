@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { query } from '../config/database';
 import { AuthRequest } from '../middleware/auth';
+import { locateDeliveryAddress, routeDelivery, validCoordinate } from '../services/DeliveryRouting';
 
 const validOrderId = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const activeOrder = `o.delivery_type = 'delivery' AND o.deleted_at IS NULL
@@ -8,10 +9,6 @@ const activeOrder = `o.delivery_type = 'delivery' AND o.deleted_at IS NULL
   AND o.delivery_status IN ('processing', 'in_transit')`;
 const assignedDelivery = `d.deleted_at IS NULL AND d.status IN ('processing', 'in_transit')
   AND EXISTS (SELECT 1 FROM drivers p WHERE p.id = d.driver_id AND p.user_id = o.delivery_driver_id AND p.deleted_at IS NULL)`;
-
-function validCoordinate(value: unknown, limit: number): value is number {
-  return typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= limit;
-}
 
 function trackingRequest(req: AuthRequest, res: Response, role: 'customer' | 'driver') {
   res.set('Cache-Control', 'no-store');
@@ -96,47 +93,13 @@ export async function getDeliveryRoute(req: AuthRequest, res: Response) {
     const signal = AbortSignal.timeout(8000);
     const address = delivery.delivery_address?.trim();
     if (!address) return res.status(422).json({ error: 'O pedido não tem um endereço de entrega.' });
-    const parts = address.split(' · ');
-    const postcode = /^CEP (\d{5}-\d{3})$/iu.exec(parts.at(-1) ?? '');
-    const cityAndState = /^(.+)\/([A-Z]{2})$/u.exec(parts.at(-2) ?? '');
-    const searchAddress = postcode && cityAndState && parts.length >= 3
-      ? [parts[0].replace(/, ([^,]+)$/u, ' $1'), cityAndState[1], cityAndState[2], postcode[1]].join(', ')
-      : parts.join(', ');
-    const search = new URL(geocoderUrl);
-    search.searchParams.set('q', searchAddress);
-    search.searchParams.set('format', 'jsonv2');
-    search.searchParams.set('countrycodes', 'br');
-    search.searchParams.set('limit', '1');
-    const geocoding = await fetch(search, { signal, redirect: 'error', headers: { 'User-Agent': 'Uniweb/1.0' } });
-    if (!geocoding.ok) throw new Error('Geocoding request failed');
-    const [destination] = await geocoding.json() as Array<{ lat: string; lon: string }>;
-    const lat = Number(destination?.lat);
-    const lon = Number(destination?.lon);
-    if (!validCoordinate(lat, 90) || !validCoordinate(lon, 180)) {
+    const destination = await locateDeliveryAddress(geocoderUrl, address, signal);
+    if (!destination) {
       return res.status(422).json({ error: 'Endereço do pedido não encontrado no mapa.' });
     }
 
-    const response = await fetch(routeUrl, {
-      method: 'POST',
-      redirect: 'error',
-      signal,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        locations: [
-          { lat: delivery.tracking_latitude, lon: delivery.tracking_longitude },
-          { lat, lon },
-        ],
-        costing: 'motorcycle',
-        format: 'osrm',
-        shape_format: 'geojson',
-      }),
-    });
-    const result = await response.json() as {
-      error_code?: number;
-      routes?: Array<{ distance: number; duration: number; geometry: { coordinates: number[][] } }>;
-    };
-    if (!response.ok && ![170, 171, 442].includes(result.error_code ?? 0)) throw new Error('Routing request failed');
-    const route = result.routes?.[0];
+    const route = await routeDelivery(routeUrl,
+      { lat: delivery.tracking_latitude, lon: delivery.tracking_longitude }, destination, signal);
     const points = route?.geometry?.coordinates;
     if (!route || !Number.isFinite(route.distance) || !Number.isFinite(route.duration) ||
         !Array.isArray(points) || points.length < 2 ||

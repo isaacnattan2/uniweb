@@ -4,6 +4,7 @@ import { upload } from '../services/UploadService';
 import { getCustomerProfile, listCustomerAddresses, requireCustomer, saveCustomerAddress, updateCustomerProfile, uploadCustomerAvatar } from '../controllers/CustomerAccount';
 import { lookupPostalCode } from '../services/DeliveryAddress';
 import { getDriverRegistration, registerDriver, updateDriverRegistration } from '../controllers/DriverRegistration';
+import { readMyDeliveryRate, updateMyDeliveryRate } from '../controllers/DriverDeliveryRates';
 import AuthController from '../controllers/AuthController';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 
@@ -43,5 +44,7 @@ router.put('/me/addresses/:id', authMiddleware, requireCustomer, (req, res, next
 
 router.get('/me/driver', authMiddleware, (req, res, next) => getDriverRegistration(req, res).catch(next));
 router.put('/me/driver', authMiddleware, (req, res, next) => updateDriverRegistration(req, res).catch(next));
+router.get('/me/driver/delivery-rate', authMiddleware, (req, res, next) => readMyDeliveryRate(req, res).catch(next));
+router.put('/me/driver/delivery-rate', authMiddleware, (req, res, next) => updateMyDeliveryRate(req, res).catch(next));
 
 export default router;
