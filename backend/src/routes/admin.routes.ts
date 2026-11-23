@@ -4,10 +4,15 @@ import { query } from '../config/database';
 import { authMiddleware, requireAdmin } from '../middleware/auth';
 import AuthService from '../services/AuthService';
 import { updateDriverAppTheme } from '../controllers/DriverAppTheme';
+import { dispatchSettings, listDispatchIncidents, resolveDispatchIncident } from '../controllers/DeliveryDispatch';
 import { readDeliveryRatePolicy, updateDeliveryRatePolicy } from '../controllers/DriverDeliveryRates';
 
 const router = Router();
 router.use(authMiddleware, requireAdmin);
+router.get('/delivery-dispatch/settings', (req, res, next) => dispatchSettings(req, res).catch(next));
+router.put('/delivery-dispatch/settings', (req, res, next) => dispatchSettings(req, res).catch(next));
+router.get('/delivery-dispatch/incidents', (req, res, next) => listDispatchIncidents(req, res).catch(next));
+router.put('/delivery-dispatch/incidents/:orderId', (req, res, next) => resolveDispatchIncident(req, res).catch(next));
 router.put('/app/theme', (req, res, next) => updateDriverAppTheme(req, res).catch(next));
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

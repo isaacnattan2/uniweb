@@ -23,6 +23,11 @@ const titles = {
   cancelled: 'Pedido cancelado',
   collected: 'Pedido coletado',
   delivered: 'Pedido entregue',
+  assigned: 'Entregador confirmado',
+  delivery_unavailable: 'Escolha uma nova opção de entrega',
+  delivery_offer: 'Nova oferta de entrega',
+  delivery_incident: 'Estamos verificando um imprevisto na entrega',
+  delivery_reassigned: 'Buscando outro entregador',
 };
 
 type OrderEvent = keyof typeof titles;
@@ -46,12 +51,13 @@ async function sendOrderEvent(event: OrderEvent, orderIds: string[]) {
   if (!(web && event !== 'ready') && !(mobile && ['ready', 'cancelled', 'delivered'].includes(event))) return;
 
   const { rows } = await query(
-    `SELECT o.id, o.business_id, o.user_id, o.delivery_driver_id, b.owner_id
+    `SELECT o.id, o.business_id, o.user_id, o.delivery_driver_id, b.owner_id, (j.order_id IS NOT NULL) AS managed_delivery
      FROM orders o JOIN businesses b ON b.id = o.business_id
+     LEFT JOIN delivery_dispatch j ON j.order_id = o.id
      WHERE o.id = ANY($1::uuid[])`, [orderIds],
   );
   if (!rows.length) return;
-  const availableDrivers = mobile && event === 'ready' ? (await query(
+  const availableDrivers = mobile && event === 'ready' && rows.some((order) => !order.managed_delivery) ? (await query(
     `SELECT DISTINCT u.id FROM users u JOIN drivers d ON d.user_id = u.id
      WHERE u.user_type = 'driver' AND u.status = 'active' AND d.deleted_at IS NULL`,
   )).rows.map(({ id }) => driverPushAlias(id)!) : [];
@@ -59,7 +65,7 @@ async function sendOrderEvent(event: OrderEvent, orderIds: string[]) {
   await Promise.all(rows.map(async (order) => {
     const orderCode = order.id.slice(0, 8).toUpperCase();
     const body = `Pedido #${orderCode}${event === 'new' ? ' recebido' : ''}.`;
-    const sends: Promise<void>[] = [];
+    const sends: Promise<boolean>[] = [];
     if (webApp && webKey && origin && web && event !== 'ready') {
       const storeUrl = new URL(`/business/${order.business_id}`, origin);
       storeUrl.searchParams.set('order', order.id);
@@ -72,7 +78,7 @@ async function sendOrderEvent(event: OrderEvent, orderIds: string[]) {
     }
     if (driverApp && driverKey && mobile && ['ready', 'cancelled', 'delivered'].includes(event)) {
       const assigned = order.delivery_driver_id && driverPushAlias(order.delivery_driver_id);
-      const recipients = event === 'ready' ? availableDrivers : assigned ? [assigned] : [];
+      const recipients = event === 'ready' ? order.managed_delivery ? [] : availableDrivers : assigned ? [assigned] : [];
       for (let offset = 0; offset < recipients.length; offset += 20000) {
         sends.push(sendPush(driverApp, driverKey, recipients.slice(offset, offset + 20000), event, body, {
           data: { orderId: order.id, section: event === 'ready' ? 'available' : 'accepted' },
@@ -83,8 +89,17 @@ async function sendOrderEvent(event: OrderEvent, orderIds: string[]) {
   }));
 }
 
+export async function notifyDriverOffer(offerId: string, orderId: string, userId: string) {
+  const appId = process.env.ONESIGNAL_DRIVER_APP_ID;
+  const key = process.env.ONESIGNAL_DRIVER_API_KEY;
+  const alias = driverPushAlias(userId);
+  if (!appId || !key || !alias) return false;
+  return sendPush(appId, key, [alias], 'delivery_offer', `Confira a oferta do pedido #${orderId.slice(0, 8).toUpperCase()}.`,
+    { data: { orderId, section: 'available' } }, offerId);
+}
+
 async function sendPush(appId: string, apiKey: string, recipients: string[], event: OrderEvent, body: string,
-  destination: { url: string } | { data: { orderId: string; section: string } }, key = randomUUID()) {
+  destination: { url: string } | { data: { orderId: string; section: string } }, key: string = randomUUID()) {
   try {
     const response = await fetch('https://api.onesignal.com/notifications', {
       method: 'POST',
@@ -101,7 +116,9 @@ async function sendPush(appId: string, apiKey: string, recipients: string[], eve
       }),
     });
     if (!response.ok) console.warn('OneSignal recusou o envio do pedido', event, response.status);
+    return response.ok;
   } catch (error) {
     console.warn('Falha no envio do push do pedido', event, error);
+    return false;
   }
 }

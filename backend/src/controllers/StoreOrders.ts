@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { query } from '../config/database';
 import { notifyOrderEvent } from '../services/OrderPush';
+import { cancelOwnedOrder } from './CustomerOrderCancellation';
 
 export async function listStoreOrders(req: Request, res: Response) {
   const offset = req.query.offset ?? '0';
@@ -13,10 +14,12 @@ export async function listStoreOrders(req: Request, res: Response) {
     return res.sendStatus(400);
   }
   const { rows } = await query(
-    `SELECT id, order_number, created_at, total, order_status AS status, payment_status,
-            delivery_type, delivery_status, (delivery_driver_id IS NOT NULL) AS delivery_assigned
-     FROM orders WHERE business_id = $1 AND deleted_at IS NULL${orderId ? ' AND id = $4' : ''}
-     ORDER BY created_at DESC NULLS LAST, id LIMIT $2 OFFSET $3`,
+    `SELECT o.id, o.order_number, o.created_at, o.total, o.order_status AS status, o.payment_status,
+            o.delivery_type, o.delivery_status, (o.delivery_driver_id IS NOT NULL) AS delivery_assigned,
+            j.state AS dispatch_state, j.slot_at
+     FROM orders o LEFT JOIN delivery_dispatch j ON j.order_id = o.id
+     WHERE o.business_id = $1 AND o.deleted_at IS NULL${orderId ? ' AND o.id = $4' : ''}
+     ORDER BY o.created_at DESC NULLS LAST, o.id LIMIT $2 OFFSET $3`,
     orderId ? [req.params.id, pageSize + 1, 0, orderId] : [req.params.id, pageSize + 1, Number(offset)]
   );
   res.set('Cache-Control', 'no-store');
@@ -31,6 +34,14 @@ export async function updateStoreOrder(req: Request, res: Response) {
     return res.status(400).json({ error: 'Pedido ou ação inválida.' });
   }
   const requeue = action === 'requeue';
+  if (!requeue) {
+    const managed = await cancelOwnedOrder(orderId, id, true);
+    if (managed.found) {
+      if (managed.blocked && !managed.changed) return res.status(409).json({ error: 'A retirada já ocorreu. Encaminhe este pedido ao suporte.' });
+      if (managed.changed) notifyOrderEvent('cancelled', [orderId]);
+      return res.sendStatus(204);
+    }
+  }
   const result = await query(
     `WITH changed AS (
        UPDATE orders SET order_status = ${requeue ? "'confirmed'" : "'cancelled'"},
@@ -39,6 +50,7 @@ export async function updateStoreOrder(req: Request, res: Response) {
          delivery_confirmation_code = NULL, delivery_confirmation_attempts = 0,
          delivery_confirmation_retry_at = NULL, updated_at = NOW()
        WHERE id = $1 AND business_id = $2 AND deleted_at IS NULL
+         AND NOT EXISTS (SELECT 1 FROM delivery_dispatch j WHERE j.order_id = orders.id)
          AND order_status IN ('pending', 'confirmed', 'processing')
          AND ${requeue
            ? "payment_status = 'paid' AND delivery_type = 'delivery' AND delivery_status = 'cancelled' AND delivery_driver_id IS NOT NULL"

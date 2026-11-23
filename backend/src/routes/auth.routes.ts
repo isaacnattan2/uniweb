@@ -7,6 +7,7 @@ import { getDriverRegistration, registerDriver, updateDriverRegistration } from 
 import { readMyDeliveryRate, updateMyDeliveryRate } from '../controllers/DriverDeliveryRates';
 import AuthController from '../controllers/AuthController';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
+import { changeDriverShift, changeDriverWeeklyShift, readDriverDispatch, updateDriverPresence } from '../controllers/DeliveryDispatch';
 
 const router = Router();
 
@@ -46,5 +47,11 @@ router.get('/me/driver', authMiddleware, (req, res, next) => getDriverRegistrati
 router.put('/me/driver', authMiddleware, (req, res, next) => updateDriverRegistration(req, res).catch(next));
 router.get('/me/driver/delivery-rate', authMiddleware, (req, res, next) => readMyDeliveryRate(req, res).catch(next));
 router.put('/me/driver/delivery-rate', authMiddleware, (req, res, next) => updateMyDeliveryRate(req, res).catch(next));
+router.get('/me/driver/dispatch', authMiddleware, (req, res, next) => readDriverDispatch(req, res).catch(next));
+router.put('/me/driver/presence', authMiddleware, (req, res, next) => updateDriverPresence(req, res).catch(next));
+router.post('/me/driver/shifts', authMiddleware, (req, res, next) => changeDriverShift(req, res).catch(next));
+router.delete('/me/driver/shifts/:id', authMiddleware, (req, res, next) => changeDriverShift(req, res).catch(next));
+router.post('/me/driver/weekly-shifts', authMiddleware, (req, res, next) => changeDriverWeeklyShift(req, res).catch(next));
+router.delete('/me/driver/weekly-shifts/:id', authMiddleware, (req, res, next) => changeDriverWeeklyShift(req, res).catch(next));
 
 export default router;

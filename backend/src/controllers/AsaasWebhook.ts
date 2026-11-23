@@ -19,6 +19,7 @@ export async function asaasWebhook(req: Request, res: Response) {
   let client;
   let releaseError: Error | undefined;
   let changedIds: string[] = [];
+  let newDeliveries: string[] = [];
   try {
     client = await getClient();
     await client.query('BEGIN');
@@ -31,11 +32,26 @@ export async function asaasWebhook(req: Request, res: Response) {
         const { rows } = await client.query(
           `UPDATE orders SET payment_status = 'paid',
              order_status = CASE WHEN order_status = 'pending' THEN 'confirmed' ELSE order_status END
-           WHERE asaas_checkout_id = $1 AND payment_status = 'pending' AND order_status IN ('pending', 'cancelled')
+           WHERE asaas_checkout_id = $1 AND order_status IN ('pending', 'cancelled') AND
+             (payment_status = 'pending' OR (payment_status = 'failed' AND order_status = 'cancelled'
+               AND EXISTS (SELECT 1 FROM delivery_dispatch j WHERE j.order_id = orders.id)))
            RETURNING id, order_status, delivery_type, delivery_status`, [id]
         );
         changedIds = rows.filter((order) => order.order_status === 'confirmed' &&
           order.delivery_type === 'delivery' && order.delivery_status === 'pending').map((order) => order.id);
+        const dispatch = await client.query(
+          `UPDATE delivery_dispatch j SET
+             state = CASE WHEN o.order_status = 'cancelled' THEN 'cancelled'
+               WHEN j.slot_at IS NULL THEN 'searching' WHEN j.slot_at < NOW() + INTERVAL '10 minutes' THEN 'needs_choice' ELSE 'scheduled' END,
+             search_until = CASE WHEN j.slot_at IS NULL THEN NOW() + INTERVAL '5 minutes' ELSE j.slot_at + INTERVAL '15 minutes' END,
+             promised_at = CASE WHEN j.slot_at IS NULL THEN NOW() + GREATEST(j.promised_at - o.created_at, make_interval(mins => j.duration_minutes + 5))
+               ELSE j.promised_at END,
+             refund_state = CASE WHEN o.order_status = 'cancelled' THEN 'pending' ELSE j.refund_state END
+           FROM orders o WHERE o.id = j.order_id AND o.id = ANY($1::uuid[]) AND j.state IN ('payment_pending','cancelled')
+           RETURNING j.order_id, j.state`,
+          [rows.map((order) => order.id)]
+        );
+        newDeliveries = dispatch.rows.filter((job) => job.state !== 'cancelled').map((job) => job.order_id);
       } else {
         const { rows } = await client.query(
           `WITH cancelled AS (
@@ -51,6 +67,7 @@ export async function asaasWebhook(req: Request, res: Response) {
            SELECT id FROM cancelled`, [id]
         );
         changedIds = rows.map((order) => order.id);
+        await client.query("UPDATE delivery_dispatch SET state = 'cancelled' WHERE order_id = ANY($1::uuid[]) AND state = 'payment_pending'", [changedIds]);
         await client.query(
           `UPDATE orders SET payment_status = 'failed' WHERE asaas_checkout_id = $1
            AND payment_status = 'pending' AND order_status = 'cancelled'`, [id]
@@ -58,6 +75,7 @@ export async function asaasWebhook(req: Request, res: Response) {
       }
     }
     await client.query('COMMIT');
+    notifyOrderEvent('new', newDeliveries);
     notifyOrderEvent(paid ? 'ready' : 'cancelled', changedIds);
     return res.sendStatus(200);
   } catch {

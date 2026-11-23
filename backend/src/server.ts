@@ -4,6 +4,8 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import app from './app';
+import { tickDispatch } from './services/DeliveryDispatch';
+import { reconcileDeliveryRefunds } from './services/DeliveryRefunds';
 
 const PORT = process.env.PORT || 3000;
 
@@ -13,3 +15,21 @@ app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
   console.log(`📊 Database: Connected to Neon`);
 });
+
+let dispatchRunning = false;
+let refundsRunning = false;
+setInterval(async () => {
+  if (dispatchRunning) return;
+  dispatchRunning = true;
+  try { await tickDispatch(); }
+  catch (error) { console.error('Falha no despacho de entregas.', error); }
+  finally { dispatchRunning = false; }
+}, 5000).unref();
+
+setInterval(async () => {
+  if (refundsRunning) return;
+  refundsRunning = true;
+  try { await reconcileDeliveryRefunds(); }
+  catch (error) { console.error('Falha na conciliação de entregas.', error); }
+  finally { refundsRunning = false; }
+}, 15000).unref();

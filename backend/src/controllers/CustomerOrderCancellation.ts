@@ -12,17 +12,39 @@ export async function cancelCustomerOrder(req: AuthRequest, res: Response) {
     return res.status(400).json({ error: 'Pedido inválido.' });
   }
 
+  const order = await cancelOwnedOrder(orderId, req.userId);
+  if (!order.found) return res.status(404).json({ error: 'Pedido não encontrado.' });
+  if (order.blocked && !order.changed) return res.status(409).json({ error: 'A retirada já ocorreu. Entre em contato com o suporte para tratar este pedido.' });
+  if (order.changed) notifyOrderEvent('cancelled', [orderId]);
+  return res.sendStatus(204);
+}
+
+export async function cancelOwnedOrder(orderId: string, owner: string, managedStoreOrder = false) {
   const { rows: [order] } = await query(
     `WITH owned AS (
-       SELECT id, order_status, delivery_status FROM orders
-       WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL FOR UPDATE
+       SELECT o.id, o.order_status, o.delivery_status, j.state AS dispatch_state FROM orders o
+       LEFT JOIN delivery_dispatch j ON j.order_id = o.id
+       WHERE o.id = $1 AND o.deleted_at IS NULL
+         AND CASE WHEN $3::boolean THEN o.business_id = $2 AND j.order_id IS NOT NULL ELSE o.user_id = $2 END
+       FOR UPDATE OF o
      ), changed AS (
        UPDATE orders o SET order_status = 'cancelled',
          delivery_status = CASE WHEN owned.delivery_status = 'delivered' THEN o.delivery_status ELSE 'cancelled' END,
          delivery_confirmation_code = NULL, delivery_confirmation_attempts = 0,
          delivery_confirmation_retry_at = NULL, updated_at = NOW()
        FROM owned WHERE o.id = owned.id AND owned.order_status IS DISTINCT FROM 'cancelled'
-       RETURNING o.id, owned.order_status AS previous_status, owned.delivery_status AS previous_delivery
+         AND (owned.dispatch_state IS NULL OR (
+           owned.dispatch_state IN ('payment_pending','scheduled','searching','offered','assigned','needs_choice')
+           AND owned.delivery_status IN ('pending','processing')
+         ))
+       RETURNING o.id, o.payment_status, owned.order_status AS previous_status, owned.delivery_status AS previous_delivery
+     ), withdrawn AS (
+       UPDATE delivery_dispatch_offers f SET state = 'withdrawn' FROM changed c
+       WHERE f.order_id = c.id AND f.state = 'pending'
+     ), dispatch AS (
+       UPDATE delivery_dispatch j SET state = 'cancelled',
+         refund_state = CASE WHEN c.payment_status = 'paid' THEN 'pending' ELSE j.refund_state END
+       FROM changed c WHERE j.order_id = c.id
      ), updated_delivery AS (
        UPDATE deliveries d SET status = 'cancelled', updated_at = NOW(),
          tracking_latitude = NULL, tracking_longitude = NULL, tracking_updated_at = NULL, tracking_route_requested_at = NULL
@@ -35,10 +57,10 @@ export async function cancelCustomerOrder(req: AuthRequest, res: Response) {
      ), updated_stock AS (
        UPDATE products p SET stock = p.stock + r.units FROM restock r WHERE p.id = r.product_id
      )
-     SELECT EXISTS (SELECT 1 FROM owned) AS found, EXISTS (SELECT 1 FROM changed) AS changed`,
-    [orderId, req.userId],
+     SELECT EXISTS (SELECT 1 FROM owned) AS found, EXISTS (SELECT 1 FROM changed) AS changed,
+       EXISTS (SELECT 1 FROM owned WHERE dispatch_state IS NOT NULL AND
+         (delivery_status IN ('in_transit','delivered') OR dispatch_state = 'incident')) AS blocked`,
+    [orderId, owner, managedStoreOrder],
   );
-  if (!order.found) return res.status(404).json({ error: 'Pedido não encontrado.' });
-  if (order.changed) notifyOrderEvent('cancelled', [orderId]);
-  return res.sendStatus(204);
+  return order as { found: boolean; changed: boolean; blocked: boolean };
 }

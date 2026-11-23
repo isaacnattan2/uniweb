@@ -9,6 +9,7 @@ import { formatDeliveryAddress, normalizeDeliveryAddress } from '../services/Del
 import { lockCart } from '../services/CustomerCart';
 import { getClient, query } from '../config/database';
 import { applyCoupon, Coupon, CouponError, normalizeCouponCode } from '../services/StoreCoupons';
+import { dispatchUuid, dispatchWindowMinutes, findDispatchCandidates } from '../services/DeliveryDispatch';
 
 class CheckoutError extends Error {
   constructor(public status: number, message: string) {
@@ -53,6 +54,14 @@ export class OrderController {
       const { items, paymentMethod, deliveryType, deliveryAddress } = req.body || {};
       const config = startPayment ? getAsaasConfig() : null;
       const checkoutId = req.body?.checkoutId;
+      const quoteId = deliveryType === 'delivery' ? req.body?.deliveryQuoteId : null;
+      const scheduledAt = deliveryType === 'delivery' ? req.body?.scheduledAt ?? null : null;
+      const slot = typeof scheduledAt === 'string' ? new Date(scheduledAt) : null;
+      if (deliveryType === 'delivery' && (!config || req.body?.deliveryFeeAccepted !== true ||
+          typeof quoteId !== 'string' || !dispatchUuid.test(quoteId) ||
+          (scheduledAt !== null && (!slot || !Number.isFinite(slot.getTime()) || slot.getTime() % 1800000 !== 0)))) {
+        throw new CheckoutError(400, 'Calcule e aceite o frete antes de iniciar o pagamento.');
+      }
       const inputCode = req.body?.couponCode;
       if (inputCode != null && (typeof inputCode !== 'string' || inputCode.length > 64)) {
         throw new CheckoutError(400, 'Código de cupom inválido.');
@@ -108,6 +117,7 @@ export class OrderController {
       const requestHash = createHash('sha256').update(JSON.stringify([
         paymentMethod, deliveryType, address, [...itemById.values()].sort((a, b) => a.productId.localeCompare(b.productId)),
         ...(couponCode ? [couponCode] : []),
+        ...(quoteId ? [quoteId, slot?.toISOString() ?? null] : []),
       ])).digest('hex');
       if (config) {
         await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))', [checkoutId]);
@@ -169,12 +179,36 @@ export class OrderController {
       if (couponCode && groups.size !== 1) {
         throw new CheckoutError(400, 'Use um cupom por compra de uma loja.');
       }
+      let quote;
+      let promisedAt: Date | undefined;
+      let reservedDriver: string | null = null;
+      if (quoteId) {
+        if (groups.size !== 1) throw new CheckoutError(400, 'Finalize a entrega de uma loja por vez.');
+        const { rows } = await client.query(
+          `SELECT * FROM delivery_quotes WHERE id = $1 AND user_id = $2 AND business_id = $3
+           AND destination = $4 AND expires_at > NOW() FOR UPDATE`,
+          [quoteId, req.userId, [...groups.keys()][0], address]
+        );
+        quote = rows[0];
+        if (!quote || (slot && (slot.getTime() < Date.now() + 40 * 60000 || slot.getTime() > Date.now() + 7 * 86400000))) {
+          throw new CheckoutError(409, 'O frete ou o horário expirou. Atualize a cotação.');
+        }
+        if (!slot && quote.immediate_minutes == null) throw new CheckoutError(409, 'A entrega imediata não está disponível.');
+        if (slot) await client.query('SELECT pg_advisory_xact_lock(19750215)');
+        const candidates = await findDispatchCandidates(client, quote, slot);
+        if (!candidates.length) throw new CheckoutError(409, 'Este tipo de entrega ficou indisponível. Atualize a cotação.');
+        reservedDriver = slot ? candidates[0].user_id : null;
+        promisedAt = new Date((slot?.getTime() ?? Date.now()) +
+          (slot ? dispatchWindowMinutes(quote) : quote.immediate_minutes) * 60000);
+        await client.query('DELETE FROM delivery_quotes WHERE id = $1', [quoteId]);
+      }
 
       const orderIds: string[] = [];
       const checkoutItems: Array<{ name: string; value: number; quantity: number }> = [];
       for (const [businessId, group] of groups) {
         const subtotal = group.reduce((sum, entry) => sum + entry.subtotal, 0n);
-        if (subtotal > 999999999999999n) {
+        const deliveryFee = BigInt(quote?.fee_cents ?? 0);
+        if (subtotal + deliveryFee > 999999999999999n) {
           throw new CheckoutError(400, 'O valor do pedido excede o limite permitido.');
         }
         let pricedItems = group.map((entry) => ({ ...entry, discount: 0n }));
@@ -194,11 +228,21 @@ export class OrderController {
         const orderId = uuidv4();
         const amount = formatCents(subtotal);
         await client.query(
-          `INSERT INTO orders (id, user_id, business_id, order_number, subtotal, total, payment_method, delivery_type, delivery_address, discount, coupon_code)
-           VALUES ($1, $2, $3, $4, $5, $9, $6, $7, $8, $10, $11)`,
+          `INSERT INTO orders (id, user_id, business_id, order_number, subtotal, total, payment_method, delivery_type, delivery_address, discount, coupon_code, delivery_fee)
+           VALUES ($1, $2, $3, $4, $5, $9, $6, $7, $8, $10, $11, $12)`,
           [orderId, req.userId, businessId, orderId, amount, paymentMethod, deliveryType, deliveryType === 'pickup' ? null : address,
-            formatCents(subtotal - discount), formatCents(discount), couponCode || null]
+            formatCents(subtotal - discount + deliveryFee), formatCents(discount), couponCode || null, formatCents(deliveryFee)]
         );
+        if (quote) {
+          await client.query(
+            `INSERT INTO delivery_dispatch (order_id, state, slot_at, promised_at, pickup_address, pickup_latitude, pickup_longitude,
+              distance_meters, duration_minutes, rate_cents, fee_cents, subsidy_cents, radius_meters, capacity_driver_id)
+             VALUES ($1,'payment_pending',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+            [orderId, slot, promisedAt, quote.pickup_address, quote.pickup_latitude, quote.pickup_longitude, quote.distance_meters,
+              quote.duration_minutes, quote.rate_cents, quote.fee_cents, quote.subsidy_cents, quote.radius_meters, reservedDriver]
+          );
+          if (deliveryFee > 0n) checkoutItems.push({ name: 'Frete', quantity: 1, value: Number(formatCents(deliveryFee)) });
+        }
         for (const { product, item, subtotal, discount: lineDiscount } of pricedItems) {
           if (config) {
             const quantity = BigInt(item.quantity);
@@ -263,7 +307,7 @@ export class OrderController {
       }
       await client.query('COMMIT');
       inTransaction = false;
-      notifyOrderEvent('new', orderIds);
+      if (!quote) notifyOrderEvent('new', orderIds);
       return res.status(201).json({ orderId: orderIds[0], orderIds, status: 'pending', ...(paymentUrl && { checkoutUrl: paymentUrl }) });
     } catch (error: unknown) {
       if (client && inTransaction) {
@@ -293,14 +337,16 @@ export class OrderController {
 
       const result = await query(
         `SELECT o.id, o.total AS total_amount, o.order_status AS status, o.created_at, o.payment_status,
-                o.delivery_type, o.delivery_status, (o.delivery_driver_id IS NOT NULL) AS delivery_assigned,
+                o.delivery_type, o.delivery_status, o.delivery_fee, (o.delivery_driver_id IS NOT NULL) AS delivery_assigned,
+                j.state AS dispatch_state, j.slot_at, j.promised_at, j.refund_state,
                 COALESCE(json_agg(
                   json_build_object('productId', oi.product_id, 'quantity', oi.quantity, 'unitPrice', oi.product_price, 'productName', oi.product_name)
                 ) FILTER (WHERE oi.id IS NOT NULL), '[]'::json) AS items
          FROM orders o
          LEFT JOIN order_items oi ON o.id = oi.order_id
+         LEFT JOIN delivery_dispatch j ON j.order_id = o.id
          WHERE o.user_id = $1
-         GROUP BY o.id, o.total, o.order_status, o.created_at, o.payment_status
+         GROUP BY o.id, j.order_id
          ORDER BY o.created_at DESC`,
         [req.userId]
       );
@@ -322,9 +368,12 @@ export class OrderController {
       const result = await query(
         `SELECT o.id, o.total AS total_amount, o.order_status AS status, o.created_at,
                 o.payment_method, o.payment_status, o.delivery_type, o.delivery_address, o.subtotal, o.discount, o.coupon_code,
-                o.delivery_status, (o.delivery_driver_id IS NOT NULL) AS delivery_assigned,
+                o.delivery_status, o.delivery_fee, (o.delivery_driver_id IS NOT NULL) AS delivery_assigned,
+                j.state AS dispatch_state, j.slot_at, j.promised_at, j.refund_state,
                 CASE WHEN o.delivery_type = 'delivery' AND o.payment_status = 'paid'
-                  AND o.order_status IN ('confirmed', 'processing') AND o.delivery_status IN ('processing', 'in_transit')
+                  AND o.order_status IN ('confirmed', 'processing') AND (j.state = 'in_transit' OR
+                    (j.order_id IS NULL AND o.delivery_status = 'in_transit') OR
+                    (j.order_id IS NULL AND o.delivery_status = 'processing'))
                   THEN o.delivery_confirmation_code END AS delivery_confirmation_code,
                 c.provider_id, c.installment_count,
                 COALESCE(json_agg(
@@ -333,8 +382,9 @@ export class OrderController {
          FROM orders o
          LEFT JOIN order_items oi ON o.id = oi.order_id
          LEFT JOIN asaas_checkouts c ON c.id = o.asaas_checkout_id
+         LEFT JOIN delivery_dispatch j ON j.order_id = o.id
          WHERE o.id = $1 AND o.user_id = $2
-         GROUP BY o.id, o.total, o.order_status, o.created_at, o.payment_method, o.payment_status, o.delivery_type, o.delivery_address, c.provider_id, c.installment_count`,
+         GROUP BY o.id, j.order_id, c.provider_id, c.installment_count`,
         [orderId, req.userId]
       );
 

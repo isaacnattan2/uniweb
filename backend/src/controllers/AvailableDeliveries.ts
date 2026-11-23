@@ -45,16 +45,20 @@ async function listDeliveries(req: AuthRequest, res: Response, next: NextFunctio
               SUBSTRING(o.delivery_address FROM ' · ([[:alpha:] .''-]+/[A-Z]{2}) · CEP [0-9]{5}-[0-9]{3}$') AS destination_area,
               CASE WHEN d.driver_rate_cents IS NOT NULL THEN d.delivery_fee
                 ELSE COALESCE(NULLIF(d.delivery_fee, 0), NULLIF(o.delivery_fee, 0)) END AS delivery_fee,
-              d.driver_rate_cents, d.driver_distance_meters
+              d.driver_rate_cents, d.driver_distance_meters, j.order_id IS NOT NULL AS managed_delivery,
+              j.slot_at, j.state AS dispatch_state, j.distance_meters AS offer_distance,
+              f.id AS offer_id, f.fee_cents AS offer_fee_cents, f.rate_cents AS offer_rate_cents, f.expires_at AS offer_expires_at
        FROM orders o
        JOIN businesses b ON b.id = o.business_id
        LEFT JOIN deliveries d ON d.order_id = o.id AND d.deleted_at IS NULL
+       LEFT JOIN delivery_dispatch j ON j.order_id = o.id
+       LEFT JOIN delivery_dispatch_offers f ON f.order_id = o.id AND f.user_id = $3 AND f.state = 'pending' AND f.expires_at > NOW()
        WHERE ${accepted
          ? "o.deleted_at IS NULL AND o.delivery_type = 'delivery' AND o.delivery_driver_id = $3 AND o.delivery_status IN ('processing', 'in_transit', 'delivered', 'cancelled')"
-         : availableOrder}
-       ORDER BY ${accepted ? "(o.delivery_status IN ('delivered', 'cancelled')), o.updated_at DESC" : 'o.created_at ASC'} NULLS LAST, o.id
+         : `(${availableOrder}) AND (j.order_id IS NULL OR (j.state = 'offered' AND f.id IS NOT NULL))`}
+       ORDER BY ${accepted ? "(o.delivery_status IN ('delivered', 'cancelled')), o.updated_at DESC" : '(f.id IS NULL), o.created_at ASC'} NULLS LAST, o.id
        LIMIT $1 OFFSET $2`,
-      accepted ? [pageSize + 1, start, req.userId] : [pageSize + 1, start]
+      [pageSize + 1, start, req.userId]
     );
 
     const rows = result.rows.slice(0, pageSize);
@@ -62,7 +66,9 @@ async function listDeliveries(req: AuthRequest, res: Response, next: NextFunctio
     const distances: (number | null)[] = [];
     if (rate !== null) {
       for (let index = 0; index < rows.length; index += 8) {
-        distances.push(...await Promise.all(rows.slice(index, index + 8).map(getOrderDeliveryDistance)));
+        distances.push(...await Promise.all(rows.slice(index, index + 8).map((row) =>
+          row.managed_delivery ? row.offer_distance : getOrderDeliveryDistance(row)
+        )));
       }
     }
 
@@ -76,9 +82,12 @@ async function listDeliveries(req: AuthRequest, res: Response, next: NextFunctio
           pickup: { storeId: row.store_id, storeName: row.store_name, address: row.pickup_address },
           destinationArea: row.destination_area,
           destinationAddress: row.destination_address,
-          deliveryFee: rate === null ? row.delivery_fee : distance === null ? null : calculateDeliveryFee(rate, distance),
-          distanceMeters: accepted ? row.driver_distance_meters : distance,
-          rateCents: accepted ? row.driver_rate_cents : rate,
+          deliveryFee: row.offer_id && !accepted ? row.offer_fee_cents / 100 :
+            rate === null ? row.delivery_fee : distance === null ? null : calculateDeliveryFee(rate, distance),
+          distanceMeters: accepted ? row.driver_distance_meters : row.offer_id ? row.offer_distance : distance,
+          rateCents: accepted ? row.driver_rate_cents : row.offer_id ? row.offer_rate_cents : rate,
+          managed: row.managed_delivery, scheduledAt: row.slot_at, dispatchState: row.dispatch_state,
+          ...(row.offer_id && !accepted && { offerId: row.offer_id, offerExpiresAt: row.offer_expires_at }),
           ...(accepted && { status: row.order_status === 'cancelled' ? 'cancelled_by_store' :
             ['delivered', 'cancelled'].includes(row.delivery_status) ? row.delivery_status : 'in_progress' }),
         };
@@ -107,7 +116,7 @@ export async function acceptDelivery(req: AuthRequest, res: Response, next: Next
         `SELECT o.id, ${ratePickupAddress} AS rate_pickup_address, TRIM(o.delivery_address) AS destination_address
          FROM orders o JOIN businesses b ON b.id = o.business_id
          LEFT JOIN deliveries d ON d.order_id = o.id AND d.deleted_at IS NULL
-         WHERE o.id = $1 AND ${availableOrder}`,
+         WHERE o.id = $1 AND ${availableOrder} AND NOT EXISTS (SELECT 1 FROM delivery_dispatch WHERE order_id = o.id)`,
         [orderId]
       );
       candidate = order;
@@ -116,6 +125,7 @@ export async function acceptDelivery(req: AuthRequest, res: Response, next: Next
     const client = await getClient();
     try {
       await client.query('BEGIN');
+      await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1::text, 1))', [req.userId]);
       const { rows: [order] } = await client.query(
         `UPDATE orders o SET delivery_driver_id = $2, delivery_status = 'processing',
            order_status = 'processing', delivery_confirmation_code = $3,
@@ -123,6 +133,9 @@ export async function acceptDelivery(req: AuthRequest, res: Response, next: Next
          FROM businesses b LEFT JOIN deliveries d ON d.order_id = $1 AND d.deleted_at IS NULL
          WHERE o.id = $1 AND b.id = o.business_id AND ${availableOrder}
            AND EXISTS (SELECT 1 FROM users WHERE id = $2 AND user_type = 'driver' AND status = 'active')
+           AND NOT EXISTS (SELECT 1 FROM delivery_dispatch WHERE order_id = o.id)
+           AND NOT EXISTS (SELECT 1 FROM orders current_order WHERE current_order.delivery_driver_id = $2
+             AND current_order.id <> o.id AND current_order.deleted_at IS NULL AND current_order.delivery_status IN ('processing','in_transit'))
          RETURNING o.delivery_address, o.delivery_fee, b.address, ${ratePickupAddress} AS rate_pickup_address`,
         [orderId, req.userId, String(randomInt(10000)).padStart(4, '0')]
       );

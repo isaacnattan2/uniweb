@@ -2,6 +2,7 @@ import { NextFunction, Response } from 'express';
 import { getClient } from '../config/database';
 import { AuthRequest } from '../middleware/auth';
 import { notifyOrderEvent } from '../services/OrderPush';
+import { recordDispatchEarnings, releaseDispatchAssignment } from '../services/DeliveryDispatch';
 
 export async function confirmDelivery(req: AuthRequest, res: Response, next: NextFunction) {
   if (req.userType !== 'driver' || !req.userId) {
@@ -22,6 +23,7 @@ export async function confirmDelivery(req: AuthRequest, res: Response, next: Nex
       await client.query('BEGIN');
       const { rows: [order] } = await client.query(
         `SELECT delivery_status, order_status, payment_status,
+                (SELECT j.state FROM delivery_dispatch j WHERE j.order_id = orders.id) AS dispatch_state,
                 delivery_confirmation_code = $3 AS code_matches,
                 delivery_confirmation_retry_at > clock_timestamp() AS cooling_down
          FROM orders WHERE id = $1 AND delivery_driver_id = $2
@@ -36,7 +38,7 @@ export async function confirmDelivery(req: AuthRequest, res: Response, next: Nex
         await client.query('COMMIT');
         return res.sendStatus(204);
       }
-      if (!['processing', 'in_transit'].includes(order.delivery_status) ||
+      if (!(order.dispatch_state ? order.dispatch_state === 'in_transit' : ['processing', 'in_transit'].includes(order.delivery_status)) ||
           !['confirmed', 'processing'].includes(order.order_status) || order.payment_status !== 'paid' ||
           order.code_matches === null) {
         await client.query('ROLLBACK');
@@ -74,6 +76,8 @@ export async function confirmDelivery(req: AuthRequest, res: Response, next: Nex
            delivery_confirmation_code = NULL, delivery_confirmation_attempts = 0,
            delivery_confirmation_retry_at = NULL, updated_at = NOW() WHERE id = $1`, [orderId]
       );
+      await client.query("UPDATE delivery_dispatch SET state = 'delivered' WHERE order_id = $1", [orderId]);
+      if (order.dispatch_state) await recordDispatchEarnings(client, orderId);
       await client.query('COMMIT');
       notifyOrderEvent('delivered', [orderId]);
       return res.sendStatus(204);
@@ -103,7 +107,8 @@ export async function cancelDelivery(req: AuthRequest, res: Response, next: Next
     try {
       await client.query('BEGIN');
       const { rows: [order] } = await client.query(
-        `SELECT delivery_status, order_status FROM orders
+        `SELECT delivery_status, order_status,
+           (SELECT state FROM delivery_dispatch j WHERE j.order_id = orders.id) AS dispatch_state FROM orders
          WHERE id = $1 AND delivery_driver_id = $2 AND delivery_type = 'delivery'
            AND deleted_at IS NULL FOR UPDATE`, [orderId, req.userId]
       );
@@ -119,6 +124,27 @@ export async function cancelDelivery(req: AuthRequest, res: Response, next: Next
           !['confirmed', 'processing'].includes(order.order_status)) {
         await client.query('ROLLBACK');
         return res.status(409).json({ error: 'Esta entrega não pode mais ser cancelada.' });
+      }
+      if (order.dispatch_state) {
+        if (order.dispatch_state === 'incident') {
+          await client.query('COMMIT');
+          return res.sendStatus(204);
+        }
+        if (order.delivery_status === 'in_transit') {
+          const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 500) : '';
+          if (!reason) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ error: 'Informe o motivo da ocorrência após a retirada.' });
+          }
+          await client.query("UPDATE delivery_dispatch SET state = 'incident', incident_reason = $2 WHERE order_id = $1", [orderId, reason]);
+          await client.query('COMMIT');
+          notifyOrderEvent('delivery_incident', [orderId]);
+          return res.sendStatus(204);
+        }
+        await releaseDispatchAssignment(client, orderId, 'retry');
+        await client.query('COMMIT');
+        notifyOrderEvent('delivery_reassigned', [orderId]);
+        return res.sendStatus(204);
       }
       const delivery = await client.query(
         `UPDATE deliveries d SET status = 'cancelled', updated_at = NOW(),
