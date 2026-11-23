@@ -1,6 +1,7 @@
 import { NextFunction, Response } from 'express';
 import { getClient } from '../config/database';
 import { AuthRequest } from '../middleware/auth';
+import { notifyOrderEvent } from '../services/OrderPush';
 
 export async function confirmDelivery(req: AuthRequest, res: Response, next: NextFunction) {
   if (req.userType !== 'driver' || !req.userId) {
@@ -74,6 +75,7 @@ export async function confirmDelivery(req: AuthRequest, res: Response, next: Nex
            delivery_confirmation_retry_at = NULL, updated_at = NOW() WHERE id = $1`, [orderId]
       );
       await client.query('COMMIT');
+      notifyOrderEvent('delivered', [orderId]);
       return res.sendStatus(204);
     } catch (error) {
       await client.query('ROLLBACK');

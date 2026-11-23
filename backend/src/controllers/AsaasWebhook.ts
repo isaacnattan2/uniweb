@@ -1,6 +1,7 @@
 ﻿import { timingSafeEqual } from 'node:crypto';
 import { Request, Response } from 'express';
 import { getClient } from '../config/database';
+import { notifyOrderEvent } from '../services/OrderPush';
 
 export async function asaasWebhook(req: Request, res: Response) {
   const expected = Buffer.from(process.env.ASAAS_WEBHOOK_TOKEN?.trim() || '');
@@ -17,6 +18,7 @@ export async function asaasWebhook(req: Request, res: Response) {
 
   let client;
   let releaseError: Error | undefined;
+  let changedIds: string[] = [];
   try {
     client = await getClient();
     await client.query('BEGIN');
@@ -26,13 +28,16 @@ export async function asaasWebhook(req: Request, res: Response) {
     if (session.rows.length) {
       const id = session.rows[0].id;
       if (paid) {
-        await client.query(
+        const { rows } = await client.query(
           `UPDATE orders SET payment_status = 'paid',
              order_status = CASE WHEN order_status = 'pending' THEN 'confirmed' ELSE order_status END
-           WHERE asaas_checkout_id = $1 AND payment_status = 'pending' AND order_status IN ('pending', 'cancelled')`, [id]
+           WHERE asaas_checkout_id = $1 AND payment_status = 'pending' AND order_status IN ('pending', 'cancelled')
+           RETURNING id, order_status, delivery_type, delivery_status`, [id]
         );
+        changedIds = rows.filter((order) => order.order_status === 'confirmed' &&
+          order.delivery_type === 'delivery' && order.delivery_status === 'pending').map((order) => order.id);
       } else {
-        await client.query(
+        const { rows } = await client.query(
           `WITH cancelled AS (
              UPDATE orders SET payment_status = 'failed', order_status = 'cancelled'
              WHERE asaas_checkout_id = $1 AND payment_status = 'pending' AND order_status = 'pending'
@@ -40,9 +45,12 @@ export async function asaasWebhook(req: Request, res: Response) {
            ), restock AS (
              SELECT i.product_id, SUM(i.quantity) AS units FROM order_items i
              JOIN cancelled c ON c.id = i.order_id GROUP BY i.product_id
+           ), updated_stock AS (
+             UPDATE products p SET stock = p.stock + r.units FROM restock r WHERE p.id = r.product_id
            )
-           UPDATE products p SET stock = p.stock + r.units FROM restock r WHERE p.id = r.product_id`, [id]
+           SELECT id FROM cancelled`, [id]
         );
+        changedIds = rows.map((order) => order.id);
         await client.query(
           `UPDATE orders SET payment_status = 'failed' WHERE asaas_checkout_id = $1
            AND payment_status = 'pending' AND order_status = 'cancelled'`, [id]
@@ -50,6 +58,7 @@ export async function asaasWebhook(req: Request, res: Response) {
       }
     }
     await client.query('COMMIT');
+    notifyOrderEvent(paid ? 'ready' : 'cancelled', changedIds);
     return res.sendStatus(200);
   } catch {
     try {

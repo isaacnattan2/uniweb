@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { signStorePushIdentity } from '../services/OrderPush';
+import { driverPushAlias, signStorePushIdentity } from '../services/OrderPush';
 import { upload } from '../services/UploadService';
 import { getCustomerProfile, listCustomerAddresses, requireCustomer, saveCustomerAddress, updateCustomerProfile, uploadCustomerAvatar } from '../controllers/CustomerAccount';
 import { lookupPostalCode } from '../services/DeliveryAddress';
@@ -17,8 +17,12 @@ router.get('/me', authMiddleware, (req: AuthRequest, res) => {
 });
 
 router.get('/me/push-identity', authMiddleware, (req: AuthRequest, res) => {
-  if (req.userType !== 'business' || !req.userId) return res.sendStatus(403);
+  if (!req.userId || !['business', 'customer', 'driver'].includes(req.userType ?? '')) return res.sendStatus(403);
   res.set('Cache-Control', 'no-store');
+  if (req.userType === 'driver') {
+    const externalId = driverPushAlias(req.userId);
+    return externalId ? res.json({ externalId }) : res.sendStatus(503);
+  }
   const token = signStorePushIdentity(req.userId);
   if (!token) return res.sendStatus(503);
   return res.json({ externalId: req.userId, token });

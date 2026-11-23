@@ -22,7 +22,9 @@ export function LoginPage() {
       const { user, token } = await loginUser(email, password);
       login(token, user.id, user.user_type);
       const from = location.state?.from;
-      const customerDestination = typeof from === 'string' && (from === '/cart' || /^\/store\/[\da-f-]{36}(?:\?product=[\da-f-]{36})?$/i.test(from)) ? from : '/shop';
+      const customerDestination = typeof from === 'string' && (from === '/cart' ||
+        /^\/store\/[\da-f-]{36}(?:\?product=[\da-f-]{36})?$/i.test(from) ||
+        /^\/order\/[\da-f-]{36}$/i.test(from)) ? from : '/shop';
       const storeDestination = typeof from === 'string' && /^\/business\/[\da-f-]{36}\?order=[\da-f-]{36}$/i.test(from) ? from : '/dashboard';
       navigate(user.user_type === 'admin' ? '/admin' : user.user_type === 'business' ? storeDestination :
         user.user_type === 'driver' ? '/driver' : customerDestination, { replace: true });

@@ -2,6 +2,7 @@
 import { randomInt } from 'node:crypto';
 import { getClient, query } from '../config/database';
 import { AuthRequest } from '../middleware/auth';
+import { notifyOrderEvent } from '../services/OrderPush';
 
 const availableOrder = `o.deleted_at IS NULL AND o.payment_status = 'paid'
   AND o.order_status IN ('confirmed', 'processing')
@@ -113,6 +114,7 @@ export async function acceptDelivery(req: AuthRequest, res: Response, next: Next
         return res.status(409).json({ error: 'Não foi possível reservar a entrega. Confira seu cadastro de entregador e atualize a lista.' });
       }
       await client.query('COMMIT');
+      notifyOrderEvent('collected', [orderId]);
       return res.sendStatus(204);
     } catch (error) {
       await client.query('ROLLBACK');

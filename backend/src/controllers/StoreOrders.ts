@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { query } from '../config/database';
+import { notifyOrderEvent } from '../services/OrderPush';
 
 export async function listStoreOrders(req: Request, res: Response) {
   const offset = req.query.offset ?? '0';
@@ -59,5 +60,6 @@ export async function updateStoreOrder(req: Request, res: Response) {
     [orderId, id]
   );
   if (!result.rowCount) return res.status(409).json({ error: 'O pedido não está mais disponível para esta ação.' });
+  notifyOrderEvent(requeue ? 'ready' : 'cancelled', [orderId]);
   return res.sendStatus(204);
 }

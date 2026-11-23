@@ -12,7 +12,8 @@ export function ProtectedRoute({ children, roles }: ProtectedRouteProps) {
   const { pathname, search } = useLocation();
   
   if (!token) {
-    return <Navigate to="/login" state={pathname.startsWith('/business/') ? { from: pathname + search } : undefined} replace />;
+    const from = /^\/(?:business|order)\//.test(pathname) ? pathname + search : undefined;
+    return <Navigate to="/login" state={from ? { from } : undefined} replace />;
   }
   if (roles && (!userType || !roles.includes(userType))) {
     return <Navigate to={userType === 'admin' ? '/admin' : userType === 'business' ? '/dashboard' : userType === 'driver' ? '/driver' : '/shop'} replace />;

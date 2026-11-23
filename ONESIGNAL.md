@@ -17,4 +17,8 @@ No ambiente de build do frontend, configure `VITE_ONESIGNAL_APP_ID` com o mesmo 
 
 Entre como lojista, clique em **Ativar notificações de pedidos** e conceda a permissão. Faça um pedido com uma conta de cliente e abra o push para conferir o pedido específico no painel da loja. O evento ocorre quando o pedido é criado e aparece como pendente se aguarda pagamento. O envio é feito após a gravação do pedido e falhas do provedor são registradas no backend.
 
-Para o UniEntregador, configure um app OneSignal separado com FCM para Android e APNs para iOS. No ambiente Expo, defina `EXPO_PUBLIC_ONESIGNAL_APP_ID` e `ONESIGNAL_APNS_MODE`. Gere um build nativo e entre como entregador para solicitar permissão. O app pode receber pushes de teste desse app OneSignal. O evento de novo pedido tem como destinatário o lojista no Uniweb.
+Clientes também podem ativar as notificações no Uniweb. Lojista e cliente recebem avisos de cancelamento, aceite da entrega e confirmação pelo código. O clique abre o pedido no painel correspondente à conta.
+
+Para o UniEntregador, configure um app OneSignal separado com FCM para Android e APNs para iOS. No ambiente Expo, defina `EXPO_PUBLIC_ONESIGNAL_APP_ID` e `ONESIGNAL_APNS_MODE`. No backend, use o mesmo App ID em `ONESIGNAL_DRIVER_APP_ID` e guarde a App API Key móvel em `ONESIGNAL_DRIVER_API_KEY`. O backend usa `JWT_SECRET` para gerar identificadores de push dos entregadores. Se esse segredo mudar, os entregadores precisarão abrir o app e autenticar novamente para vincular a inscrição ao identificador novo.
+
+Gere um build nativo e entre como entregador para solicitar permissão. A confirmação do pagamento de um pedido de entrega e a recolocação na fila avisam os entregadores ativos. Se um pedido com entregador atribuído for cancelado ou entregue, o app notifica esse entregador. O clique abre a aba **Disponíveis** ou **Minhas entregas**.
