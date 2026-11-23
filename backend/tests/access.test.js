@@ -11,6 +11,7 @@ test('restricts store management and available deliveries by account role', asyn
     seller1: '00000000-0000-4000-8000-000000000002',
     seller2: '00000000-0000-4000-8000-000000000003',
     customer: '00000000-0000-4000-8000-000000000004',
+    otherCustomer: '00000000-0000-4000-8000-000000000008',
     store: '00000000-0000-4000-8000-000000000005',
     driver: '00000000-0000-4000-8000-000000000007',
     product: '00000000-0000-4000-8000-000000000006',
@@ -20,6 +21,7 @@ test('restricts store management and available deliveries by account role', asyn
     [ids.seller1]: 'business',
     [ids.seller2]: 'business',
     [ids.customer]: 'customer',
+    [ids.otherCustomer]: 'customer',
     [ids.driver]: 'driver',
   };
   const passwordHash = await bcrypt.hash('test-password', 4);
@@ -28,10 +30,18 @@ test('restricts store management and available deliveries by account role', asyn
   let createdStore;
   let updatedStore;
   let transferDuringUpdate = false;
+  let customerOrderCancelled = false;
   const originalQuery = database.query;
   database.query = async (sql, params = []) => {
     if (sql.includes('SELECT id, user_type FROM users')) {
       return { rows: users[params[0]] ? [{ id: params[0], user_type: users[params[0]] }] : [] };
+    }
+    if (sql.includes('WITH owned AS')) {
+      assert.match(sql, /WHERE id = \$1 AND user_id = \$2 AND deleted_at IS NULL FOR UPDATE/);
+      const found = params[0] === ids.product && params[1] === ids.customer;
+      const changed = found && !customerOrderCancelled;
+      if (changed) customerOrderCancelled = true;
+      return { rows: [{ found, changed }] };
     }
     if (sql.includes('SELECT * FROM users WHERE email')) {
       return { rows: [{ id: ids.seller1, email: params[0], full_name: 'Lojista', user_type: 'business', password_hash: passwordHash }] };
@@ -94,10 +104,16 @@ test('restricts store management and available deliveries by account role', asyn
     if (userId) headers.Authorization = `Bearer ${generateToken({ id: userId })}`;
     if (body) headers['Content-Type'] = 'application/json';
     const result = await fetch(base + url, { method, headers, body: body && JSON.stringify(body) });
-    return { status: result.status, body: await result.json() };
+    return { status: result.status, body: result.status === 204 ? null : await result.json() };
   }
 
   const available = '/api/orders/available-deliveries';
+  const cancellation = '/api/orders/' + ids.product + '/cancel';
+  assert.equal((await request(cancellation, null, 'POST')).status, 401);
+  assert.equal((await request(cancellation, ids.seller1, 'POST')).status, 403);
+  assert.equal((await request(cancellation, ids.otherCustomer, 'POST')).status, 404);
+  assert.equal((await request(cancellation, ids.customer, 'POST')).status, 204);
+  assert.equal((await request(cancellation, ids.customer, 'POST')).status, 204);
   assert.equal((await request(available)).status, 401);
   assert.equal((await request(available, ids.customer)).status, 403);
   assert.equal((await request(available + '?limit=51', ids.driver)).status, 400);

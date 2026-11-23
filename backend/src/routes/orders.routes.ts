@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { acceptDelivery, listAcceptedDeliveries, listAvailableDeliveries } from '../controllers/AvailableDeliveries';
 import { cancelDelivery, confirmDelivery } from '../controllers/ConfirmDelivery';
+import { cancelCustomerOrder } from '../controllers/CustomerOrderCancellation';
 import { clearDeliveryTracking, getDeliveryRoute, getDeliveryTracking, updateDeliveryTracking } from '../controllers/DeliveryTracking';
 import { asaasWebhook } from '../controllers/AsaasWebhook';
 import { lookupPostalCode } from '../services/DeliveryAddress';
@@ -24,5 +25,6 @@ router.put('/accepted-deliveries/:orderId/tracking', authMiddleware, (req, res, 
 router.delete('/accepted-deliveries/:orderId/tracking', authMiddleware, (req, res, next) => clearDeliveryTracking(req, res).catch(next));
 router.post('/accepted-deliveries/:orderId/route', authMiddleware, (req, res, next) => getDeliveryRoute(req, res).catch(next));
 router.get('/:orderId', authMiddleware, OrderController.getOrder);
+router.post('/:orderId/cancel', authMiddleware, (req, res, next) => cancelCustomerOrder(req, res).catch(next));
 
 export default router;

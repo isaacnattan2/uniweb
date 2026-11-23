@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
+import axios from 'axios';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { getMyOrders, getOrder } from '../services/api';
+import { cancelMyOrder, getMyOrders, getOrder } from '../services/api';
 import { useCartStore } from '../context/store';
 import { OrderStatus } from '../components/OrderStatus';
 import { LiveDelivery } from '../components/LiveDelivery';
@@ -20,6 +21,9 @@ export function OrdersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [trackingOrder, setTrackingOrder] = useState<string | null>(null);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [cancellationError, setCancellationError] = useState('');
+  const [revision, setRevision] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -56,7 +60,26 @@ export function OrdersPage() {
       window.clearInterval(interval);
       document.removeEventListener('visibilitychange', refreshVisibleOrders);
     };
-  }, [orderId]);
+  }, [orderId, revision]);
+
+  async function cancelOrder(order: { id: string; payment_status: string }) {
+    const message = order.payment_status === 'paid'
+      ? 'Cancelar este pedido? O cancelamento não emite estorno automático.'
+      : 'Cancelar este pedido?';
+    if (cancellingId || !window.confirm(message)) return;
+    setCancellationError('');
+    setCancellingId(order.id);
+    try {
+      await cancelMyOrder(order.id);
+      setTrackingOrder((current) => current === order.id ? null : current);
+      setRevision((current) => current + 1);
+    } catch (err) {
+      setCancellationError(axios.isAxiosError(err) && typeof err.response?.data?.error === 'string'
+        ? err.response.data.error : 'Não foi possível cancelar o pedido. Tente novamente.');
+    } finally {
+      setCancellingId(null);
+    }
+  }
 
   if (loading) {
     return <div className="container"><p>Carregando pedidos...</p></div>;
@@ -75,6 +98,7 @@ export function OrdersPage() {
           <button type="button" className="btn-primary" onClick={() => navigate('/cart')}>Voltar ao carrinho para pagar outra loja</button>
         )}
         {error && <div className="error-message">{error}</div>}
+        {cancellationError && <div className="error-message" role="alert">{cancellationError}</div>}
 
         {!error && (orders.length === 0 ? (
           <div className="empty-state">
@@ -143,6 +167,10 @@ export function OrdersPage() {
                 )}
 
                 <div className="order-footer">
+                  {order.status !== 'cancelled' && <button type="button" className="btn-secondary"
+                    disabled={cancellingId !== null} onClick={() => void cancelOrder(order)}>
+                    {cancellingId === order.id ? 'Cancelando…' : 'Cancelar pedido'}
+                  </button>}
                   {orderId && order.checkoutUrl && <a href={order.checkoutUrl} className="btn-secondary">Continuar pagamento</a>}
                   <div className="order-total">
                     {orderId && Number(order.discount) > 0 && (

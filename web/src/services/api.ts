@@ -315,6 +315,10 @@ export async function getMyOrders() {
   return response.data;
 }
 
+export async function cancelMyOrder(orderId: string) {
+  await api.post(`/orders/${orderId}/cancel`);
+}
+
 export async function getOrder(orderId: string) {
   const response = await api.get(`/orders/${orderId}`);
   return response.data;
