@@ -76,3 +76,7 @@
   font-weight: 600;
   text-decoration: none;
 }
+
+.driver-page .store-withdrawals {
+  margin-block-start: 1rem;
+}

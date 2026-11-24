@@ -11,8 +11,19 @@ const labels: Record<string, string> = {
   SELFIE: 'Selfie',
 };
 
-function statusLabel(code?: string) {
-  return code ? <>{labels[code] ?? 'Status informado pelo Asaas'} (<code>{code}</code>)</> : 'Sem informação do Asaas';
+const problemStatuses = new Set(['PENDING', 'REJECTED', 'NOT_SENT', 'EXPIRED', 'FAILED', 'BLOCKED']);
+
+function ApprovalStatus({ code, technical }: { code?: string; technical: boolean }) {
+  if (!code) return <span className="asaas-status asaas-status-neutral">Sem informação</span>;
+  const tone = code === 'APPROVED' ? 'success' : problemStatuses.has(code) ? 'problem' : 'neutral';
+  const symbol = tone === 'success' ? '✓' : tone === 'problem' ? '×' : '…';
+  return (
+    <span className={'asaas-status asaas-status-' + tone}>
+      <span className="asaas-status-icon" aria-hidden="true">{symbol}</span>
+      <span>{labels[code] ?? 'Status informado pelo Asaas'}</span>
+      {technical && <code>{code}</code>}
+    </span>
+  );
 }
 
 export function StoreAsaasApprovalDetails({ approval, admin = false }: { approval: StoreAsaasApproval; admin?: boolean }) {
@@ -20,11 +31,11 @@ export function StoreAsaasApprovalDetails({ approval, admin = false }: { approva
     <div>
       <h3>Situação cadastral no Asaas</h3>
       {admin && approval.id && <p>ID da subconta <code>{approval.id}</code></p>}
-      <dl>
-        <dt>Aprovação geral</dt><dd>{statusLabel(approval.general)}</dd>
-        <dt>Dados comerciais</dt><dd>{statusLabel(approval.commercialInfo)}</dd>
-        <dt>Dados bancários</dt><dd>{statusLabel(approval.bankAccountInfo)}</dd>
-        <dt>Documentação</dt><dd>{statusLabel(approval.documentation)}</dd>
+      <dl className="asaas-status-list">
+        <div><dt>Aprovação geral</dt><dd><ApprovalStatus code={approval.general} technical={admin} /></dd></div>
+        <div><dt>Dados comerciais</dt><dd><ApprovalStatus code={approval.commercialInfo} technical={admin} /></dd></div>
+        <div><dt>Dados bancários</dt><dd><ApprovalStatus code={approval.bankAccountInfo} technical={admin} /></dd></div>
+        <div><dt>Documentação</dt><dd><ApprovalStatus code={approval.documentation} technical={admin} /></dd></div>
       </dl>
       {approval.commercialInfo === 'PENDING' && <p>Complete ou revise os dados comerciais do titular no Asaas.</p>}
       {approval.bankAccountInfo === 'PENDING' && <p>Informe os dados bancários do titular no Asaas.</p>}
@@ -39,8 +50,9 @@ export function StoreAsaasApprovalDetails({ approval, admin = false }: { approva
         <ul>
           {approval.documents.map((document, index) => (
             <li key={document.id ?? index}>
-              <strong>{document.type ? labels[document.type] ?? 'Documento' : 'Documento'}</strong>{' '}
-              {document.type && <code>{document.type}</code>}{' · '}{statusLabel(document.status)}
+              <strong>{document.type ? labels[document.type] ?? 'Documento' : 'Documento'}</strong>{' · '}
+              {admin && document.type && <><code>{document.type}</code>{' · '}</>}
+              <ApprovalStatus code={document.status} technical={admin} />
               {admin && document.id && <div>ID <code>{document.id}</code></div>}
               {document.description && <div>{document.description}</div>}
               {document.onboardingUrl ? (
