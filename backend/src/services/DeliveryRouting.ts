@@ -19,7 +19,7 @@ export async function locateDeliveryAddress(geocoderUrl: string, address: string
     : parts.join(', ');
   const search = new URL(geocoderUrl);
   search.searchParams.set('q', searchAddress);
-  search.searchParams.set('format', 'jsonv2');
+  if (!search.searchParams.has('format')) search.searchParams.set('format', 'jsonv2');
   search.searchParams.set('countrycodes', 'br');
   search.searchParams.set('limit', '1');
   const response = await fetch(search, { signal, redirect: 'error', headers: { 'User-Agent': 'Uniweb/1.0' } });

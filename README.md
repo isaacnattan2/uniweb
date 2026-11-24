@@ -306,6 +306,8 @@ uniweb/
 
 Configure `NOMINATIM_SEARCH_URL` com o endpoint `/search` de um serviço compatível com Nominatim e `VALHALLA_ROUTE_URL` com o endpoint `/route` do Valhalla em `backend/.env` ou nas variáveis do serviço no Render. Use serviços próprios ou contratados para processar os endereços dos pedidos e calcular rotas de moto.
 
+Para usar o LocationIQ como geocodificador, configure `NOMINATIM_SEARCH_URL` no backend com `https://us1.locationiq.com/v1/search?format=json&key=SEU_TOKEN`. Guarde o valor nas variáveis de ambiente do serviço. O backend acrescenta o endereço e o filtro de país e lê as coordenadas da resposta.
+
 O mapa web usa MapLibre com dados do OpenStreetMap servidos pelo OpenFreeMap. Para usar outro estilo compatível, configure `VITE_OSM_MAP_STYLE_URL` em `web/.env`.
 Aplique `backend/migrations/add_delivery_tracking.sql` e reinicie o backend e o Vite.
 O botão **Entrega em tempo real** aparece nos pedidos em andamento e consulta a última posição publicada pelo UniEntregador.
