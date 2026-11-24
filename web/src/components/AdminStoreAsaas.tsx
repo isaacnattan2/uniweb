@@ -4,7 +4,8 @@ import { getAdminStoreAsaasAccount, simulateAdminStoreAsaasApproval, type AdminS
 import { useFeedback } from './Feedback';
 import { StoreAsaasApprovalDetails } from './StoreAsaasApprovalDetails';
 
-export function AdminStoreAsaas({ businessId }: { businessId: string }) {
+export function AdminStoreAsaas({ accountId, driverName }: { accountId: string; driverName?: string }) {
+  const collection = driverName ? 'drivers' : 'businesses';
   const { showToast, confirmAction } = useFeedback();
   const [data, setData] = useState<AdminStoreAsaasAccount>();
   const [revision, setRevision] = useState(0);
@@ -16,7 +17,7 @@ export function AdminStoreAsaas({ businessId }: { businessId: string }) {
     const request = new AbortController();
     setLoading(true);
     setFailed(false);
-    getAdminStoreAsaasAccount(businessId, request.signal).then((account) => {
+    getAdminStoreAsaasAccount(accountId, request.signal, collection).then((account) => {
       if (!request.signal.aborted) setData(account);
     }).catch((error) => {
       if (!request.signal.aborted) {
@@ -27,13 +28,13 @@ export function AdminStoreAsaas({ businessId }: { businessId: string }) {
       if (!request.signal.aborted) setLoading(false);
     });
     return () => request.abort();
-  }, [businessId, revision, showToast]);
+  }, [accountId, collection, revision, showToast]);
 
   async function simulate() {
     setSimulating(true);
     try {
       if (!await confirmAction({ title: 'Simular a aprovação desta subconta no Sandbox?', confirmLabel: 'Simular aprovação' })) return;
-      const account = await simulateAdminStoreAsaasApproval(businessId);
+      const account = await simulateAdminStoreAsaasApproval(accountId, collection);
       setData(account);
       showToast(account.approval?.general === 'APPROVED'
         ? 'O Asaas confirmou a aprovação no Sandbox.'
@@ -48,7 +49,7 @@ export function AdminStoreAsaas({ businessId }: { businessId: string }) {
   return (
     <section id="situacao-asaas" className="business-info store-withdrawals" aria-labelledby="admin-asaas-heading" aria-busy={loading || simulating}>
       <div className="business-info-heading">
-        <h2 id="admin-asaas-heading">Cadastro Asaas da loja</h2>
+        <h2 id="admin-asaas-heading">{driverName ? 'Cadastro Asaas de ' + driverName : 'Cadastro Asaas da loja'}</h2>
         <button type="button" className="btn-secondary" disabled={loading || simulating} onClick={() => setRevision((value) => value + 1)}>Atualizar consulta</button>
       </div>
       {loading ? <p role="status">Consultando cadastro…</p> : failed ? <p>Consulta indisponível.</p> : (
@@ -58,7 +59,7 @@ export function AdminStoreAsaas({ businessId }: { businessId: string }) {
               <p><strong>{data.sandbox ? 'Sandbox do Asaas' : 'Produção Asaas'}</strong></p>
               <StoreAsaasApprovalDetails approval={data.approval} admin />
             </>
-          ) : data?.registrationPending ? <p>Criação em processamento ou aguardando conferência.</p> : <p>Esta loja ainda não tem uma conta Asaas vinculada.</p>}
+          ) : data?.registrationPending ? <p>Criação em processamento ou aguardando conferência.</p> : <p>Ainda não há uma conta Asaas vinculada.</p>}
           {data?.canSimulate && <button type="button" className="btn-primary" disabled={simulating} onClick={simulate}>Simular aprovação no Sandbox</button>}
         </>
       )}

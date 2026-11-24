@@ -1,4 +1,4 @@
-import { adminAsaasApproval } from '../controllers/AdminAsaasApproval';
+import { adminAsaasApproval, adminDriverAsaasApproval } from '../controllers/AdminAsaasApproval';
 import { deleteAd, listAdminAds, saveAd } from '../controllers/MarketplaceAd';
 import { Router } from 'express';
 import { query } from '../config/database';
@@ -21,6 +21,8 @@ router.put('/app/theme', (req, res, next) => updateDriverAppTheme(req, res).catc
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+router.get('/drivers/:id/asaas-account', (req, res, next) => adminDriverAsaasApproval(req, res).catch(next));
+router.post('/drivers/:id/asaas-account/sandbox-approve', (req, res, next) => adminDriverAsaasApproval(req, res).catch(next));
 router.get('/drivers/delivery-rate', (req, res, next) => readDeliveryRatePolicy(req, res).catch(next));
 router.put('/drivers/delivery-rate', (req, res, next) => updateDeliveryRatePolicy(req, res).catch(next));
 

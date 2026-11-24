@@ -1,3 +1,4 @@
+import { StoreWithdrawals } from '../components/StoreWithdrawals';
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -6,6 +7,7 @@ import type { DriverRegistration, DriverRegistrationInput } from '../services/ap
 import { useAuthStore } from '../context/store';
 import '../styles/auth.css';
 import '../styles/driver.css';
+import '../styles/business.css';
 
 const vehicles: Record<string, string> = {
   bicycle: 'Bicicleta',
@@ -156,6 +158,7 @@ export function DriverPage() {
             </div>
           </>
         )}
+        {data && <StoreWithdrawals />}
       </div>
     </main>
   );

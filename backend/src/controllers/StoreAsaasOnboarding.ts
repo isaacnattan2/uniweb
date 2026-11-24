@@ -61,22 +61,33 @@ function describeAsaasRejection(error: AsaasStoreError, submitted: object, paren
   }
 }
 
-export async function createStoreAsaasAccount(req: AuthRequest, res: Response) {
+export function createStoreAsaasAccount(req: AuthRequest, res: Response) {
+  return createAsaasAccount(req, res, 'business');
+}
+
+export function createDriverAsaasAccount(req: AuthRequest, res: Response) {
+  return createAsaasAccount(req, res, 'driver');
+}
+
+async function createAsaasAccount(req: AuthRequest, res: Response, role: 'business' | 'driver') {
   res.set('Cache-Control', 'no-store');
-  if (req.userType !== 'business' || !req.userId) return res.sendStatus(403);
+  if (req.userType !== role || !req.userId) return res.sendStatus(403);
   const config = sandboxStoreConfig();
   if (!config) return res.status(503).json({ error: 'A criação de subcontas no Sandbox está indisponível.' });
   const registration = readRegistration(req.body ?? {});
   if (!registration) return res.status(400).json({ error: 'Confira os dados cadastrais do titular.' });
-  const businessId = req.params.id.toLowerCase();
   const ownerId = req.userId.toLowerCase();
-  const ids = [businessId, ownerId];
-  const reserved = await query(
-    `INSERT INTO asaas_store_accounts (business_id, owner_id)
-     SELECT id, owner_id FROM businesses WHERE id = $1 AND owner_id = $2
-     ON CONFLICT (business_id, owner_id) DO NOTHING`, ids,
-  );
-  if (!reserved.rowCount) return res.status(409).json({ error: 'Já existe uma solicitação para esta loja.' });
+  const isDriver = role === 'driver';
+  const accountScope = isDriver ? 'driver' : req.params.id.toLowerCase();
+  const ids = isDriver ? [ownerId] : [ownerId, accountScope];
+  const reserved = await query(isDriver
+    ? `INSERT INTO asaas_driver_accounts (driver_id)
+       SELECT user_id FROM drivers WHERE user_id = $1 AND deleted_at IS NULL
+       ON CONFLICT (driver_id) DO NOTHING`
+    : `INSERT INTO asaas_store_accounts (owner_id, business_id)
+       SELECT owner_id, id FROM businesses WHERE owner_id = $1 AND id = $2
+       ON CONFLICT (business_id, owner_id) DO NOTHING`, ids);
+  if (!reserved.rowCount) return res.status(409).json({ error: 'Já existe uma solicitação ou o cadastro está indisponível.' });
 
   try {
     const account = await asaasStoreRequest<{ id: string; walletId: string; apiKey: string }>(
@@ -85,15 +96,20 @@ export async function createStoreAsaasAccount(req: AuthRequest, res: Response) {
     if (![account.id, account.walletId, account.apiKey].every((value) => typeof value === 'string' && value.trim()) ||
         account.apiKey === config.parentKey) throw new Error('Resposta de criação incompleta');
 
-    await query(
-      `UPDATE asaas_store_accounts SET provider_id = $3, wallet_id = $4, encrypted_key = $5, created_at = NOW()
-       WHERE business_id = $1 AND owner_id = $2`,
-      [...ids, account.id, account.walletId, encryptStoreKey(account.apiKey, config.encryptionKey, businessId, ownerId)],
+    const encryptedKey = encryptStoreKey(account.apiKey, config.encryptionKey, accountScope, ownerId);
+    await query(isDriver
+      ? `UPDATE asaas_driver_accounts SET provider_id = $2, wallet_id = $3, encrypted_key = $4, created_at = NOW()
+         WHERE driver_id = $1`
+      : `UPDATE asaas_store_accounts SET provider_id = $3, wallet_id = $4, encrypted_key = $5, created_at = NOW()
+         WHERE owner_id = $1 AND business_id = $2`,
+      [...ids, account.id, account.walletId, encryptedKey],
     );
     return res.sendStatus(201);
   } catch (error) {
     if (error instanceof AsaasStoreError && [400, 401, 403, 422, 429].includes(error.status)) {
-      await query('DELETE FROM asaas_store_accounts WHERE business_id = $1 AND owner_id = $2 AND provider_id IS NULL', ids);
+      await query(isDriver
+        ? 'DELETE FROM asaas_driver_accounts WHERE driver_id = $1 AND provider_id IS NULL'
+        : 'DELETE FROM asaas_store_accounts WHERE owner_id = $1 AND business_id = $2 AND provider_id IS NULL', ids);
       return res.status(error.status === 400 || error.status === 422 ? 422 : 502).json({
         error: describeAsaasRejection(error, registration, config.parentKey),
       });

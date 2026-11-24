@@ -22,7 +22,7 @@ function formatDate(value?: string | null) {
   return Number.isFinite(time) ? date.format(time) : '—';
 }
 
-export function StoreWithdrawals({ businessId }: { businessId: string }) {
+export function StoreWithdrawals({ businessId }: { businessId?: string }) {
   const { showToast } = useFeedback();
   const [offset, setOffset] = useState(0);
   const [revision, setRevision] = useState(0);
@@ -53,7 +53,7 @@ export function StoreWithdrawals({ businessId }: { businessId: string }) {
   return (
     <section className="business-info store-withdrawals" aria-labelledby="store-withdrawals-heading" aria-busy={loading}>
       <div className="business-info-heading">
-        <h2 id="store-withdrawals-heading">Saques Asaas</h2>
+        <h2 id="store-withdrawals-heading">{businessId ? 'Saques Asaas' : 'Recebimentos e saques Asaas'}</h2>
         <button type="button" className="btn-secondary" disabled={loading} onClick={() => setRevision((value) => value + 1)}>
           Atualizar consulta
         </button>
@@ -111,7 +111,7 @@ export function StoreWithdrawals({ businessId }: { businessId: string }) {
         registering ? <StoreAsaasRegistration businessId={businessId} onCreated={() => setRevision((value) => value + 1)} /> : (
           <button type="button" className="btn-primary" onClick={() => setRegistering(true)}>Ativar conta de teste</button>
         )
-      ) : <p>A conta Asaas desta loja ainda precisa ser vinculada pela administração.</p>}
+      ) : <p>A conta Asaas ainda precisa ser vinculada pela administração.</p>}
       <h3>Regras de saque</h3>
       <ul>
         <li>O valor da transferência deve caber no saldo disponível da conta.</li>

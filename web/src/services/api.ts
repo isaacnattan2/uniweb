@@ -134,12 +134,12 @@ export interface AdminStoreAsaasAccount {
   canSimulate?: boolean;
 }
 
-export async function getAdminStoreAsaasAccount(id: string, signal: AbortSignal): Promise<AdminStoreAsaasAccount> {
-  return (await api.get('/admin/businesses/' + id + '/asaas-account', { signal })).data;
+export async function getAdminStoreAsaasAccount(id: string, signal: AbortSignal, collection: 'businesses' | 'drivers' = 'businesses'): Promise<AdminStoreAsaasAccount> {
+  return (await api.get('/admin/' + collection + '/' + id + '/asaas-account', { signal })).data;
 }
 
-export async function simulateAdminStoreAsaasApproval(id: string): Promise<AdminStoreAsaasAccount> {
-  return (await api.post('/admin/businesses/' + id + '/asaas-account/sandbox-approve')).data;
+export async function simulateAdminStoreAsaasApproval(id: string, collection: 'businesses' | 'drivers' = 'businesses'): Promise<AdminStoreAsaasAccount> {
+  return (await api.post('/admin/' + collection + '/' + id + '/asaas-account/sandbox-approve')).data;
 }
 
 export type StoreWithdrawalsResponse = {
@@ -181,12 +181,14 @@ export interface StoreAsaasRegistration {
   incomeValue: number;
 }
 
-export async function createStoreAsaasAccount(businessId: string, registration: StoreAsaasRegistration) {
-  await api.post('/businesses/' + businessId + '/asaas-account', registration);
+export async function createStoreAsaasAccount(businessId: string | undefined, registration: StoreAsaasRegistration) {
+  const path = businessId ? '/businesses/' + businessId + '/asaas-account' : '/auth/me/driver/asaas-account';
+  await api.post(path, registration);
 }
 
-export async function getStoreWithdrawals(businessId: string, offset: number, signal: AbortSignal): Promise<StoreWithdrawalsResponse> {
-  const { data } = await api.get('/businesses/' + businessId + '/withdrawals', { params: { offset }, signal });
+export async function getStoreWithdrawals(businessId: string | undefined, offset: number, signal: AbortSignal): Promise<StoreWithdrawalsResponse> {
+  const path = businessId ? '/businesses/' + businessId + '/withdrawals' : '/auth/me/driver/withdrawals';
+  const { data } = await api.get(path, { params: { offset }, signal });
   return data;
 }
 

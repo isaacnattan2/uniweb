@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { asaasStoreRequest, storeSandboxApi } from '../services/AsaasStoreAccounts';
-import { readStoreAsaasApproval, resolveStoreAsaasAccount } from '../services/AsaasStoreApproval';
+import { readStoreAsaasApproval, resolveDriverAsaasAccount, resolveStoreAsaasAccount } from '../services/AsaasStoreApproval';
 
 const pageSize = 20;
 
@@ -16,9 +16,17 @@ interface AsaasTransfer {
   operationType?: string | null;
 }
 
-export async function getStoreWithdrawals(req: AuthRequest, res: Response) {
+export function getStoreWithdrawals(req: AuthRequest, res: Response) {
+  return getWithdrawals(req, res, 'business');
+}
+
+export function getDriverWithdrawals(req: AuthRequest, res: Response) {
+  return getWithdrawals(req, res, 'driver');
+}
+
+async function getWithdrawals(req: AuthRequest, res: Response, role: 'business' | 'driver') {
   res.set('Cache-Control', 'no-store');
-  if (req.userType !== 'business' || !req.userId) return res.sendStatus(403);
+  if (req.userType !== role || !req.userId) return res.sendStatus(403);
 
   const offset = Number(req.query.offset ?? 0);
   if ((req.query.offset !== undefined && typeof req.query.offset !== 'string') ||
@@ -27,7 +35,10 @@ export async function getStoreWithdrawals(req: AuthRequest, res: Response) {
   }
 
   try {
-    const account = await resolveStoreAsaasAccount(req.params.id.toLowerCase(), req.userId.toLowerCase());
+    const ownerId = req.userId.toLowerCase();
+    const account = role === 'driver'
+      ? await resolveDriverAsaasAccount(ownerId)
+      : await resolveStoreAsaasAccount(req.params.id.toLowerCase(), ownerId);
     const { base, key } = account;
     if (!key) return res.json({ configured: false, canRegister: account.canRegister, registrationPending: account.registrationPending });
 

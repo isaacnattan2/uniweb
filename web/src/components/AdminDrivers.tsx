@@ -1,3 +1,4 @@
+import { AdminStoreAsaas } from './AdminStoreAsaas';
 import React, { useEffect, useState } from 'react';
 import { useFeedback } from './Feedback';
 import { getAdminDrivers, setAdminBlock, setDriverDeliveryRateLock } from '../services/api';
@@ -18,6 +19,7 @@ const vehicleLabels: Record<string, string> = {
 };
 
 export function AdminDrivers() {
+  const [selectedAsaasDriver, setSelectedAsaasDriver] = useState<string>();
   const [drivers, setDrivers] = useState<AdminDriver[]>();
   const [savingId, setSavingId] = useState<string>();
   const [lockingId, setLockingId] = useState<string>();
@@ -92,6 +94,8 @@ export function AdminDrivers() {
     }
   }
 
+  const asaasDriver = drivers?.find((driver) => driver.id === selectedAsaasDriver);
+
   return (
     <section aria-labelledby="drivers-heading">
       <h2 id="drivers-heading">Entregadores</h2>
@@ -99,6 +103,7 @@ export function AdminDrivers() {
       {loadError && <p className="error-message" role="alert">{loadError}</p>}
       <AdminDeliveryRates />
       <AdminDeliveryDispatch />
+      {asaasDriver && <AdminStoreAsaas key={asaasDriver.id} accountId={asaasDriver.id} driverName={asaasDriver.full_name} />}
       {error && <p className="error-message" role="alert">{error}</p>}
       {!drivers && !loadError && <p role="status">Carregando entregadores…</p>}
       {drivers?.length === 0 && <p>Nenhum entregador cadastrado.</p>}
@@ -131,6 +136,9 @@ export function AdminDrivers() {
                 )}
               </div>
               <div className="card-footer card-row-5 admin-driver-actions">
+                <button type="button" className="btn-secondary" aria-expanded={selectedAsaasDriver === driver.id} onClick={() => setSelectedAsaasDriver((selected) => selected === driver.id ? undefined : driver.id)}>
+                  {selectedAsaasDriver === driver.id ? 'Fechar cadastro Asaas' : 'Cadastro Asaas'}
+                </button>
                 {driver.status !== 'inactive' && (
                   <button type="button" className={driver.status === 'suspended' ? 'btn-primary' : 'btn-secondary'}
                     disabled={!!savingId} onClick={() => void changeAccess(driver)}>

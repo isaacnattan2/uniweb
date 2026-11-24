@@ -14,7 +14,7 @@ const fields = [
   { name: 'complement', label: 'Complemento (opcional)', optional: true },
 ];
 
-export function StoreAsaasRegistration({ businessId, onCreated }: { businessId: string; onCreated: () => void }) {
+export function StoreAsaasRegistration({ businessId, onCreated }: { businessId?: string; onCreated: () => void }) {
   const [organization, setOrganization] = useState(false);
   const [saving, setSaving] = useState(false);
   const { showToast } = useFeedback();

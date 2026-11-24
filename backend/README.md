@@ -97,3 +97,9 @@ Solicite ao suporte Asaas a liberação do fluxo BaaS no Sandbox da conta-pai CN
 O lojista abre **Minhas Lojas → Gerenciar → Saques Asaas → Ativar conta de teste**. Depois da criação, aguarda pelo menos 15 segundos e clica em **Atualizar consulta** para verificar a situação ou abrir o link de documentos fornecido pelo Asaas. A subconta aprovada passa a alimentar saldo e histórico sem configuração de chave por loja. Se um envio tiver resultado incerto, confira a subconta na conta-pai antes de liberar uma nova tentativa para evitar duplicação.
 
 Para validar saldo e histórico nesta etapa, gere saldo e simule uma transferência no Sandbox da subconta. O checkout ainda recebe na conta da plataforma. O split e a solicitação de saque pelo Uniweb dependem da configuração do repasse e do destino bancário.
+
+### Subcontas dos entregadores no Sandbox
+
+Aplique `migrations/add_asaas_driver_accounts.sql` no banco de teste. O fluxo usa a mesma conta-pai, configuração do Sandbox e chave de criptografia do cadastro de lojistas. No Uniweb, o entregador acessa **Meu cadastro de entregador → Recebimentos e saques Asaas** para criar a subconta e consultar o cadastro. Em **Admin → Entregadores → Cadastro Asaas**, o administrador consulta a situação e pode simular a aprovação de uma subconta de teste.
+
+O cadastro disponibiliza o `wallet_id` do entregador para a futura integração de repasses. A criação da subconta não inicia nenhuma transferência de ganhos.

@@ -1,20 +1,29 @@
 import { Request, Response } from 'express';
 import { query } from '../config/database';
 import { AsaasStoreError, asaasStoreRequest, storeSandboxApi } from '../services/AsaasStoreAccounts';
-import { readStoreAsaasApproval, resolveStoreAsaasAccount } from '../services/AsaasStoreApproval';
+import { readStoreAsaasApproval, resolveDriverAsaasAccount, resolveStoreAsaasAccount } from '../services/AsaasStoreApproval';
 
-export async function adminAsaasApproval(req: Request, res: Response) {
+export function adminAsaasApproval(req: Request, res: Response) {
+  return asaasApproval(req, res, 'business');
+}
+
+export function adminDriverAsaasApproval(req: Request, res: Response) {
+  return asaasApproval(req, res, 'driver');
+}
+
+async function asaasApproval(req: Request, res: Response, role: 'business' | 'driver') {
   res.set('Cache-Control', 'no-store');
   const id = req.params.id.toLowerCase();
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)) {
-    return res.status(400).json({ error: 'ID de loja inválido.' });
+    return res.status(400).json({ error: 'Identificador inválido.' });
   }
 
-  const { rows: [business] } = await query('SELECT owner_id FROM businesses WHERE id = $1', [id]);
-  if (!business) return res.status(404).json({ error: 'Loja não encontrada.' });
-
   try {
-    const account = await resolveStoreAsaasAccount(id, business.owner_id);
+    const { rows: [holder] } = await query(role === 'driver'
+      ? 'SELECT user_id AS owner_id FROM drivers WHERE user_id = $1 AND deleted_at IS NULL'
+      : 'SELECT owner_id FROM businesses WHERE id = $1', [id]);
+    if (!holder) return res.status(404).json({ error: 'Cadastro não encontrado.' });
+    const account = role === 'driver' ? await resolveDriverAsaasAccount(id) : await resolveStoreAsaasAccount(id, holder.owner_id);
     const sandbox = account.base === storeSandboxApi;
     if (req.method === 'POST' && (!sandbox || !account.canSimulate || !account.key)) {
       return res.status(403).json({ error: 'A simulação só está disponível para subcontas criadas pelo Uniweb no Sandbox.' });

@@ -1,3 +1,4 @@
+import { query } from '../config/database';
 import { AsaasStoreError, asaasStoreRequest, decryptStoreKey, getSandboxStoreAccount, sandboxStoreConfig, storeProductionApi, storeSandboxApi } from './AsaasStoreAccounts';
 
 interface AsaasDocumentGroup {
@@ -28,6 +29,28 @@ export async function resolveStoreAsaasAccount(businessId: string, ownerId: stri
     key: decryptStoreKey(account.encrypted_key, config.encryptionKey, businessId, ownerId),
     canSimulate: true,
     createdAt: account.created_at,
+  };
+}
+
+export async function resolveDriverAsaasAccount(driverId: string) {
+  const base = process.env.ASAAS_STORE_API_URL?.trim() || storeSandboxApi;
+  if (base !== storeSandboxApi && base !== storeProductionApi) throw new Error('Ambiente Asaas inválido');
+  const config = sandboxStoreConfig();
+  if (!config) return { base, canRegister: false };
+  const result = await query(
+    `SELECT a.encrypted_key, a.created_at
+     FROM drivers d LEFT JOIN asaas_driver_accounts a ON a.driver_id = d.user_id
+     WHERE d.user_id = $1 AND d.deleted_at IS NULL`, [driverId],
+  );
+  const account = result.rows[0];
+  if (!account) return { base, canRegister: false };
+  if (!account.created_at) return { base, canRegister: true };
+  if (!account.encrypted_key) return { base, registrationPending: true };
+  return {
+    base,
+    key: decryptStoreKey(account.encrypted_key, config.encryptionKey, 'driver', driverId),
+    canSimulate: true,
+    createdAt: account.created_at as Date,
   };
 }
 

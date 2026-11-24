@@ -9,6 +9,9 @@ import AuthController from '../controllers/AuthController';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { changeDriverShift, changeDriverWeeklyShift, readDriverDispatch, updateDriverPresence } from '../controllers/DeliveryDispatch';
 
+import { createDriverAsaasAccount } from '../controllers/StoreAsaasOnboarding';
+import { getDriverWithdrawals } from '../controllers/StoreWithdrawals';
+
 const router = Router();
 
 router.post('/register', (req, res) => AuthController.register(req, res));
@@ -45,6 +48,8 @@ router.put('/me/addresses/:id', authMiddleware, requireCustomer, (req, res, next
 
 router.get('/me/driver', authMiddleware, (req, res, next) => getDriverRegistration(req, res).catch(next));
 router.put('/me/driver', authMiddleware, (req, res, next) => updateDriverRegistration(req, res).catch(next));
+router.get('/me/driver/withdrawals', authMiddleware, (req, res, next) => getDriverWithdrawals(req, res).catch(next));
+router.post('/me/driver/asaas-account', authMiddleware, (req, res, next) => createDriverAsaasAccount(req, res).catch(next));
 router.get('/me/driver/delivery-rate', authMiddleware, (req, res, next) => readMyDeliveryRate(req, res).catch(next));
 router.put('/me/driver/delivery-rate', authMiddleware, (req, res, next) => updateMyDeliveryRate(req, res).catch(next));
 router.get('/me/driver/dispatch', authMiddleware, (req, res, next) => readDriverDispatch(req, res).catch(next));
