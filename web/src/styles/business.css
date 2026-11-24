@@ -300,3 +300,35 @@
   padding: 0.6rem 0;
   border-top: 1px solid #dce2ea;
 }
+
+.store-withdrawals h3 {
+  margin: 1rem 0 0.5rem;
+}
+
+.store-withdrawals ul {
+  padding-inline-start: 1.25rem;
+  margin-bottom: 0.75rem;
+}
+
+.store-withdrawals-table {
+  overflow-x: auto;
+}
+
+.store-withdrawals-table table {
+  width: 100%;
+  border-collapse: collapse;
+  white-space: nowrap;
+}
+
+.store-withdrawals-table th,
+.store-withdrawals-table td {
+  padding: 0.65rem;
+  text-align: left;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.store-withdrawals-pages {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}

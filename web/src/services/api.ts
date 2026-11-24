@@ -116,6 +116,29 @@ export async function getStorePushIdentity() {
   return data;
 }
 
+export type StoreWithdrawalsResponse = { configured: false } | {
+  configured: true;
+  sandbox: boolean;
+  availableBalance: number;
+  previousOffset: number | null;
+  nextOffset: number | null;
+  transfers: {
+    id: string;
+    status: string;
+    value: number;
+    netValue?: number | null;
+    transferFee?: number | null;
+    dateCreated: string;
+    effectiveDate?: string | null;
+    operationType?: string | null;
+  }[];
+};
+
+export async function getStoreWithdrawals(businessId: string, offset: number, signal: AbortSignal): Promise<StoreWithdrawalsResponse> {
+  const { data } = await api.get('/businesses/' + businessId + '/withdrawals', { params: { offset }, signal });
+  return data;
+}
+
 export async function getStoreOrders(businessId: string, offset: number, signal: AbortSignal, orderId?: string) {
   const response = await api.get<{ items: StoreOrder[]; nextOffset: number | null }>(
     `/businesses/${businessId}/orders`, { params: { offset, orderId }, signal }

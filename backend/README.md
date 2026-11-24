@@ -83,3 +83,9 @@ O retorno contém `items` e `nextOffset` (nulo na última página). Cada item co
 ## Download do UniEntregador
 
 No serviço do backend no Render, defina `DRIVER_APP_DOWNLOAD_URL` com a URL HTTPS do APK. A área `/driver` do Uniweb usa essa URL depois do login. Para trocar o arquivo, atualize a variável no backend. Se ela estiver vazia ou inválida, a área do entregador mostra que o download está indisponível.
+
+## Saques Asaas dos lojistas
+
+Em **Minhas Lojas → Gerenciar → Saques Asaas**, o lojista consulta saldo e histórico da conta Asaas dedicada à loja. No backend, configure uma variável por loja no formato `ASAAS_STORE_API_KEY_<ID_DA_LOJA>__<ID_DO_LOJISTA>`. Use os UUIDs da loja e do lojista em minúsculo, substituindo cada hífen por um underscore. Separe os dois IDs com dois underscores. Se a loja trocar de titular, revise o vínculo antes de criar a variável para o novo lojista. Use apenas uma conta exclusiva daquela loja. A chave fica nas variáveis do backend no Render.
+
+Por padrão, a consulta usa o Sandbox. Para consultar contas de produção, configure `ASAAS_STORE_API_URL=https://api.asaas.com/v3` e use as chaves desse ambiente. Essa configuração é independente do checkout. Os recebimentos feitos na conta da plataforma só aparecem numa conta da loja depois de um repasse ou split efetivamente realizado para ela. O painel consulta o Asaas sem iniciar transferências.

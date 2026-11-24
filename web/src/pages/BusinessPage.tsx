@@ -6,6 +6,7 @@ import { CheckoutAddress, emptyDeliveryAddress, isDeliveryAddressComplete } from
 import type { DeliveryAddress } from '../services/api';
 import { StoreCoupons } from '../components/StoreCoupons';
 import { StoreOrders } from '../components/StoreOrders';
+import { StoreWithdrawals } from '../components/StoreWithdrawals';
 import { StorePaymentSettings } from '../components/StorePaymentSettings';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getBusiness, getProductsByBusiness, updateBusiness } from '../services/api';
@@ -207,6 +208,8 @@ export function BusinessPage() {
         <StoreOrders key={currentBusiness.id} businessId={currentBusiness.id} />
 
         <StorePaymentSettings key={currentBusiness.id} business={currentBusiness} onSave={setCurrentBusiness} />
+
+        {userType === 'business' && <StoreWithdrawals key={currentBusiness.id} businessId={currentBusiness.id} />}
 
         <StoreCoupons key={currentBusiness.id} businessId={currentBusiness.id} products={products ?? []} />
 
