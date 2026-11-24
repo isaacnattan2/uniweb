@@ -38,7 +38,7 @@ export async function updateStoreOrder(req: Request, res: Response) {
     const managed = await cancelOwnedOrder(orderId, id, true);
     if (managed.found) {
       if (managed.blocked && !managed.changed) return res.status(409).json({ error: 'A retirada já ocorreu. Encaminhe este pedido ao suporte.' });
-      if (managed.changed) notifyOrderEvent('cancelled', [orderId]);
+      if (managed.changed) notifyOrderEvent('cancelled', [orderId], managed.offered_driver_id);
       return res.sendStatus(204);
     }
   }

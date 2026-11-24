@@ -15,7 +15,7 @@ export async function cancelCustomerOrder(req: AuthRequest, res: Response) {
   const order = await cancelOwnedOrder(orderId, req.userId);
   if (!order.found) return res.status(404).json({ error: 'Pedido não encontrado.' });
   if (order.blocked && !order.changed) return res.status(409).json({ error: 'A retirada já ocorreu. Entre em contato com o suporte para tratar este pedido.' });
-  if (order.changed) notifyOrderEvent('cancelled', [orderId]);
+  if (order.changed) notifyOrderEvent('cancelled', [orderId], order.offered_driver_id);
   return res.sendStatus(204);
 }
 
@@ -41,6 +41,7 @@ export async function cancelOwnedOrder(orderId: string, owner: string, managedSt
      ), withdrawn AS (
        UPDATE delivery_dispatch_offers f SET state = 'withdrawn' FROM changed c
        WHERE f.order_id = c.id AND f.state = 'pending'
+       RETURNING f.user_id, f.expires_at
      ), dispatch AS (
        UPDATE delivery_dispatch j SET state = 'cancelled',
          refund_state = CASE WHEN c.payment_status = 'paid' THEN 'pending' ELSE j.refund_state END
@@ -58,9 +59,10 @@ export async function cancelOwnedOrder(orderId: string, owner: string, managedSt
        UPDATE products p SET stock = p.stock + r.units FROM restock r WHERE p.id = r.product_id
      )
      SELECT EXISTS (SELECT 1 FROM owned) AS found, EXISTS (SELECT 1 FROM changed) AS changed,
+       (SELECT user_id FROM withdrawn WHERE expires_at > NOW() LIMIT 1) AS offered_driver_id,
        EXISTS (SELECT 1 FROM owned WHERE dispatch_state IS NOT NULL AND
          (delivery_status IN ('in_transit','delivered') OR dispatch_state = 'incident')) AS blocked`,
     [orderId, owner, managedStoreOrder],
   );
-  return order as { found: boolean; changed: boolean; blocked: boolean };
+  return order as { found: boolean; changed: boolean; blocked: boolean; offered_driver_id: string | null };
 }

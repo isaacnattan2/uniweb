@@ -32,15 +32,15 @@ const titles = {
 
 type OrderEvent = keyof typeof titles;
 
-export function notifyOrderEvent(event: OrderEvent, orderIds: string[]) {
+export function notifyOrderEvent(event: OrderEvent, orderIds: string[], offeredDriverId?: string | null) {
   if (orderIds.length) {
-    void sendOrderEvent(event, orderIds).catch((error) => {
+    void sendOrderEvent(event, orderIds, offeredDriverId).catch((error) => {
       console.warn('Falha ao enviar push de pedido', event, error);
     });
   }
 }
 
-async function sendOrderEvent(event: OrderEvent, orderIds: string[]) {
+async function sendOrderEvent(event: OrderEvent, orderIds: string[], offeredDriverId?: string | null) {
   const webApp = process.env.ONESIGNAL_WEB_APP_ID;
   const webKey = process.env.ONESIGNAL_WEB_API_KEY;
   const origin = process.env.ONESIGNAL_WEB_ORIGIN;
@@ -78,10 +78,12 @@ async function sendOrderEvent(event: OrderEvent, orderIds: string[]) {
     }
     if (driverApp && driverKey && mobile && ['ready', 'cancelled', 'delivered'].includes(event)) {
       const assigned = order.delivery_driver_id && driverPushAlias(order.delivery_driver_id);
-      const recipients = event === 'ready' ? order.managed_delivery ? [] : availableDrivers : assigned ? [assigned] : [];
+      const offered = event === 'cancelled' && offeredDriverId ? driverPushAlias(offeredDriverId) : null;
+      const recipients = event === 'ready' ? order.managed_delivery ? [] : availableDrivers
+        : [...new Set([assigned, offered].filter((alias): alias is string => Boolean(alias)))];
       for (let offset = 0; offset < recipients.length; offset += 20000) {
         sends.push(sendPush(driverApp, driverKey, recipients.slice(offset, offset + 20000), event, body, {
-          data: { orderId: order.id, section: event === 'ready' ? 'available' : 'accepted' },
+          data: { orderId: order.id, section: event === 'ready' ? 'available' : 'accepted', event },
         }));
       }
     }
@@ -100,7 +102,7 @@ export async function notifyDriverOffer(offerId: string, orderId: string, userId
 }
 
 async function sendPush(appId: string, apiKey: string, recipients: string[], event: OrderEvent, body: string,
-  destination: { url: string } | { data: { orderId: string; section: string; offerId?: string }; ttl?: number; priority?: number },
+  destination: { url: string } | { data: { orderId: string; section: string; offerId?: string; event?: OrderEvent }; ttl?: number; priority?: number },
   key: string = randomUUID()) {
   try {
     const response = await fetch('https://api.onesignal.com/notifications', {
