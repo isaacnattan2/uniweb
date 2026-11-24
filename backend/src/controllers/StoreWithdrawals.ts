@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
-import { asaasStoreRequest, decryptStoreKey, getSandboxStoreAccount, sandboxStoreConfig, storeProductionApi, storeSandboxApi } from '../services/AsaasStoreAccounts';
+import { asaasStoreRequest, storeSandboxApi } from '../services/AsaasStoreAccounts';
+import { readStoreAsaasApproval, resolveStoreAsaasAccount } from '../services/AsaasStoreApproval';
 
 const pageSize = 20;
 
@@ -25,38 +26,13 @@ export async function getStoreWithdrawals(req: AuthRequest, res: Response) {
     return res.status(400).json({ error: 'Página inválida.' });
   }
 
-  const businessId = req.params.id.toLowerCase();
-  const ownerId = req.userId.toLowerCase();
-  const configuredKey = process.env['ASAAS_STORE_API_KEY_' + businessId.replace(/-/g, '_') + '__' + ownerId.replace(/-/g, '_')]?.trim();
-  const base = process.env.ASAAS_STORE_API_URL?.trim() || storeSandboxApi;
-  if (base !== storeSandboxApi && base !== storeProductionApi) {
-    return res.status(503).json({ error: 'A consulta de saques está indisponível no momento.' });
-  }
-
-  let key = configuredKey === process.env.ASAAS_API_KEY?.trim() ? undefined : configuredKey;
-  const config = sandboxStoreConfig();
   try {
-    if (!key && config) {
-      const account = await getSandboxStoreAccount(businessId, ownerId);
-      if (!account) return res.json({ configured: false, canRegister: true });
-      if (!account.encrypted_key) return res.json({ configured: false, registrationPending: true });
-      key = decryptStoreKey(account.encrypted_key, config.encryptionKey, businessId, ownerId);
-      const status = await asaasStoreRequest<{ general: string }>(base, '/myAccount/status', key);
-      if (status.general !== 'APPROVED') {
-        let onboardingUrls: string[] = [];
-        if (Date.now() - account.created_at.getTime() >= 15000) {
-          const { data } = await asaasStoreRequest<{ data?: { onboardingUrl?: string }[] }>(base, '/myAccount/documents', key);
-          onboardingUrls = [...new Set((data ?? []).flatMap(({ onboardingUrl }) => {
-            if (!onboardingUrl || !URL.canParse(onboardingUrl)) return [];
-            const url = new URL(onboardingUrl);
-            const isAsaas = url.hostname === 'asaas.com' || url.hostname.endsWith('.asaas.com');
-            return isAsaas && url.protocol === 'https:' && !url.username && !url.password ? [url.href] : [];
-          }))];
-        }
-        return res.json({ configured: false, approval: status.general, onboardingUrls });
-      }
-    }
-    if (!key) return res.json({ configured: false });
+    const account = await resolveStoreAsaasAccount(req.params.id.toLowerCase(), req.userId.toLowerCase());
+    const { base, key } = account;
+    if (!key) return res.json({ configured: false, canRegister: account.canRegister, registrationPending: account.registrationPending });
+
+    const approval = await readStoreAsaasApproval(base, key, 'merchant', account.createdAt);
+    if (approval.general !== 'APPROVED') return res.json({ configured: false, approval });
     const [balance, transfers] = await Promise.all([
       asaasStoreRequest<{ balance: number }>(base, '/finance/balance', key),
       asaasStoreRequest<{ data: AsaasTransfer[]; hasMore: boolean }>(base, `/transfers?limit=${pageSize}&offset=${offset}`, key),
@@ -66,6 +42,7 @@ export async function getStoreWithdrawals(req: AuthRequest, res: Response) {
     }
     return res.json({
       configured: true,
+      approval,
       sandbox: base === storeSandboxApi,
       availableBalance: balance.balance,
       previousOffset: offset > 0 ? Math.max(0, offset - pageSize) : null,

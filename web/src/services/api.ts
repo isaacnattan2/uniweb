@@ -116,16 +116,42 @@ export async function getStorePushIdentity() {
   return data;
 }
 
+export interface StoreAsaasApproval {
+  id?: string;
+  general: string;
+  commercialInfo?: string;
+  bankAccountInfo?: string;
+  documentation?: string;
+  documentQuery: 'available' | 'initializing' | 'unavailable';
+  documentHttpStatus?: number;
+  documents: { id?: string; type?: string; status?: string; description?: string; onboardingUrl?: string }[];
+}
+
+export interface AdminStoreAsaasAccount {
+  sandbox: boolean;
+  approval?: StoreAsaasApproval;
+  registrationPending?: boolean;
+  canSimulate?: boolean;
+}
+
+export async function getAdminStoreAsaasAccount(id: string, signal: AbortSignal): Promise<AdminStoreAsaasAccount> {
+  return (await api.get('/admin/businesses/' + id + '/asaas-account', { signal })).data;
+}
+
+export async function simulateAdminStoreAsaasApproval(id: string): Promise<AdminStoreAsaasAccount> {
+  return (await api.post('/admin/businesses/' + id + '/asaas-account/sandbox-approve')).data;
+}
+
 export type StoreWithdrawalsResponse = {
   configured: false;
   canRegister?: boolean;
   registrationPending?: boolean;
-  approval?: string;
-  onboardingUrls?: string[];
+  approval?: StoreAsaasApproval;
 } | {
   configured: true;
   sandbox: boolean;
   availableBalance: number;
+  approval: StoreAsaasApproval;
   previousOffset: number | null;
   nextOffset: number | null;
   transfers: {

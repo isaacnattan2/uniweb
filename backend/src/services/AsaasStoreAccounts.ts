@@ -24,10 +24,12 @@ export async function asaasStoreRequest<T>(base: string, path: string, key: stri
     redirect: 'error',
   });
   if (!response.ok) {
-    const payload = await response.json().catch(() => null) as { errors?: unknown } | null;
+    const payload = await response.json().catch(() => null) as { errors?: unknown; message?: unknown } | null;
     const details = Array.isArray(payload?.errors) ? payload.errors.slice(0, 3) : [];
+    if (!details.length && typeof payload?.message === 'string') details.push({ description: payload.message });
     throw new AsaasStoreError(response.status, details);
   }
+  if (response.status === 204 || response.headers.get('content-length') === '0') return undefined as T;
   return response.json() as Promise<T>;
 }
 

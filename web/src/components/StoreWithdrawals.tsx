@@ -1,3 +1,4 @@
+import { StoreAsaasApprovalDetails } from './StoreAsaasApprovalDetails';
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { StoreAsaasRegistration } from './StoreAsaasRegistration';
@@ -62,6 +63,7 @@ export function StoreWithdrawals({ businessId }: { businessId: string }) {
       ) : data?.configured ? (
         <>
           {data.sandbox && <p><strong>Ambiente de testes do Asaas</strong></p>}
+          {data.approval && <StoreAsaasApprovalDetails approval={data.approval} />}
           <p><strong>Saldo disponível na conta Asaas</strong> {currency.format(data.availableBalance)}</p>
           <h3>Histórico de transferências</h3>
           {data.transfers.length === 0 ? <p>Nenhuma transferência nesta página.</p> : (
@@ -104,13 +106,7 @@ export function StoreWithdrawals({ businessId }: { businessId: string }) {
       ) : data?.registrationPending ? (
         <p>A solicitação está em processamento ou precisa de conferência pela administração no Asaas.</p>
       ) : data?.approval ? (
-        <>
-          <p>Subconta de teste criada. Situação cadastral: {statuses[data.approval] ?? ({ AWAITING_APPROVAL: 'Aguardando análise', REJECTED: 'Rejeitada' } as Record<string, string>)[data.approval] ?? data.approval}.</p>
-          {data.onboardingUrls?.map((url, index) => (
-            <p key={url}><a href={url} target="_blank" rel="noreferrer">Enviar documentação ao Asaas{data.onboardingUrls!.length > 1 ? ' (' + (index + 1) + ')' : ''}</a></p>
-          ))}
-          <p>Use Atualizar consulta depois de concluir a validação no Asaas.</p>
-        </>
+        <StoreAsaasApprovalDetails approval={data.approval} />
       ) : data?.canRegister ? (
         registering ? <StoreAsaasRegistration businessId={businessId} onCreated={() => setRevision((value) => value + 1)} /> : (
           <button type="button" className="btn-primary" onClick={() => setRegistering(true)}>Ativar conta de teste</button>

@@ -1,3 +1,4 @@
+import { AdminStoreAsaas } from '../components/AdminStoreAsaas';
 import { CategoryOptions } from '../components/CategoryOptions';
 import { useFeedback } from '../components/Feedback';
 import React, { useEffect, useState } from 'react';
@@ -210,6 +211,7 @@ export function BusinessPage() {
         <StorePaymentSettings key={currentBusiness.id} business={currentBusiness} onSave={setCurrentBusiness} />
 
         {userType === 'business' && <StoreWithdrawals key={currentBusiness.id} businessId={currentBusiness.id} />}
+        {userType === 'admin' && <AdminStoreAsaas key={currentBusiness.id} businessId={currentBusiness.id} />}
 
         <StoreCoupons key={currentBusiness.id} businessId={currentBusiness.id} products={products ?? []} />
 

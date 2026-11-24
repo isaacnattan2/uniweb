@@ -1,3 +1,4 @@
+import { adminAsaasApproval } from '../controllers/AdminAsaasApproval';
 import { deleteAd, listAdminAds, saveAd } from '../controllers/MarketplaceAd';
 import { Router } from 'express';
 import { query } from '../config/database';
@@ -10,6 +11,8 @@ import { notifyAdminDriverPresence } from '../services/OrderPush';
 
 const router = Router();
 router.use(authMiddleware, requireAdmin);
+router.get('/businesses/:id/asaas-account', (req, res, next) => adminAsaasApproval(req, res).catch(next));
+router.post('/businesses/:id/asaas-account/sandbox-approve', (req, res, next) => adminAsaasApproval(req, res).catch(next));
 router.get('/delivery-dispatch/settings', (req, res, next) => dispatchSettings(req, res).catch(next));
 router.put('/delivery-dispatch/settings', (req, res, next) => dispatchSettings(req, res).catch(next));
 router.get('/delivery-dispatch/incidents', (req, res, next) => listDispatchIncidents(req, res).catch(next));
