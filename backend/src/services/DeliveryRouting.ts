@@ -4,6 +4,12 @@ export function validCoordinate(value: unknown, limit: number): value is number 
 
 interface RoutePoint { lat: number; lon: number }
 
+export class DeliveryProviderHttpError extends Error {
+  constructor(readonly status: number) {
+    super(`Delivery provider returned HTTP ${status}`);
+  }
+}
+
 export async function locateDeliveryAddress(geocoderUrl: string, address: string, signal: AbortSignal): Promise<RoutePoint | null> {
   const parts = address.split(' · ');
   const postcode = /^CEP (\d{5}-\d{3})$/iu.exec(parts.at(-1) ?? '');
@@ -17,7 +23,7 @@ export async function locateDeliveryAddress(geocoderUrl: string, address: string
   search.searchParams.set('countrycodes', 'br');
   search.searchParams.set('limit', '1');
   const response = await fetch(search, { signal, redirect: 'error', headers: { 'User-Agent': 'Uniweb/1.0' } });
-  if (!response.ok) throw new Error('Geocoding request failed');
+  if (!response.ok) throw new DeliveryProviderHttpError(response.status);
   const [location] = await response.json() as Array<{ lat: string; lon: string }>;
   const lat = Number(location?.lat);
   const lon = Number(location?.lon);
@@ -37,10 +43,13 @@ export async function routeDelivery(routeUrl: string, pickup: RoutePoint, destin
       shape_format: 'geojson',
     }),
   });
-  const result = await response.json() as {
+  const result = await response.json().catch((error: unknown) => {
+    if (!response.ok && !signal.aborted) throw new DeliveryProviderHttpError(response.status);
+    throw error;
+  }) as {
     error_code?: number;
     routes?: Array<{ distance: number; duration: number; geometry: { coordinates: number[][] } }>;
   };
-  if (!response.ok && ![170, 171, 442].includes(result.error_code ?? 0)) throw new Error('Routing request failed');
+  if (!response.ok && ![170, 171, 442].includes(result?.error_code ?? 0)) throw new DeliveryProviderHttpError(response.status);
   return result.routes?.[0];
 }

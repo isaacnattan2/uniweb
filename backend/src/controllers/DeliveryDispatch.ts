@@ -3,7 +3,7 @@ import type { Request, Response } from 'express';
 import { query } from '../config/database';
 import type { AuthRequest } from '../middleware/auth';
 import { formatDeliveryAddress, normalizeDeliveryAddress } from '../services/DeliveryAddress';
-import { locateDeliveryAddress, routeDelivery, validCoordinate } from '../services/DeliveryRouting';
+import { DeliveryProviderHttpError, locateDeliveryAddress, routeDelivery, validCoordinate } from '../services/DeliveryRouting';
 import { ratePickupAddress } from '../services/OrderDeliveryDistance';
 import { dispatchTransaction, dispatchUuid, dispatchWindowMinutes, findDispatchCandidates, findDispatchSlots, recordDispatchEarnings, releaseDispatchAssignment, respondToDispatchOffer } from '../services/DeliveryDispatch';
 import type { DispatchRoute } from '../services/DeliveryDispatch';
@@ -28,12 +28,15 @@ export async function quoteDelivery(req: AuthRequest, res: Response) {
   const router = process.env.VALHALLA_ROUTE_URL?.trim();
   if (!geocoder || !router) return res.status(503).json({ error: 'A cotação de entrega está temporariamente indisponível.' });
   let route: DispatchRoute;
+  let provider = 'nominatim';
+  let signal = AbortSignal.timeout(8000);
   try {
-    const signal = AbortSignal.timeout(8000);
     const [pickup, dropoff] = await Promise.all([
       locateDeliveryAddress(geocoder, settings.pickup_address, signal),
       locateDeliveryAddress(geocoder, destination, signal),
     ]);
+    provider = 'valhalla';
+    signal = AbortSignal.timeout(8000);
     const trip = pickup && dropoff && await routeDelivery(router, pickup, dropoff, signal);
     if (!pickup || !trip || !Number.isFinite(trip.distance) || trip.distance < 0 || trip.distance > 1000000 ||
         !Number.isFinite(trip.duration) || trip.duration < 0) {
@@ -46,7 +49,12 @@ export async function quoteDelivery(req: AuthRequest, res: Response) {
       fee_cents: Math.round(settings.default_cents * distance / 1000),
       subsidy_cents: settings.subsidy_cents, radius_meters: settings.radius_meters,
     };
-  } catch {
+  } catch (error) {
+    console.warn('[delivery-quote] Falha no serviço de entrega', {
+      provider,
+      timedOut: signal.aborted,
+      status: error instanceof DeliveryProviderHttpError ? error.status : undefined,
+    });
     return res.status(503).json({ error: 'Não foi possível cotar a entrega agora. Tente novamente.' });
   }
   const [candidates, slots] = await Promise.all([findDispatchCandidates({ query }, route, null), findDispatchSlots(route)]);
