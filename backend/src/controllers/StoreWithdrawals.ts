@@ -1,9 +1,8 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
+import { asaasStoreRequest, decryptStoreKey, getSandboxStoreAccount, sandboxStoreConfig, storeProductionApi, storeSandboxApi } from '../services/AsaasStoreAccounts';
 
 const pageSize = 20;
-const sandboxApi = 'https://api-sandbox.asaas.com/v3';
-const productionApi = 'https://api.asaas.com/v3';
 
 interface AsaasTransfer {
   id: string;
@@ -16,16 +15,6 @@ interface AsaasTransfer {
   operationType?: string | null;
 }
 
-async function readAsaas<T>(base: string, path: string, key: string): Promise<T> {
-  const response = await fetch(base + path, {
-    headers: { accept: 'application/json', access_token: key, 'User-Agent': 'Uniweb/1.0' },
-    signal: AbortSignal.timeout(8000),
-    redirect: 'error',
-  });
-  if (!response.ok) throw new Error('Asaas HTTP ' + response.status);
-  return response.json() as Promise<T>;
-}
-
 export async function getStoreWithdrawals(req: AuthRequest, res: Response) {
   res.set('Cache-Control', 'no-store');
   if (req.userType !== 'business' || !req.userId) return res.sendStatus(403);
@@ -36,27 +25,48 @@ export async function getStoreWithdrawals(req: AuthRequest, res: Response) {
     return res.status(400).json({ error: 'Página inválida.' });
   }
 
-  const storeId = req.params.id.toLowerCase().replace(/-/g, '_');
-  const ownerId = req.userId.toLowerCase().replace(/-/g, '_');
-  const key = process.env['ASAAS_STORE_API_KEY_' + storeId + '__' + ownerId]?.trim();
-  if (!key || key === process.env.ASAAS_API_KEY?.trim()) return res.json({ configured: false });
-
-  const base = process.env.ASAAS_STORE_API_URL?.trim() || sandboxApi;
-  if (base !== sandboxApi && base !== productionApi) {
+  const businessId = req.params.id.toLowerCase();
+  const ownerId = req.userId.toLowerCase();
+  const configuredKey = process.env['ASAAS_STORE_API_KEY_' + businessId.replace(/-/g, '_') + '__' + ownerId.replace(/-/g, '_')]?.trim();
+  const base = process.env.ASAAS_STORE_API_URL?.trim() || storeSandboxApi;
+  if (base !== storeSandboxApi && base !== storeProductionApi) {
     return res.status(503).json({ error: 'A consulta de saques está indisponível no momento.' });
   }
 
+  let key = configuredKey === process.env.ASAAS_API_KEY?.trim() ? undefined : configuredKey;
+  const config = sandboxStoreConfig();
   try {
+    if (!key && config) {
+      const account = await getSandboxStoreAccount(businessId, ownerId);
+      if (!account) return res.json({ configured: false, canRegister: true });
+      if (!account.encrypted_key) return res.json({ configured: false, registrationPending: true });
+      key = decryptStoreKey(account.encrypted_key, config.encryptionKey, businessId, ownerId);
+      const status = await asaasStoreRequest<{ general: string }>(base, '/myAccount/status', key);
+      if (status.general !== 'APPROVED') {
+        let onboardingUrls: string[] = [];
+        if (Date.now() - account.created_at.getTime() >= 15000) {
+          const { data } = await asaasStoreRequest<{ data?: { onboardingUrl?: string }[] }>(base, '/myAccount/documents', key);
+          onboardingUrls = [...new Set((data ?? []).flatMap(({ onboardingUrl }) => {
+            if (!onboardingUrl || !URL.canParse(onboardingUrl)) return [];
+            const url = new URL(onboardingUrl);
+            const isAsaas = url.hostname === 'asaas.com' || url.hostname.endsWith('.asaas.com');
+            return isAsaas && url.protocol === 'https:' && !url.username && !url.password ? [url.href] : [];
+          }))];
+        }
+        return res.json({ configured: false, approval: status.general, onboardingUrls });
+      }
+    }
+    if (!key) return res.json({ configured: false });
     const [balance, transfers] = await Promise.all([
-      readAsaas<{ balance: number }>(base, '/finance/balance', key),
-      readAsaas<{ data: AsaasTransfer[]; hasMore: boolean }>(base, `/transfers?limit=${pageSize}&offset=${offset}`, key),
+      asaasStoreRequest<{ balance: number }>(base, '/finance/balance', key),
+      asaasStoreRequest<{ data: AsaasTransfer[]; hasMore: boolean }>(base, `/transfers?limit=${pageSize}&offset=${offset}`, key),
     ]);
     if (!Number.isFinite(balance.balance) || !Array.isArray(transfers.data) || typeof transfers.hasMore !== 'boolean') {
       throw new Error('Resposta financeira inválida');
     }
     return res.json({
       configured: true,
-      sandbox: base === sandboxApi,
+      sandbox: base === storeSandboxApi,
       availableBalance: balance.balance,
       previousOffset: offset > 0 ? Math.max(0, offset - pageSize) : null,
       nextOffset: transfers.hasMore ? offset + pageSize : null,

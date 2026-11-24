@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
+import { StoreAsaasRegistration } from './StoreAsaasRegistration';
 import { useFeedback } from './Feedback';
 import { getStoreWithdrawals, type StoreWithdrawalsResponse } from '../services/api';
 
@@ -27,6 +28,7 @@ export function StoreWithdrawals({ businessId }: { businessId: string }) {
   const [data, setData] = useState<StoreWithdrawalsResponse>();
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
+  const [registering, setRegistering] = useState(false);
 
   useEffect(() => {
     const request = new AbortController();
@@ -99,6 +101,20 @@ export function StoreWithdrawals({ businessId }: { businessId: string }) {
             </div>
           )}
         </>
+      ) : data?.registrationPending ? (
+        <p>A solicitação está em processamento ou precisa de conferência pela administração no Asaas.</p>
+      ) : data?.approval ? (
+        <>
+          <p>Subconta de teste criada. Situação cadastral: {statuses[data.approval] ?? ({ AWAITING_APPROVAL: 'Aguardando análise', REJECTED: 'Rejeitada' } as Record<string, string>)[data.approval] ?? data.approval}.</p>
+          {data.onboardingUrls?.map((url, index) => (
+            <p key={url}><a href={url} target="_blank" rel="noreferrer">Enviar documentação ao Asaas{data.onboardingUrls!.length > 1 ? ' (' + (index + 1) + ')' : ''}</a></p>
+          ))}
+          <p>Use Atualizar consulta depois de concluir a validação no Asaas.</p>
+        </>
+      ) : data?.canRegister ? (
+        registering ? <StoreAsaasRegistration businessId={businessId} onCreated={() => setRevision((value) => value + 1)} /> : (
+          <button type="button" className="btn-primary" onClick={() => setRegistering(true)}>Ativar conta de teste</button>
+        )
       ) : <p>A conta Asaas desta loja ainda precisa ser vinculada pela administração.</p>}
       <h3>Regras de saque</h3>
       <ul>

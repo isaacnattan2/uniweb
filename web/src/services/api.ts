@@ -116,7 +116,13 @@ export async function getStorePushIdentity() {
   return data;
 }
 
-export type StoreWithdrawalsResponse = { configured: false } | {
+export type StoreWithdrawalsResponse = {
+  configured: false;
+  canRegister?: boolean;
+  registrationPending?: boolean;
+  approval?: string;
+  onboardingUrls?: string[];
+} | {
   configured: true;
   sandbox: boolean;
   availableBalance: number;
@@ -133,6 +139,25 @@ export type StoreWithdrawalsResponse = { configured: false } | {
     operationType?: string | null;
   }[];
 };
+
+export interface StoreAsaasRegistration {
+  name: string;
+  email: string;
+  cpfCnpj: string;
+  mobilePhone: string;
+  postalCode: string;
+  address: string;
+  addressNumber: string;
+  province: string;
+  complement: string;
+  birthDate: string;
+  companyType: string;
+  incomeValue: number;
+}
+
+export async function createStoreAsaasAccount(businessId: string, registration: StoreAsaasRegistration) {
+  await api.post('/businesses/' + businessId + '/asaas-account', registration);
+}
 
 export async function getStoreWithdrawals(businessId: string, offset: number, signal: AbortSignal): Promise<StoreWithdrawalsResponse> {
   const { data } = await api.get('/businesses/' + businessId + '/withdrawals', { params: { offset }, signal });

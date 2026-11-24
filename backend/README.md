@@ -89,3 +89,11 @@ No serviço do backend no Render, defina `DRIVER_APP_DOWNLOAD_URL` com a URL HTT
 Em **Minhas Lojas → Gerenciar → Saques Asaas**, o lojista consulta saldo e histórico da conta Asaas dedicada à loja. No backend, configure uma variável por loja no formato `ASAAS_STORE_API_KEY_<ID_DA_LOJA>__<ID_DO_LOJISTA>`. Use os UUIDs da loja e do lojista em minúsculo, substituindo cada hífen por um underscore. Separe os dois IDs com dois underscores. Se a loja trocar de titular, revise o vínculo antes de criar a variável para o novo lojista. Use apenas uma conta exclusiva daquela loja. A chave fica nas variáveis do backend no Render.
 
 Por padrão, a consulta usa o Sandbox. Para consultar contas de produção, configure `ASAAS_STORE_API_URL=https://api.asaas.com/v3` e use as chaves desse ambiente. Essa configuração é independente do checkout. Os recebimentos feitos na conta da plataforma só aparecem numa conta da loja depois de um repasse ou split efetivamente realizado para ela. O painel consulta o Asaas sem iniciar transferências.
+
+### Cadastro de subconta no Sandbox
+
+Solicite ao suporte Asaas a liberação do fluxo BaaS no Sandbox da conta-pai CNPJ. Aplique `migrations/add_asaas_store_accounts.sql` na branch de teste do banco. Configure `ASAAS_API_KEY` com a chave da conta-pai Sandbox, `ASAAS_STORE_SANDBOX_ONBOARDING=true` e `ASAAS_STORE_KEY_ENCRYPTION` com 32 bytes em Base64. Gere o valor localmente com `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"` e guarde-o nas variáveis secretas do backend. Preserve a mesma chave de criptografia entre deploys.
+
+O lojista abre **Minhas Lojas → Gerenciar → Saques Asaas → Ativar conta de teste**. Depois da criação, aguarda pelo menos 15 segundos e clica em **Atualizar consulta** para verificar a situação ou abrir o link de documentos fornecido pelo Asaas. A subconta aprovada passa a alimentar saldo e histórico sem configuração de chave por loja. Se um envio tiver resultado incerto, confira a subconta na conta-pai antes de liberar uma nova tentativa para evitar duplicação.
+
+Para validar saldo e histórico nesta etapa, gere saldo e simule uma transferência no Sandbox da subconta. O checkout ainda recebe na conta da plataforma. O split e a solicitação de saque pelo Uniweb dependem da configuração do repasse e do destino bancário.
