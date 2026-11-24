@@ -23,12 +23,16 @@ export async function asaasStoreRequest<T>(base: string, path: string, key: stri
     signal: AbortSignal.timeout(10000),
     redirect: 'error',
   });
-  if (!response.ok) throw new AsaasStoreError(response.status);
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { errors?: unknown } | null;
+    const details = Array.isArray(payload?.errors) ? payload.errors.slice(0, 3) : [];
+    throw new AsaasStoreError(response.status, details);
+  }
   return response.json() as Promise<T>;
 }
 
 export class AsaasStoreError extends Error {
-  constructor(readonly status: number) { super('Asaas HTTP ' + status); }
+  constructor(readonly status: number, readonly details: unknown[] = []) { super('Asaas HTTP ' + status); }
 }
 
 export function encryptStoreKey(apiKey: string, secret: Buffer, businessId: string, ownerId: string) {

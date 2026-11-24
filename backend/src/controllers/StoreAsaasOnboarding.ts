@@ -33,6 +33,34 @@ function readRegistration(body: Record<string, unknown>) {
     complement: complement || undefined, incomeValue, ...(cpfCnpj.length === 11 ? { birthDate } : { companyType }) };
 }
 
+function describeAsaasRejection(error: AsaasStoreError, submitted: object, parentKey: string) {
+  const sensitive = [parentKey, ...Object.values(submitted).filter((value): value is string =>
+    typeof value === 'string' && value.length >= 3)].sort((a, b) => b.length - a.length);
+  const details = error.details.flatMap((entry) => {
+    if (typeof entry !== 'object' || entry === null) return [];
+    const { code, description } = entry as Record<string, unknown>;
+    const safeCode = typeof code === 'string' && /^[a-z][a-z0-9_]{1,63}$/i.test(code) ? code : undefined;
+    if (typeof description !== 'string') return safeCode ? [safeCode] : [];
+    let message = description;
+    for (const value of sensitive) {
+      message = message.replace(new RegExp(value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '[omitido]');
+    }
+    message = message.replace(/[\w.+-]+@[\w.-]+\.[a-z]{2,}/gi, '[omitido]')
+      .replace(/\b(?:\d[ ./()-]?){8,}\b/g, '[omitido]')
+      .replace(/\$aact_[^\s]+/gi, '[omitido]')
+      .replace(/https?:\/\/\S+/gi, '[link omitido]')
+      .replace(/\s+/g, ' ').trim().slice(0, 240);
+    return message ? [message] : safeCode ? [safeCode] : [];
+  });
+  if (details.length) return 'Asaas (HTTP ' + error.status + '): ' + [...new Set(details)].join(' ');
+  switch (error.status) {
+    case 401: return 'O Asaas rejeitou a autenticação da conta-pai no Sandbox (HTTP 401).';
+    case 403: return 'O Asaas bloqueou a criação da subconta (HTTP 403) e não informou o motivo. Confira as permissões da conta-pai.';
+    case 429: return 'O Asaas limitou as solicitações (HTTP 429). Aguarde e tente novamente.';
+    default: return 'O Asaas recusou o cadastro (HTTP ' + error.status + '). Confira os dados do titular.';
+  }
+}
+
 export async function createStoreAsaasAccount(req: AuthRequest, res: Response) {
   res.set('Cache-Control', 'no-store');
   if (req.userType !== 'business' || !req.userId) return res.sendStatus(403);
@@ -67,9 +95,7 @@ export async function createStoreAsaasAccount(req: AuthRequest, res: Response) {
     if (error instanceof AsaasStoreError && [400, 401, 403, 422, 429].includes(error.status)) {
       await query('DELETE FROM asaas_store_accounts WHERE business_id = $1 AND owner_id = $2 AND provider_id IS NULL', ids);
       return res.status(error.status === 400 || error.status === 422 ? 422 : 502).json({
-        error: error.status === 400 || error.status === 422
-          ? 'O Asaas recusou o cadastro. Confira os dados, inclusive CPF ou CNPJ, CEP e e-mail.'
-          : 'O Asaas não autorizou a criação no Sandbox neste momento.',
+        error: describeAsaasRejection(error, registration, config.parentKey),
       });
     }
     return res.status(502).json({ error: 'A criação não pôde ser confirmada. A administração precisa verificar a solicitação no Asaas.' });
