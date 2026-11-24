@@ -83,7 +83,7 @@ export class OrderController {
       if (!['pix', 'credit_card', 'debit_card', 'wallet'].includes(paymentMethod)) {
         throw new CheckoutError(400, 'Selecione uma forma de pagamento válida.');
       }
-      if (!['pickup', 'delivery', 'shipping'].includes(deliveryType)) {
+      if (deliveryType !== 'pickup' && deliveryType !== 'delivery' && (startPayment || deliveryType !== 'shipping')) {
         throw new CheckoutError(400, 'Selecione uma forma de entrega válida.');
       }
       const savedAddress = deliveryType === 'pickup' ? null : normalizeDeliveryAddress(deliveryAddress);
@@ -194,12 +194,13 @@ export class OrderController {
           throw new CheckoutError(409, 'O frete ou o horário expirou. Atualize a cotação.');
         }
         if (!slot && quote.immediate_minutes == null) throw new CheckoutError(409, 'A entrega imediata não está disponível.');
+        if (slot && quote.immediate_minutes != null) throw new CheckoutError(409, 'Atualize a cotação para agendar a entrega.');
         if (slot) await client.query('SELECT pg_advisory_xact_lock(19750215)');
-        const candidates = await findDispatchCandidates(client, quote, slot);
-        if (!candidates.length) throw new CheckoutError(409, 'Este tipo de entrega ficou indisponível. Atualize a cotação.');
-        reservedDriver = slot ? candidates[0].user_id : null;
         promisedAt = new Date((slot?.getTime() ?? Date.now()) +
           (slot ? dispatchWindowMinutes(quote) : quote.immediate_minutes) * 60000);
+        const candidates = await findDispatchCandidates(client, quote, slot, null, slot ? null : promisedAt);
+        if (!candidates.length) throw new CheckoutError(409, 'Este tipo de entrega ficou indisponível. Atualize a cotação.');
+        reservedDriver = slot ? candidates[0].user_id : null;
         await client.query('DELETE FROM delivery_quotes WHERE id = $1', [quoteId]);
       }
 

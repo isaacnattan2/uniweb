@@ -366,17 +366,15 @@ export async function createOrder(
 }
 
 export interface DeliveryQuote {
-  id: string;
-  feeCents: number;
-  distanceMeters: number;
-  expiresAt: string;
+  options: { id: string; feeCents: number; estimatedMinutes: number | null }[];
   slots: string[];
   windowMinutes: number;
-  immediateMinutes: number | null;
 }
 
-export async function getDeliveryQuote(businessId: string, address: DeliveryAddress) {
-  return (await api.post<DeliveryQuote>('/orders/delivery-quote', { businessId, address })).data;
+export type DeliveryQuoteMode = 'immediate' | 'scheduled';
+
+export async function getDeliveryQuote(businessId: string, address: DeliveryAddress, mode: DeliveryQuoteMode, signal: AbortSignal) {
+  return (await api.post<DeliveryQuote>('/orders/delivery-quote', { businessId, address, mode }, { signal })).data;
 }
 
 export async function getDeliveryAlternatives(orderId: string) {

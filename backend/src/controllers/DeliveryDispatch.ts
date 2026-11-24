@@ -11,11 +11,14 @@ import { notifyOrderEvent } from '../services/OrderPush';
 
 export async function quoteDelivery(req: AuthRequest, res: Response) {
   if (req.userType !== 'customer' || !req.userId) return res.sendStatus(403);
-  const { businessId, address } = req.body ?? {};
+  const { businessId, address, mode } = req.body ?? {};
   const normalized = normalizeDeliveryAddress(address);
   const destination = normalized && formatDeliveryAddress(normalized);
   if (typeof businessId !== 'string' || !dispatchUuid.test(businessId) || !destination) {
     return res.status(400).json({ error: 'Informe a loja e o endereço completo de entrega.' });
+  }
+  if (mode !== 'immediate' && mode !== 'scheduled') {
+    return res.status(400).json({ error: 'Escolha entrega imediata ou agendada.' });
   }
   const { rows: [settings] } = await query(
     `SELECT ${ratePickupAddress} AS pickup_address, p.default_cents, s.radius_meters, s.subsidy_cents
@@ -57,30 +60,34 @@ export async function quoteDelivery(req: AuthRequest, res: Response) {
     });
     return res.status(503).json({ error: 'Não foi possível cotar a entrega agora. Tente novamente.' });
   }
-  const [candidates, slots] = await Promise.all([findDispatchCandidates({ query }, route, null), findDispatchSlots(route)]);
-  const pickupEtas = await Promise.all(candidates.slice(0, 3).map(async (candidate) => {
-    try {
-      if (candidate.pickup_minutes === 0) return 0;
-      const trip = await routeDelivery(router, { lat: candidate.latitude, lon: candidate.longitude },
-        { lat: route.pickup_latitude, lon: route.pickup_longitude }, AbortSignal.timeout(5000));
-      return trip && Number.isFinite(trip.duration) && trip.duration >= 0 ? Math.ceil(trip.duration / 60) : null;
-    } catch { return null; }
-  }));
-  const eligibleEtas = pickupEtas.filter((eta): eta is number => eta !== null);
-  const immediateMinutes = eligibleEtas.length ? Math.min(...eligibleEtas) + route.duration_minutes + 10 : null;
-  const id = randomUUID();
-  const { rows: [quote] } = await query(
+  const slots = mode === 'scheduled' ? await findDispatchSlots(route) : [];
+  const options: { id: string; feeCents: number; estimatedMinutes: number | null }[] = [];
+  if (mode === 'immediate') {
+    const candidates = await findDispatchCandidates({ query }, route, null, null, null, null, true);
+    const seen = new Set<string>();
+    for (const candidate of candidates) {
+      const estimatedMinutes = candidate.pickup_minutes + route.duration_minutes + 10;
+      const key = `${candidate.fee_cents}:${estimatedMinutes}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      options.push({ id: randomUUID(), feeCents: candidate.fee_cents, estimatedMinutes });
+    }
+    options.sort((a, b) => a.feeCents - b.feeCents);
+  } else if (slots.length) {
+    options.push({ id: randomUUID(), feeCents: route.fee_cents, estimatedMinutes: null });
+  }
+  if (options.length) await query(
     `INSERT INTO delivery_quotes (id, user_id, business_id, destination, pickup_address, pickup_latitude, pickup_longitude,
        distance_meters, duration_minutes, rate_cents, fee_cents, subsidy_cents, radius_meters, immediate_minutes, expires_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW() + INTERVAL '5 minutes') RETURNING expires_at`,
-    [id, req.userId, businessId, destination, settings.pickup_address, route.pickup_latitude, route.pickup_longitude,
-      route.distance_meters, route.duration_minutes, route.rate_cents, route.fee_cents, route.subsidy_cents, route.radius_meters, immediateMinutes]
+     SELECT option.id,$1,$2,$3,$4,$5,$6,$7,$8,$9,option.fee_cents,$10,$11,option.estimated_minutes,NOW() + INTERVAL '5 minutes'
+     FROM unnest($12::uuid[], $13::int[], $14::int[]) AS option(id, fee_cents, estimated_minutes)`,
+    [req.userId, businessId, destination, settings.pickup_address, route.pickup_latitude, route.pickup_longitude,
+      route.distance_meters, route.duration_minutes, route.rate_cents, route.subsidy_cents, route.radius_meters,
+      options.map(({ id }) => id), options.map(({ feeCents }) => feeCents), options.map(({ estimatedMinutes }) => estimatedMinutes)]
   );
   res.set('Cache-Control', 'no-store');
   return res.json({
-    id, feeCents: route.fee_cents, distanceMeters: route.distance_meters, expiresAt: quote.expires_at, slots,
-    windowMinutes: dispatchWindowMinutes(route),
-    immediateMinutes,
+    options, slots, windowMinutes: dispatchWindowMinutes(route),
   });
 }
 

@@ -84,6 +84,7 @@ export async function findDispatchCandidates(
   db: DispatchDatabase, route: DispatchRoute, slot: Date | null,
   orderId: string | null = null, promisedAt: Date | null = null,
   reservedUserId: string | null = null,
+  allRates = false,
 ) {
   const { rows } = await db.query(
     `WITH eligible AS (${eligibleDrivers}), priced AS (
@@ -92,12 +93,12 @@ export async function findDispatchCandidates(
       FROM eligible WHERE pickup_meters <= $7::int
     )
     SELECT user_id, rate_cents, fee_cents, pickup_minutes, latitude, longitude FROM priced
-    WHERE ($11::uuid IS NOT NULL OR fee_cents <= $6::int)
+    WHERE ($12::boolean OR $11::uuid IS NOT NULL OR fee_cents <= $6::int)
       AND ($10::timestamptz IS NULL OR GREATEST(NOW(), COALESCE($8, NOW())) +
         make_interval(mins => pickup_minutes + $4::int) <= $10)
-    ORDER BY pickup_minutes, fee_cents, user_id LIMIT 10`,
+    ORDER BY pickup_minutes, fee_cents, user_id LIMIT CASE WHEN $12::boolean THEN NULL ELSE 10 END`,
     [route.pickup_latitude, route.pickup_longitude, route.distance_meters, route.duration_minutes,
-      route.rate_cents, route.fee_cents + route.subsidy_cents, route.radius_meters, slot, orderId, promisedAt, reservedUserId],
+      route.rate_cents, route.fee_cents + route.subsidy_cents, route.radius_meters, slot, orderId, promisedAt, reservedUserId, allRates],
   );
   return rows as { user_id: string; rate_cents: number; fee_cents: number; pickup_minutes: number; latitude: number; longitude: number }[];
 }
