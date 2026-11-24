@@ -19,9 +19,9 @@ router.get('/me', authMiddleware, (req: AuthRequest, res) => {
 });
 
 router.get('/me/push-identity', authMiddleware, (req: AuthRequest, res) => {
-  if (!req.userId || !['business', 'customer', 'driver'].includes(req.userType ?? '')) return res.sendStatus(403);
+  if (!req.userId || !req.userType || (req.userType === 'admin' && req.query.channel !== 'web')) return res.sendStatus(403);
   res.set('Cache-Control', 'no-store');
-  if (req.userType === 'driver') {
+  if (req.userType === 'driver' && req.query.channel !== 'web') {
     const externalId = driverPushAlias(req.userId);
     return externalId ? res.json({ externalId }) : res.sendStatus(503);
   }

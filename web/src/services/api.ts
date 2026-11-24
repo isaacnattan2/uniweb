@@ -111,7 +111,7 @@ export interface StoreOrder {
 export type StoreOrderAction = 'requeue' | 'cancel';
 
 export async function getStorePushIdentity() {
-  const { data } = await api.get<{ externalId: string; token: string }>('/auth/me/push-identity');
+  const { data } = await api.get<{ externalId: string; token: string }>('/auth/me/push-identity', { params: { channel: 'web' } });
   return data;
 }
 

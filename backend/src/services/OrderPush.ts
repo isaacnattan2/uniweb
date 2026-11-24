@@ -96,11 +96,12 @@ export async function notifyDriverOffer(offerId: string, orderId: string, userId
   const ttl = Math.floor((expiresAt.getTime() - Date.now()) / 1000);
   if (!appId || !key || !alias || ttl < 1) return false;
   return sendPush(appId, key, [alias], 'delivery_offer', `Confira a oferta do pedido #${orderId.slice(0, 8).toUpperCase()}.`,
-    { data: { orderId, section: 'available', offerId }, ttl }, offerId);
+    { data: { orderId, section: 'available', offerId }, ttl, priority: 10 }, offerId);
 }
 
 async function sendPush(appId: string, apiKey: string, recipients: string[], event: OrderEvent, body: string,
-  destination: { url: string } | { data: { orderId: string; section: string; offerId?: string }; ttl?: number }, key: string = randomUUID()) {
+  destination: { url: string } | { data: { orderId: string; section: string; offerId?: string }; ttl?: number; priority?: number },
+  key: string = randomUUID()) {
   try {
     const response = await fetch('https://api.onesignal.com/notifications', {
       method: 'POST',
@@ -116,8 +117,18 @@ async function sendPush(appId: string, apiKey: string, recipients: string[], eve
         ...destination,
       }),
     });
-    if (!response.ok) console.warn('OneSignal recusou o envio do pedido', event, response.status);
-    return response.ok;
+    if (!response.ok) {
+      console.warn('OneSignal recusou o envio do pedido', event, response.status);
+      return false;
+    }
+    if (event === 'delivery_offer') {
+      const result = await response.json() as { id?: unknown } | null;
+      if (typeof result?.id !== 'string' || !result.id.trim()) {
+        console.warn('OneSignal não criou o push da oferta. Verifique a inscrição Android ou iOS do entregador.', key);
+        return false;
+      }
+    }
+    return true;
   } catch (error) {
     console.warn('Falha no envio do push do pedido', event, error);
     return false;

@@ -1,3 +1,46 @@
+.push-settings {
+  position: relative;
+}
+
+.push-settings-trigger {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: #475569;
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.push-settings-trigger:hover,
+.push-settings-trigger[aria-expanded='true'] {
+  background: #f1f5f9;
+}
+
+.push-settings-panel {
+  position: absolute;
+  inset-block-start: calc(100% + 0.5rem);
+  inset-inline-end: 0;
+  width: min(17rem, calc(100vw - 2.5rem));
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.875rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.625rem;
+  background: #fff;
+  color: #334155;
+  box-shadow: 0 4px 16px rgb(15 23 42 / 14%);
+}
+
+.push-settings-panel p {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
 .store-push-stack {
   position: fixed;
   inset-inline-end: 1rem;

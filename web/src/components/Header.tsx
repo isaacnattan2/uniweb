@@ -87,6 +87,7 @@ export function Header() {
           </nav>}
 
           {!isAuthPage && <div className="header-actions">
+            {token && <div id="header-push-settings" />}
             {token ? (
               <button onClick={handleLogout} className="btn-logout">
                 Sair

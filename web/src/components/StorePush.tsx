@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { useAuthStore } from '../context/store';
 import { getStorePushIdentity } from '../services/api';
@@ -18,17 +19,23 @@ type PushSDK = {
   updateUserJwt(id: string, token: string): Promise<void>;
   Notifications: {
     permission: boolean;
-    requestPermission(): Promise<void>;
     addEventListener(name: 'foregroundWillDisplay', listener: ForegroundListener): void;
     removeEventListener(name: 'foregroundWillDisplay', listener: ForegroundListener): void;
   };
   User: {
-    PushSubscription: { optIn(): Promise<void> };
+    PushSubscription: {
+      optedIn: boolean;
+      optIn(): Promise<void>;
+      optOut(): Promise<void>;
+      addEventListener(event: 'change', listener: () => void): void;
+      removeEventListener(event: 'change', listener: () => void): void;
+    };
     addEventListener(event: 'userJwtInvalidated', listener: (event: { externalId: string }) => void): void;
   };
 };
 
 const appId = import.meta.env.VITE_ONESIGNAL_APP_ID;
+const preferenceKey = 'uniweb:push-preference-seen';
 let sdk: Promise<PushSDK> | undefined;
 let sessionUpdate = Promise.resolve();
 
@@ -62,10 +69,15 @@ function loadSdk() {
 
 export function StorePush() {
   const { token, userType } = useAuthStore();
-  const subscribedRole = !!token && (userType === 'business' || userType === 'customer');
+  const subscribedRole = !!token && !!userType;
   const [ready, setReady] = useState<PushSDK | null>(null);
   const [notice, setNotice] = useState('');
   const [orders, setOrders] = useState<OrderNotice[]>([]);
+  const [enabled, setEnabled] = useState(false);
+  const [preferenceSeen, setPreferenceSeen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [changing, setChanging] = useState(false);
+  const gear = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!appId || !window.isSecureContext || !('Notification' in window) || !('serviceWorker' in navigator)) return;
@@ -73,6 +85,7 @@ export function StorePush() {
     setReady(null);
     setNotice('');
     setOrders([]);
+    setSettingsOpen(false);
     sessionUpdate = sessionUpdate.then(async () => {
       if (!current) return;
       if (!subscribedRole) {
@@ -93,10 +106,28 @@ export function StorePush() {
   }, [subscribedRole, token]);
 
   useEffect(() => {
+    if (!ready) return;
+    const subscription = ready.User.PushSubscription;
+    function sync() {
+      setEnabled(subscription.optedIn);
+      if (!subscription.optedIn) setOrders([]);
+      if (subscription.optedIn || Notification.permission !== 'default') setPreferenceSeen(true);
+    }
+    try {
+      if (localStorage.getItem(preferenceKey)) setPreferenceSeen(true);
+    } catch {
+      // Browser storage may be disabled.
+    }
+    sync();
+    subscription.addEventListener('change', sync);
+    return () => subscription.removeEventListener('change', sync);
+  }, [ready]);
+
+  useEffect(() => {
     if (!ready || !subscribedRole) return;
     const onOrder: ForegroundListener = (event) => {
       const { notificationId: id, launchURL, title, body } = event.notification;
-      if (document.visibilityState !== 'visible' || !document.hasFocus() || !launchURL ||
+      if (!ready.User.PushSubscription.optedIn || document.visibilityState !== 'visible' || !document.hasFocus() || !launchURL ||
           useAuthStore.getState().token !== token) return;
       const url = URL.parse(launchURL, window.location.origin);
       if (!url || url.origin !== window.location.origin) return;
@@ -115,21 +146,64 @@ export function StorePush() {
     setOrders((previous) => previous.filter((order) => order.id !== id));
   }
 
-  async function enable() {
-    if (!ready) return;
+  function closeSettings() {
+    setSettingsOpen(false);
+    gear.current?.focus();
+  }
+
+  async function changeSubscription(next: boolean) {
+    if (!ready || changing) return;
+    setChanging(true);
+    setNotice('');
     try {
-      await ready.Notifications.requestPermission();
-      if (ready.Notifications.permission) await ready.User.PushSubscription.optIn();
-      setNotice(ready.Notifications.permission ? 'Notificações ativadas.' : 'Permita notificações nas configurações do navegador.');
+      const subscription = ready.User.PushSubscription;
+      if (next) await subscription.optIn();
+      else await subscription.optOut();
+      if (useAuthStore.getState().token !== token) return;
+      setEnabled(subscription.optedIn);
+      setPreferenceSeen(true);
+      try { localStorage.setItem(preferenceKey, '1'); } catch { /* Storage is optional. */ }
+      if (!next) setOrders([]);
+      if (next && !ready.Notifications.permission) {
+        setSettingsOpen(true);
+      } else {
+        closeSettings();
+      }
     } catch {
-      setNotice('Não foi possível ativar as notificações.');
+      if (useAuthStore.getState().token === token) {
+        setNotice(next ? 'Não foi possível ativar as notificações.' : 'Não foi possível desativar as notificações.');
+      }
+    } finally {
+      setChanging(false);
     }
   }
 
+  const showGear = ready && (enabled || preferenceSeen || Notification.permission !== 'default');
+  const header = showGear ? document.getElementById('header-push-settings') : null;
   return subscribedRole && appId && (ready || notice) ? (
     <div className="container">
-      {ready && <button type="button" className="btn-secondary" onClick={() => void enable()}>Ativar notificações de pedidos</button>}
-      {notice && <span role="status"> {notice}</span>}
+      {ready && !showGear && (
+        <button type="button" className="btn-secondary" disabled={changing} onClick={() => void changeSubscription(true)}>Ativar notificações</button>
+      )}
+      {header && createPortal(
+        <div className="push-settings" onKeyDown={(event) => { if (event.key === 'Escape' && settingsOpen) closeSettings(); }}>
+          <button ref={gear} type="button" className="push-settings-trigger" aria-label="Configurar notificações"
+            title="Configurar notificações" aria-expanded={settingsOpen} aria-controls="web-push-preferences"
+            onClick={() => setSettingsOpen((open) => !open)}><span aria-hidden="true">⚙</span></button>
+          {settingsOpen && (
+            <div id="web-push-preferences" className="push-settings-panel">
+              <strong>Notificações</strong>
+              <p>{enabled ? 'Ativadas neste navegador' : 'Desativadas neste navegador'}</p>
+              {Notification.permission === 'denied' && <p>Para ativar, permita notificações nas configurações do navegador.</p>}
+              {notice && <p role="status">{notice}</p>}
+              <button type="button" className="btn-secondary" disabled={changing || (!enabled && Notification.permission === 'denied')}
+                onClick={() => void changeSubscription(!enabled)}>{enabled ? 'Desativar notificações' : 'Ativar notificações'}</button>
+            </div>
+          )}
+        </div>,
+        header
+      )}
+      {notice && !showGear && <span role="status"> {notice}</span>}
       <section className="store-push-stack" aria-label="Notificações de pedidos" aria-live="polite">
         {orders.map((order) => (
           <article className="store-push-card" key={order.id}>
