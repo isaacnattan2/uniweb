@@ -31,6 +31,22 @@ const titles = {
 };
 
 type OrderEvent = keyof typeof titles;
+type PushEvent = OrderEvent | 'driver_presence';
+
+export function notifyAdminDriverPresence() {
+  const appId = process.env.ONESIGNAL_WEB_APP_ID;
+  const key = process.env.ONESIGNAL_WEB_API_KEY;
+  const origin = process.env.ONESIGNAL_WEB_ORIGIN;
+  if (!appId || !key || !origin || !process.env.ONESIGNAL_WEB_IDENTITY_PRIVATE_KEY) return;
+
+  void (async () => {
+    const { rows } = await query("SELECT id FROM users WHERE user_type = 'admin' AND status = 'active'");
+    if (!rows.length) return;
+    const url = new URL('/admin/entregadores?presence=updated', origin);
+    await sendPush(appId, key, rows.map(({ id }) => id), 'driver_presence',
+      'A disponibilidade dos entregadores foi atualizada.', { url: url.href });
+  })().catch((error) => console.warn('Falha ao notificar a presença de entregadores', error));
+}
 
 export function notifyOrderEvent(event: OrderEvent, orderIds: string[], offeredDriverId?: string | null) {
   if (orderIds.length) {
@@ -101,7 +117,7 @@ export async function notifyDriverOffer(offerId: string, orderId: string, userId
     { data: { orderId, section: 'available', offerId }, ttl, priority: 10 }, offerId);
 }
 
-async function sendPush(appId: string, apiKey: string, recipients: string[], event: OrderEvent, body: string,
+async function sendPush(appId: string, apiKey: string, recipients: string[], event: PushEvent, body: string,
   destination: { url: string } | { data: { orderId: string; section: string; offerId?: string; event?: OrderEvent }; ttl?: number; priority?: number },
   key: string = randomUUID()) {
   try {
@@ -114,7 +130,7 @@ async function sendPush(appId: string, apiKey: string, recipients: string[], eve
         include_aliases: { external_id: recipients },
         target_channel: 'push',
         idempotency_key: key,
-        headings: { en: titles[event] },
+        headings: { en: event === 'driver_presence' ? 'Presença de entregadores' : titles[event] },
         contents: { en: body },
         ...destination,
       }),

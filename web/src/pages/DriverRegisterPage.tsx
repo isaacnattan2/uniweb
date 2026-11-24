@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { getDriverRegistration, registerDriver } from '../services/api';
@@ -125,26 +125,36 @@ export function DriverPage() {
       <div className="container">
         <h1>Meu cadastro de entregador</h1>
         {error ? <p role="alert">{error}</p> : !data ? <p role="status">Carregando cadastro…</p> : (
-          <div className="driver-fields">
-            <section className="driver-card">
-              <h2>Dados pessoais</h2>
-              <dl>
-                <dt>Nome</dt><dd>{data.full_name}</dd>
-                <dt>E-mail</dt><dd>{data.email}</dd>
-                <dt>Telefone</dt><dd>{data.phone}</dd>
-              </dl>
+          <>
+            <section className="driver-card driver-download">
+              <h2>UniEntregador para Android</h2>
+              {data.app_download_url ? (
+                <a className="btn-primary driver-download-button" href={data.app_download_url} referrerPolicy="no-referrer">Baixar APK</a>
+              ) : (
+                <p>Download indisponível no momento.</p>
+              )}
             </section>
-            <section className="driver-card">
-              <h2>Veículo</h2>
-              <dl>
-                <dt>Tipo</dt><dd>{vehicles[data.vehicle_type] || data.vehicle_type}</dd>
-                <dt>Fabricante</dt><dd>{data.vehicle_manufacturer || '—'}</dd>
-                <dt>Marca</dt><dd>{data.vehicle_brand || '—'}</dd>
-                <dt>Cor</dt><dd>{data.vehicle_color || '—'}</dd>
-                {data.vehicle_plate && <><dt>Placa</dt><dd>{data.vehicle_plate}</dd></>}
-              </dl>
-            </section>
-          </div>
+            <div className="driver-fields">
+              <section className="driver-card">
+                <h2>Dados pessoais</h2>
+                <dl>
+                  <dt>Nome</dt><dd>{data.full_name}</dd>
+                  <dt>E-mail</dt><dd>{data.email}</dd>
+                  <dt>Telefone</dt><dd>{data.phone}</dd>
+                </dl>
+              </section>
+              <section className="driver-card">
+                <h2>Veículo</h2>
+                <dl>
+                  <dt>Tipo</dt><dd>{vehicles[data.vehicle_type] || data.vehicle_type}</dd>
+                  <dt>Fabricante</dt><dd>{data.vehicle_manufacturer || '—'}</dd>
+                  <dt>Marca</dt><dd>{data.vehicle_brand || '—'}</dd>
+                  <dt>Cor</dt><dd>{data.vehicle_color || '—'}</dd>
+                  {data.vehicle_plate && <><dt>Placa</dt><dd>{data.vehicle_plate}</dd></>}
+                </dl>
+              </section>
+            </div>
+          </>
         )}
       </div>
     </main>

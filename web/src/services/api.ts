@@ -27,6 +27,7 @@ export interface AdminDriver {
   email: string;
   phone: string | null;
   status: 'active' | 'inactive' | 'suspended';
+  checked_in: boolean;
   vehicle_type: string | null;
   vehicle_manufacturer: string | null;
   vehicle_brand: string | null;
@@ -569,6 +570,7 @@ export interface DriverRegistrationInput {
 }
 
 export interface DriverRegistration {
+  app_download_url?: string;
   full_name: string;
   email: string;
   phone: string;

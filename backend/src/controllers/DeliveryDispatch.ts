@@ -7,7 +7,7 @@ import { DeliveryProviderHttpError, locateDeliveryAddress, routeDelivery, validC
 import { ratePickupAddress } from '../services/OrderDeliveryDistance';
 import { dispatchTransaction, dispatchUuid, dispatchWindowMinutes, findDispatchCandidates, findDispatchSlots, recordDispatchEarnings, releaseDispatchAssignment, respondToDispatchOffer } from '../services/DeliveryDispatch';
 import type { DispatchRoute } from '../services/DeliveryDispatch';
-import { notifyOrderEvent } from '../services/OrderPush';
+import { notifyAdminDriverPresence, notifyOrderEvent } from '../services/OrderPush';
 
 export async function quoteDelivery(req: AuthRequest, res: Response) {
   if (req.userType !== 'customer' || !req.userId) return res.sendStatus(403);
@@ -99,7 +99,11 @@ export async function updateDriverPresence(req: AuthRequest, res: Response) {
     return res.status(400).json({ error: 'Informe uma ação e localização válidas.' });
   }
   if (action === 'checkout') {
-    await query('UPDATE driver_dispatch_presence SET online = false, latitude = NULL, longitude = NULL, location_at = NULL WHERE user_id = $1', [req.userId]);
+    const { rowCount } = await query(
+      'UPDATE driver_dispatch_presence SET online = false, latitude = NULL, longitude = NULL, location_at = NULL WHERE user_id = $1 AND online',
+      [req.userId],
+    );
+    if (rowCount) notifyAdminDriverPresence();
     return res.json({ online: false });
   }
   if (action === 'location') {
@@ -114,10 +118,20 @@ export async function updateDriverPresence(req: AuthRequest, res: Response) {
      SELECT user_id, true, $2, $3, NOW() FROM drivers WHERE user_id = $1 AND deleted_at IS NULL
      ON CONFLICT (user_id) DO UPDATE SET online = true, latitude = EXCLUDED.latitude,
        longitude = EXCLUDED.longitude, location_at = NOW(),
-       ignored_offers = CASE WHEN driver_dispatch_presence.online THEN driver_dispatch_presence.ignored_offers ELSE 0 END`,
+       ignored_offers = 0
+     WHERE NOT driver_dispatch_presence.online`,
     [req.userId, latitude, longitude]
   );
-  return res.json({ online: Boolean(rowCount) });
+  if (rowCount) {
+    notifyAdminDriverPresence();
+    return res.json({ online: true });
+  }
+  const refreshed = await query(
+    `UPDATE driver_dispatch_presence p SET latitude = $2, longitude = $3, location_at = NOW()
+     WHERE p.user_id = $1 AND p.online AND EXISTS (SELECT 1 FROM drivers d WHERE d.user_id = p.user_id AND d.deleted_at IS NULL)`,
+    [req.userId, latitude, longitude],
+  );
+  return res.json({ online: Boolean(refreshed.rowCount) });
 }
 
 export async function readDriverDispatch(req: AuthRequest, res: Response) {

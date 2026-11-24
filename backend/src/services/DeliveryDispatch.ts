@@ -1,7 +1,7 @@
 import { randomInt, randomUUID } from 'node:crypto';
 import type { PoolClient, QueryResult } from 'pg';
 import { getClient, query } from '../config/database';
-import { notifyDriverOffer, notifyOrderEvent } from './OrderPush';
+import { notifyAdminDriverPresence, notifyDriverOffer, notifyOrderEvent } from './OrderPush';
 
 export const dispatchUuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
@@ -143,9 +143,9 @@ export async function dispatchTransaction<T>(operation: (client: PoolClient) => 
 }
 
 export async function tickDispatch() {
-  const changed = await dispatchTransaction(async (client) => {
+  const { unavailable, presenceChanged } = await dispatchTransaction(async (client) => {
     const { rows: [lock] } = await client.query('SELECT pg_try_advisory_xact_lock(19750214) AS acquired');
-    if (!lock.acquired) return [];
+    if (!lock.acquired) return { unavailable: [], presenceChanged: false };
     const { rows } = await client.query(
       `SELECT j.*, o.order_status, o.payment_status FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id
        WHERE (j.state IN ('scheduled','searching','offered') OR (j.state = 'assigned' AND j.promised_at <= NOW())) AND
@@ -156,6 +156,7 @@ export async function tickDispatch() {
        ORDER BY j.promised_at LIMIT 25 FOR UPDATE OF o, j SKIP LOCKED`
     );
     const unavailable: string[] = [];
+    let presenceChanged = false;
     for (const job of rows) {
       if (job.payment_status !== 'paid' || job.order_status === 'cancelled') {
         await client.query("UPDATE delivery_dispatch_offers SET state = 'withdrawn' WHERE order_id = $1 AND state = 'pending'", [job.order_id]);
@@ -177,10 +178,13 @@ export async function tickDispatch() {
       if (offer && !offer.expired) continue;
       if (offer) {
         await client.query("UPDATE delivery_dispatch_offers SET state = 'expired' WHERE id = $1", [offer.id]);
-        await client.query(
-          `UPDATE driver_dispatch_presence SET ignored_offers = ignored_offers + 1,
-           online = online AND ignored_offers < 2 WHERE user_id = $1`, [offer.user_id]
+        const { rows: [presence] } = await client.query(
+          `WITH previous AS (SELECT online FROM driver_dispatch_presence WHERE user_id = $1 FOR UPDATE)
+           UPDATE driver_dispatch_presence p SET ignored_offers = ignored_offers + 1,
+           online = p.online AND ignored_offers < 2 FROM previous WHERE p.user_id = $1
+           RETURNING previous.online AND NOT p.online AS checked_out`, [offer.user_id]
         );
+        presenceChanged ||= !!presence?.checked_out;
       }
       if (job.search_until.getTime() <= Date.now()) {
         await client.query("UPDATE delivery_dispatch SET state = 'needs_choice', capacity_driver_id = NULL WHERE order_id = $1", [job.order_id]);
@@ -203,9 +207,10 @@ export async function tickDispatch() {
       if (rowCount) await client.query("UPDATE delivery_dispatch SET state = 'offered' WHERE order_id = $1", [job.order_id]);
     }
     await client.query("DELETE FROM delivery_quotes WHERE expires_at < NOW() - INTERVAL '1 hour'");
-    return unavailable;
+    return { unavailable, presenceChanged };
   });
-  notifyOrderEvent('delivery_unavailable', changed);
+  notifyOrderEvent('delivery_unavailable', unavailable);
+  if (presenceChanged) notifyAdminDriverPresence();
   const { rows } = await query(
     `SELECT f.id, f.order_id, f.user_id, f.expires_at FROM delivery_dispatch_offers f
      JOIN delivery_dispatch_settings s ON s.id = true AND s.offer_delivery_mode = 'push'

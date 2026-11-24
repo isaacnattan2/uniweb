@@ -4,6 +4,7 @@ import { getAdminDrivers, setAdminBlock, setDriverDeliveryRateLock } from '../se
 import type { AdminDriver } from '../services/api';
 import { AdminDeliveryRates } from './AdminDeliveryRates';
 import { AdminDeliveryDispatch } from './AdminDeliveryDispatch';
+import { driverPresenceEvent } from './StorePush';
 
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const statusLabels = { active: 'Ativo', inactive: 'Inativo', suspended: 'Bloqueado' };
@@ -21,14 +22,34 @@ export function AdminDrivers() {
   const [savingId, setSavingId] = useState<string>();
   const [lockingId, setLockingId] = useState<string>();
   const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
   const { confirmAction, showToast } = useFeedback();
 
   useEffect(() => {
-    const controller = new AbortController();
-    void getAdminDrivers(controller.signal).then(setDrivers).catch(() => {
-      if (!controller.signal.aborted) setError('Não foi possível carregar os entregadores.');
-    });
-    return () => controller.abort();
+    let request: AbortController | undefined;
+    function refresh() {
+      request?.abort();
+      const controller = new AbortController();
+      request = controller;
+      void getAdminDrivers(controller.signal).then((rows) => {
+        if (controller.signal.aborted) return;
+        setDrivers(rows);
+        setLoadError('');
+      }).catch(() => {
+        if (!controller.signal.aborted) setLoadError('Não foi possível atualizar a lista de entregadores.');
+      });
+    }
+    function onVisible() {
+      if (document.visibilityState === 'visible') refresh();
+    }
+    refresh();
+    window.addEventListener(driverPresenceEvent, refresh);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      request?.abort();
+      window.removeEventListener(driverPresenceEvent, refresh);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, []);
 
   async function changeAccess(driver: AdminDriver) {
@@ -44,8 +65,9 @@ export function AdminDrivers() {
     try {
       await setAdminBlock('drivers', driver.id, blocked);
       setDrivers((current) => current?.map((item) =>
-        item.id === driver.id ? { ...item, status: blocked ? 'suspended' : 'active' } : item
+        item.id === driver.id ? { ...item, status: blocked ? 'suspended' : 'active', checked_in: blocked ? false : item.checked_in } : item
       ));
+      window.dispatchEvent(new Event(driverPresenceEvent));
       showToast(blocked ? 'Acesso do entregador bloqueado.' : 'Acesso do entregador restabelecido.');
     } catch {
       setError('Não foi possível alterar o acesso do entregador.');
@@ -73,10 +95,12 @@ export function AdminDrivers() {
   return (
     <section aria-labelledby="drivers-heading">
       <h2 id="drivers-heading">Entregadores</h2>
+      {drivers && <p role="status">{drivers.filter((driver) => driver.checked_in).length} com check-in ativo</p>}
+      {loadError && <p className="error-message" role="alert">{loadError}</p>}
       <AdminDeliveryRates />
       <AdminDeliveryDispatch />
       {error && <p className="error-message" role="alert">{error}</p>}
-      {!drivers && !error && <p role="status">Carregando entregadores…</p>}
+      {!drivers && !loadError && <p role="status">Carregando entregadores…</p>}
       {drivers?.length === 0 && <p>Nenhum entregador cadastrado.</p>}
       {!!drivers?.length && (
         <div className="business-grid card-grid card-grid-5">
@@ -96,6 +120,9 @@ export function AdminDrivers() {
                 ) : <p>Veículo não cadastrado</p>}
               </div>
               <div className="card-row-4">
+                <p className={driver.checked_in ? 'admin-driver-checked-in' : undefined}>
+                  {driver.checked_in ? 'Check-in ativo' : 'Sem check-in'}
+                </p>
                 <p>Acesso {statusLabels[driver.status].toLowerCase()}</p>
                 {driver.delivery_rate_locked != null && (
                   <p>{driver.delivery_rate_locked ? 'Taxa individual bloqueada' :

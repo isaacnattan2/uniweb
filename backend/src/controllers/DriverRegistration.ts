@@ -1,4 +1,4 @@
-﻿import bcrypt from 'bcryptjs';
+import bcrypt from 'bcryptjs';
 import { Response } from 'express';
 import { v4 as uuid } from 'uuid';
 import { query } from '../config/database';
@@ -82,6 +82,18 @@ export async function registerDriver(req: AuthRequest, res: Response) {
   }
 }
 
+function driverAppDownloadUrl() {
+  const configuredUrl = process.env.DRIVER_APP_DOWNLOAD_URL?.trim();
+  if (!configuredUrl) return;
+
+  try {
+    const url = new URL(configuredUrl);
+    if (url.protocol === 'https:' && !url.username && !url.password) return url.href;
+  } catch {
+    return;
+  }
+}
+
 export async function getDriverRegistration(req: AuthRequest, res: Response) {
   if (req.userType !== 'driver' || !req.userId) return res.sendStatus(403);
   res.set('Cache-Control', 'no-store');
@@ -91,7 +103,7 @@ export async function getDriverRegistration(req: AuthRequest, res: Response) {
     [req.userId]
   );
   if (!result.rows.length) return res.status(404).json({ error: 'Cadastro de entregador não encontrado.' });
-  return res.json(result.rows[0]);
+  return res.json({ ...result.rows[0], app_download_url: driverAppDownloadUrl() });
 }
 
 export async function updateDriverRegistration(req: AuthRequest, res: Response) {

@@ -6,6 +6,7 @@ import AuthService from '../services/AuthService';
 import { updateDriverAppTheme } from '../controllers/DriverAppTheme';
 import { dispatchSettings, listDispatchIncidents, resolveDispatchIncident } from '../controllers/DeliveryDispatch';
 import { readDeliveryRatePolicy, updateDeliveryRatePolicy } from '../controllers/DriverDeliveryRates';
+import { notifyAdminDriverPresence } from '../services/OrderPush';
 
 const router = Router();
 router.use(authMiddleware, requireAdmin);
@@ -25,9 +26,11 @@ router.get('/drivers', async (_req, res, next) => {
     const { rows } = await query(
       `SELECT u.id, u.full_name, u.email, u.phone, u.status, d.vehicle_type,
               d.vehicle_manufacturer, d.vehicle_brand, d.vehicle_color, d.vehicle_plate,
-              d.delivery_rate_cents, d.delivery_rate_locked
+              d.delivery_rate_cents, d.delivery_rate_locked,
+              (u.status = 'active' AND d.user_id IS NOT NULL AND COALESCE(p.online, false)) AS checked_in
        FROM users u
        LEFT JOIN drivers d ON d.user_id = u.id AND d.deleted_at IS NULL
+       LEFT JOIN driver_dispatch_presence p ON p.user_id = u.id
        WHERE u.user_type = 'driver' AND u.status <> 'deleted'
        ORDER BY u.full_name, u.id`
     );
@@ -73,6 +76,7 @@ router.put('/drivers/:id/status', async (req, res, next) => {
       [id, blocked ? 'suspended' : 'active']
     );
     if (!rows.length) return res.status(404).json({ error: 'Entregador indisponível para alteração de acesso.' });
+    notifyAdminDriverPresence();
     res.json(rows[0]);
   } catch (error) {
     next(error);

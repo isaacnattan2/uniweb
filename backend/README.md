@@ -79,3 +79,7 @@ O checkout hospedado aceita Pix e cartão em até 3 parcelas sem juros. Um carri
 Envie `Authorization: Bearer <token do entregador>` com o JWT do login Uniweb. A consulta lista pedidos pagos para entrega local, com entrega pendente e sem entregador atribuído, do mais antigo ao mais recente. `limit` aceita de 1 a 50 registros.
 
 O retorno contém `items` e `nextOffset` (nulo na última página). Cada item contém `orderId`, `orderNumber`, `createdAt`, `pickup` com os dados da loja, `destinationArea` com cidade/UF quando disponível, e `deliveryFee` com a taxa de entrega registrada, como decimal em reais ou `null` quando ainda não definida. O endereço completo do cliente fica fora da listagem.
+
+## Download do UniEntregador
+
+No serviço do backend no Render, defina `DRIVER_APP_DOWNLOAD_URL` com a URL HTTPS do APK. A área `/driver` do Uniweb usa essa URL depois do login. Para trocar o arquivo, atualize a variável no backend. Se ela estiver vazia ou inválida, a área do entregador mostra que o download está indisponível.

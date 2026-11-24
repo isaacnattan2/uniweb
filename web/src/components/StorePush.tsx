@@ -35,6 +35,7 @@ type PushSDK = {
 };
 
 const appId = import.meta.env.VITE_ONESIGNAL_APP_ID;
+export const driverPresenceEvent = 'uniweb:driver-presence';
 const preferenceKey = 'uniweb:push-preference-seen';
 let sdk: Promise<PushSDK> | undefined;
 let sessionUpdate = Promise.resolve();
@@ -127,10 +128,17 @@ export function StorePush() {
     if (!ready || !subscribedRole) return;
     const onOrder: ForegroundListener = (event) => {
       const { notificationId: id, launchURL, title, body } = event.notification;
-      if (!ready.User.PushSubscription.optedIn || document.visibilityState !== 'visible' || !document.hasFocus() || !launchURL ||
+      if (!ready.User.PushSubscription.optedIn || document.visibilityState !== 'visible' || !launchURL ||
           useAuthStore.getState().token !== token) return;
       const url = URL.parse(launchURL, window.location.origin);
       if (!url || url.origin !== window.location.origin) return;
+      if (userType === 'admin' && url.pathname === '/admin/entregadores' && url.searchParams.get('presence') === 'updated' &&
+          window.location.pathname.replace(/\/$/, '') === '/admin/entregadores') {
+        event.preventDefault();
+        window.dispatchEvent(new Event(driverPresenceEvent));
+        return;
+      }
+      if (!document.hasFocus()) return;
       const path = url.pathname + url.search;
       const orderPath = userType === 'business' ? /^\/business\/[\da-f-]{36}\?order=[\da-f-]{36}$/i : /^\/order\/[\da-f-]{36}$/i;
       if (!orderPath.test(path)) return;

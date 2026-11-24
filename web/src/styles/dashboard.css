@@ -114,6 +114,11 @@
   overflow-wrap: anywhere;
 }
 
+.admin-driver-card .admin-driver-checked-in {
+  color: #166534;
+  font-weight: 700;
+}
+
 .admin-driver-actions {
   display: flex;
   flex-wrap: wrap;
