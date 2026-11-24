@@ -1,4 +1,5 @@
-﻿import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useFeedback } from './Feedback';
 import axios from 'axios';
 import { deleteAdminAd, getAdminAds, saveAdminAd, uploadImages } from '../services/api';
 import type { AdminAd, AdminBusiness } from '../services/api';
@@ -15,7 +16,7 @@ export function AdminAds({ businesses }: { businesses: AdminBusiness[] }) {
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const { confirmAction, showToast } = useFeedback();
 
   useEffect(() => {
     let active = true;
@@ -44,11 +45,10 @@ export function AdminAds({ businesses }: { businesses: AdminBusiness[] }) {
   async function act(action: () => Promise<void>, success: string) {
     if (busy) return;
     setBusy(true);
-    setNotice('');
     setError('');
     try {
       await action();
-      setNotice(success);
+      showToast(success);
     } catch (err) {
       setError(axios.isAxiosError(err) ? err.response?.data?.error || 'Não foi possível salvar a alteração.' : 'Não foi possível salvar a alteração.');
     } finally {
@@ -88,7 +88,6 @@ export function AdminAds({ businesses }: { businesses: AdminBusiness[] }) {
     setEditing(ad.id);
     setForm({ businessId: ad.business_id, title: ad.title, position: ad.position, published: ad.published, imageUrl: ad.image_url });
     setFile(undefined);
-    setNotice('');
     setError('');
     document.getElementById('ad-title')?.focus();
   }
@@ -141,7 +140,6 @@ export function AdminAds({ businesses }: { businesses: AdminBusiness[] }) {
         </fieldset>
       </form>
       {error && <p role="alert" className="error-message">{error}</p>}
-      {notice && <p role="status">{notice}</p>}
       <h3>Prévia do carrossel</h3>
       <p>A prévia inclui rascunhos. A vitrine exibe as publicidades publicadas de lojas ativas.</p>
       {previewAds.length ? <ShopCarousel key={draftImage ? draftImage : 'saved'} ads={previewAds} preview initialId={draftImage ? editing || 'draft' : undefined} />
@@ -152,8 +150,8 @@ export function AdminAds({ businesses }: { businesses: AdminBusiness[] }) {
             <span><strong>{ad.title}</strong> · {businesses.find((b) => b.id === ad.business_id)?.name || 'Loja'} · {ad.published ? 'Publicada' : 'Rascunho'} · Ordem {ad.position}</span>
             <div className="admin-category-actions">
               <button className="btn-secondary" type="button" disabled={busy} onClick={() => edit(ad)}>Editar</button>
-              <button className="btn-secondary" type="button" disabled={busy} onClick={() => {
-                if (!window.confirm('Excluir a publicidade “' + ad.title + '”?')) return;
+              <button className="btn-secondary" type="button" disabled={busy} onClick={async () => {
+                if (!(await confirmAction({ title: 'Excluir publicidade?', message: ad.title, confirmLabel: 'Excluir publicidade' }))) return;
                 void act(async () => {
                   await deleteAdminAd(ad.id);
                   setAds((rows) => rows.filter((row) => row.id !== ad.id));

@@ -87,13 +87,8 @@
   overflow-wrap: anywhere;
 }
 
-.account-default,
-.account-notice {
+.account-default {
   color: #176843;
-}
-
-.account-notice {
-  margin-bottom: 1rem;
 }
 
 .account-address-form {

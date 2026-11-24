@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useFeedback } from './Feedback';
 import axios from 'axios';
 import { useSearchParams } from 'react-router-dom';
 import { formatOrderCode, getStoreOrders, updateStoreOrder } from '../services/api';
@@ -20,7 +21,7 @@ export function StoreOrders({ businessId }: { businessId: string }) {
   const [updating, setUpdating] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [actionError, setActionError] = useState('');
-  const [notice, setNotice] = useState('');
+  const { confirmAction, showToast } = useFeedback();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -43,16 +44,18 @@ export function StoreOrders({ businessId }: { businessId: string }) {
   }, [orderId, loading, loadError, page]);
 
   async function changeOrder(order: StoreOrder, action: StoreOrderAction) {
-    if (action === 'cancel' && !window.confirm(order.payment_status === 'paid'
-      ? order.dispatch_state ? 'Cancelar o pedido e solicitar o estorno?' :
-        'Cancelar este pedido? O pagamento já foi recebido e o cancelamento não emite estorno automático.'
-      : 'Cancelar este pedido?')) return;
+    if (action === 'cancel' && !(await confirmAction({
+      title: 'Cancelar pedido?',
+      message: order.payment_status === 'paid'
+        ? order.dispatch_state ? 'O estorno será solicitado.' : 'O pagamento já foi recebido. O cancelamento não emite estorno automático.'
+        : undefined,
+      confirmLabel: 'Cancelar pedido', dismissLabel: 'Manter pedido',
+    }))) return;
     setActionError('');
-    setNotice('');
     setUpdating(true);
     try {
       await updateStoreOrder(businessId, order.id, action);
-      setNotice(action === 'requeue' ? 'Pedido confirmado e disponível para entrega.' : 'Pedido cancelado.');
+      showToast(action === 'requeue' ? 'Pedido confirmado e disponível para entrega.' : 'Pedido cancelado.');
     } catch (error) {
       setActionError(axios.isAxiosError(error) && typeof error.response?.data?.error === 'string'
         ? error.response.data.error : 'Não foi possível atualizar o pedido.');
@@ -71,7 +74,6 @@ export function StoreOrders({ businessId }: { businessId: string }) {
         <button className="btn-secondary" type="button" disabled={busy}
           onClick={() => setRevision((previous) => previous + 1)}>Atualizar pedidos</button>
       </div>
-      {notice && <p role="status">{notice}</p>}
       {actionError && <p role="alert">{actionError}</p>}
       {loadError && <p role="alert">{loadError}</p>}
       {orderId && <button type="button" className="btn-secondary" onClick={() => {

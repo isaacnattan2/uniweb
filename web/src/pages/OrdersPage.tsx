@@ -6,6 +6,7 @@ import { useCartStore } from '../context/store';
 import { OrderStatus } from '../components/OrderStatus';
 import { LiveDelivery } from '../components/LiveDelivery';
 import { DeliveryAlternatives } from '../components/DeliveryAlternatives';
+import { useFeedback } from '../components/Feedback';
 import '../styles/orders.css';
 
 const paymentLabels: Record<string, string> = { pix: 'Pix', credit_card: 'Cartão de crédito', debit_card: 'Cartão de débito', wallet: 'Carteira' };
@@ -27,6 +28,7 @@ const refundLabels: Record<string, string> = {
 };
 
 export function OrdersPage() {
+  const { confirmAction, showToast } = useFeedback();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const checkoutResult = searchParams.get('checkout');
@@ -78,14 +80,18 @@ export function OrdersPage() {
   }, [orderId, revision]);
 
   async function cancelOrder(order: { id: string; payment_status: string; dispatch_state?: string }) {
-    const message = order.payment_status === 'paid'
-      ? order.dispatch_state ? 'Cancelar o pedido e solicitar o estorno?' : 'Cancelar este pedido? O cancelamento não emite estorno automático.'
-      : 'Cancelar este pedido?';
-    if (cancellingId || !window.confirm(message)) return;
+    if (cancellingId || !(await confirmAction({
+      title: 'Cancelar pedido?',
+      message: order.payment_status === 'paid'
+        ? order.dispatch_state ? 'O estorno será solicitado.' : 'O cancelamento não emite estorno automático.'
+        : undefined,
+      confirmLabel: 'Cancelar pedido', dismissLabel: 'Manter pedido',
+    }))) return;
     setCancellationError('');
     setCancellingId(order.id);
     try {
       await cancelMyOrder(order.id);
+      showToast('Pedido cancelado.');
       setTrackingOrder((current) => current === order.id ? null : current);
       setRevision((current) => current + 1);
     } catch (err) {

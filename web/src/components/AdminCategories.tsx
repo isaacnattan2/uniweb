@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   createMarketplaceCategory, deleteMarketplaceCategory, getMarketplaceCategories, renameMarketplaceCategory,
 } from '../services/api';
@@ -11,7 +11,7 @@ export function AdminCategories() {
   const [label, setLabel] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState('');
+  const { confirmAction, showToast } = useFeedback();
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -29,7 +29,6 @@ export function AdminCategories() {
   function resetForm() {
     setEditing(null);
     setLabel('');
-    setMessage('');
     setError('');
   }
 
@@ -37,7 +36,6 @@ export function AdminCategories() {
     event.preventDefault();
     if (saving || !label.trim()) return;
     setSaving(true);
-    setMessage('');
     setError('');
     try {
       const category = editing
@@ -45,7 +43,7 @@ export function AdminCategories() {
         : await createMarketplaceCategory(kind, label.trim());
       setCategories((list) => [...list.filter((item) => item.kind !== category.kind || item.value !== category.value), category]);
       resetForm();
-      setMessage(editing ? 'Categoria atualizada.' : 'Categoria cadastrada.');
+      showToast(editing ? 'Categoria atualizada.' : 'Categoria cadastrada.');
     } catch (err: any) {
       setError(err.response?.data?.error || 'Não foi possível salvar a categoria.');
     } finally {
@@ -54,15 +52,14 @@ export function AdminCategories() {
   }
 
   async function remove(category: MarketplaceCategory) {
-    if (saving || !window.confirm('Excluir a categoria “' + category.label + '”?')) return;
+    if (saving || !(await confirmAction({ title: 'Excluir categoria?', message: category.label, confirmLabel: 'Excluir categoria' }))) return;
     setSaving(true);
-    setMessage('');
     setError('');
     try {
       await deleteMarketplaceCategory(category);
       setCategories((list) => list.filter((item) => item.kind !== category.kind || item.value !== category.value));
       if (editing?.value === category.value) resetForm();
-      setMessage('Categoria excluída.');
+      showToast('Categoria excluída.');
     } catch (err: any) {
       setError(err.response?.data?.error || 'Não foi possível excluir a categoria.');
     } finally {
@@ -100,7 +97,6 @@ export function AdminCategories() {
         </div>
       </form>
       {error && <p role="alert" className="error-message">{error}</p>}
-      {message && <p role="status">{message}</p>}
       {loading && <p role="status">Carregando categorias…</p>}
       {!loading && !visible.length && !error && <p>Nenhuma categoria cadastrada.</p>}
       {!!visible.length && (
@@ -126,3 +122,4 @@ export function AdminCategories() {
     </section>
   );
 }
+import { useFeedback } from './Feedback';

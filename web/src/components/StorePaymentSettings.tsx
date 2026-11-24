@@ -1,4 +1,5 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
+import { useFeedback } from './Feedback';
 import axios from 'axios';
 import { DEFAULT_CARD_INSTALLMENTS, MAX_CARD_INSTALLMENTS } from '../context/store';
 import type { Business, StorePaymentMethod } from '../context/store';
@@ -41,7 +42,7 @@ export function StorePaymentSettings({ business, onSave }: { business: Business;
   const [saleAmount, setSaleAmount] = useState('100');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const { showToast } = useFeedback();
   const grossCents = Math.round(Number(saleAmount) * 100);
   const validAmount = saleAmount !== '' && Number.isSafeInteger(grossCents) && grossCents >= 1 && grossCents <= 100000000;
   const changed = methods.length !== saved.length || methods.some((method) => !saved.includes(method)) || maxCardInstallments !== savedLimit;
@@ -49,7 +50,6 @@ export function StorePaymentSettings({ business, onSave }: { business: Business;
   function toggle(method: StorePaymentMethod) {
     setMethods((current) => current.includes(method) ? current.filter((value) => value !== method) : [...current, method]);
     setError('');
-    setNotice('');
   }
 
   async function save(event: React.FormEvent<HTMLFormElement>) {
@@ -57,10 +57,9 @@ export function StorePaymentSettings({ business, onSave }: { business: Business;
     if (saving || !methods.length || !changed) return;
     setSaving(true);
     setError('');
-    setNotice('');
     try {
       onSave(await updateBusiness(business.id, { payment_methods: methods, max_card_installments: maxCardInstallments }));
-      setNotice('Formas de pagamento atualizadas.');
+      showToast('Formas de pagamento atualizadas.');
     } catch (err: unknown) {
       setError(axios.isAxiosError(err) && typeof err.response?.data?.error === 'string'
         ? err.response.data.error : 'Não foi possível salvar as formas de pagamento.');
@@ -92,7 +91,6 @@ export function StorePaymentSettings({ business, onSave }: { business: Business;
                     disabled={saving || !methods.includes('credit_card')} onChange={(event) => {
                       setMaxCardInstallments(Number(event.target.value));
                       setError('');
-                      setNotice('');
                     }}>
                     {Array.from({ length: MAX_CARD_INSTALLMENTS }, (_, index) => (
                       <option key={index + 1} value={index + 1}>{index === 0 ? 'Somente à vista (1×)' : 'Até ' + (index + 1) + '×'}</option>
@@ -127,7 +125,6 @@ export function StorePaymentSettings({ business, onSave }: { business: Business;
         <p><a href="https://www.asaas.com/precos-e-taxas" target="_blank" rel="noreferrer">Consultar preços e taxas do Asaas</a></p>
         {!methods.length && <p role="alert">Mantenha pelo menos uma forma de pagamento ativa.</p>}
         {error && <p className="error-message" role="alert">{error}</p>}
-        {notice && <p className="business-notice" role="status">{notice}</p>}
         <button type="submit" className="btn-primary" disabled={saving || !methods.length || !changed}>
           {saving ? 'Salvando…' : 'Salvar formas de pagamento'}
         </button>

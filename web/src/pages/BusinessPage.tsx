@@ -1,4 +1,5 @@
 import { CategoryOptions } from '../components/CategoryOptions';
+import { useFeedback } from '../components/Feedback';
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { CheckoutAddress, emptyDeliveryAddress, isDeliveryAddressComplete } from '../components/CheckoutAddress';
@@ -34,7 +35,7 @@ export function BusinessPage() {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState('');
-  const [notice, setNotice] = useState('');
+  const { showToast } = useFeedback();
   const [form, setForm] = useState({ name: '', category: '', description: '' });
   const [address, setAddress] = useState(emptyDeliveryAddress);
   const [previousAddress, setPreviousAddress] = useState('');
@@ -74,7 +75,6 @@ export function BusinessPage() {
     setAddress(parsedAddress ?? emptyDeliveryAddress);
     setPreviousAddress(parsedAddress ? '' : savedAddress);
     setEditError('');
-    setNotice('');
     setEditing(true);
   }
 
@@ -114,7 +114,7 @@ export function BusinessPage() {
       const business = await updateBusiness(businessId, { ...form, address: storeAddress || null });
       setCurrentBusiness(business);
       setEditing(false);
-      setNotice('Dados da loja atualizados com sucesso.');
+      showToast('Dados da loja atualizados com sucesso.');
     } catch (err: unknown) {
       console.error('Erro ao atualizar loja:', err);
       const message = axios.isAxiosError(err) && typeof err.response?.data?.error === 'string'
@@ -157,7 +157,6 @@ export function BusinessPage() {
             <h2>Informações da Loja</h2>
             {!editing && <button type="button" className="btn-secondary" onClick={startEditing}>Editar dados</button>}
           </div>
-          {notice && <p className="business-notice" role="status">{notice}</p>}
           {editing ? (
             <form className="business-edit-form" onSubmit={handleSave}>
               {editError && <div className="error-message" role="alert">{editError}</div>}

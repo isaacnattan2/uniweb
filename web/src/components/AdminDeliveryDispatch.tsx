@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useFeedback } from './Feedback';
 import { formatOrderCode, getDispatchIncidents, getDispatchSettings, resolveDispatchIncident, saveDispatchSettings } from '../services/api';
 import type { DispatchIncident } from '../services/api';
 
@@ -18,7 +19,7 @@ export function AdminDeliveryDispatch() {
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const { showToast } = useFeedback();
 
   useEffect(() => {
     let active = true;
@@ -36,10 +37,9 @@ export function AdminDeliveryDispatch() {
     if (saving) return;
     setSaving(true);
     setError('');
-    setNotice('');
     try {
       await operation();
-      setNotice(message);
+      showToast(message);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Não foi possível concluir a operação.');
     } finally { setSaving(false); }
@@ -49,7 +49,6 @@ export function AdminDeliveryDispatch() {
     <div className="form-box admin-delivery-rate-form">
       <h3>Alocação e ocorrências de entrega</h3>
       {error && <p className="error-message" role="alert">{error}</p>}
-      {notice && <p role="status">{notice}</p>}
       {!settings && !error && <p role="status">Carregando configuração…</p>}
       {settings && <form onSubmit={(event) => void apply(event, () =>
         saveDispatchSettings(Math.round(Number(settings.radius) * 1000), Math.round(Number(settings.subsidy) * 100), settings.offerMode),

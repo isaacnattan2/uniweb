@@ -1,4 +1,5 @@
-﻿import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { useFeedback } from '../components/Feedback';
 import axios from 'axios';
 import { useAuthStore } from '../context/store';
 import { CheckoutAddress, emptyDeliveryAddress, isDeliveryAddressComplete } from '../components/CheckoutAddress';
@@ -29,7 +30,7 @@ function CustomerAccount() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const { showToast } = useFeedback();
   const changingEmail = profile && form.email.trim().toLowerCase() !== profile.email.toLowerCase();
 
   useEffect(() => {
@@ -54,10 +55,9 @@ function CustomerAccount() {
     if (saving) return;
     setSaving(true);
     setError('');
-    setNotice('');
     try {
       await run();
-      setNotice(success);
+      showToast(success);
     } catch (err) {
       setError(axios.isAxiosError(err) && typeof err.response?.data?.error === 'string'
         ? err.response.data.error : 'Não foi possível salvar a alteração.');
@@ -70,7 +70,6 @@ function CustomerAccount() {
     event.preventDefault();
     if (!photo) return;
     if (photo.size > 5 * 1024 * 1024 || !['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(photo.type)) {
-      setNotice('');
       setError('Escolha uma imagem JPEG, PNG, WebP ou GIF de até 5 MB.');
       return;
     }
@@ -95,14 +94,12 @@ function CustomerAccount() {
     setAddress(entry?.address ?? emptyDeliveryAddress);
     setEditor(entry?.id ?? 'new');
     setError('');
-    setNotice('');
   }
 
   function updateAddress(event: React.FormEvent) {
     event.preventDefault();
     if (!editor || saving) return;
     if (!isDeliveryAddressComplete(address)) {
-      setNotice('');
       setError('Informe CEP, logradouro, número, cidade e UF.');
       return;
     }
@@ -120,7 +117,6 @@ function CustomerAccount() {
         <h1>Minha conta</h1>
         {loading && <p role="status">Carregando sua conta…</p>}
         {error && <p className="error-message" role="alert">{error}</p>}
-        {notice && <p className="account-notice" role="status">{notice}</p>}
         {profile && (
           <div className="account-grid">
             <section className="form-box" aria-labelledby="profile-heading">

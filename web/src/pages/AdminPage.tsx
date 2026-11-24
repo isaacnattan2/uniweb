@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useFeedback } from '../components/Feedback';
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { AdminBusiness, Seller, createSeller, getAdminBusinesses, getSellers, setAdminBlock, transferBusiness, updateSeller } from '../services/api';
 import { AdminAds } from '../components/AdminAds';
@@ -60,7 +61,7 @@ function AdminManagementSection({ section }: { section: Exclude<AdminSectionPath
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const { confirmAction, showToast } = useFeedback();
 
   async function loadData() {
     const [businessData, sellerData] = await Promise.all([
@@ -84,11 +85,10 @@ function AdminManagementSection({ section }: { section: Exclude<AdminSectionPath
     event.preventDefault();
     setSaving(true);
     setError('');
-    setNotice('');
     try {
       await createSeller(form.fullName, form.email, form.password);
       setForm({ fullName: '', email: '', password: '' });
-      setNotice('Lojista cadastrado. Compartilhe a senha inicial com segurança.');
+      showToast('Lojista cadastrado. Compartilhe a senha inicial com segurança.');
     } catch (err: any) {
       console.error('Erro ao cadastrar lojista:', err);
       setError(err.response?.data?.error || 'Não foi possível cadastrar o lojista.');
@@ -100,10 +100,9 @@ function AdminManagementSection({ section }: { section: Exclude<AdminSectionPath
   async function handleTransfer(businessId: string) {
     setSaving(true);
     setError('');
-    setNotice('');
     try {
       await transferBusiness(businessId, owners[businessId]);
-      setNotice('Loja transferida com sucesso.');
+      showToast('Loja transferida com sucesso.');
       await loadData();
     } catch (err: any) {
       console.error('Erro ao transferir loja:', err);
@@ -116,11 +115,10 @@ function AdminManagementSection({ section }: { section: Exclude<AdminSectionPath
   async function changeAdminData(action: () => Promise<unknown>, successMessage: string) {
     setSaving(true);
     setError('');
-    setNotice('');
     try {
       await action();
       await loadData();
-      setNotice(successMessage);
+      showToast(successMessage);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Não foi possível concluir a alteração.');
     } finally {
@@ -128,11 +126,11 @@ function AdminManagementSection({ section }: { section: Exclude<AdminSectionPath
     }
   }
 
-  function handleBlock(resource: 'sellers' | 'businesses', id: string, name: string, blocked: boolean) {
+  async function handleBlock(resource: 'sellers' | 'businesses', id: string, name: string, blocked: boolean) {
     const message = resource === 'sellers'
-      ? 'Bloquear ' + name + '? O lojista perderá o acesso e todas as suas lojas sairão do catálogo.'
-      : 'Bloquear ' + name + '? A loja sairá do catálogo e deixará de aceitar novos pedidos.';
-    if (blocked && !window.confirm(message)) return;
+      ? 'O lojista perderá o acesso e todas as suas lojas sairão do catálogo.'
+      : 'A loja sairá do catálogo e deixará de aceitar novos pedidos.';
+    if (blocked && !(await confirmAction({ title: `Bloquear ${name}?`, message, confirmLabel: 'Bloquear' }))) return;
     void changeAdminData(
       () => setAdminBlock(resource, id, blocked),
       blocked ? 'Bloqueio aplicado.' : 'Bloqueio removido.'
@@ -142,7 +140,6 @@ function AdminManagementSection({ section }: { section: Exclude<AdminSectionPath
   return (
     <>
         {error && <p className="error-message" role="alert">{error}</p>}
-        {notice && <p role="status">{notice}</p>}
         {section === 'cadastrar-lojista' && (
           <section className="form-box">
             <h2>Cadastrar lojista</h2>

@@ -1,0 +1,68 @@
+.feedback-dialog {
+  width: min(30rem, calc(100% - 2rem));
+  max-height: calc(100% - 2rem);
+  margin: auto;
+  padding: clamp(1rem, 4vw, 1.5rem);
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 12px 40px #11182729;
+  color: #1f2937;
+  overflow-wrap: anywhere;
+}
+
+.feedback-dialog::backdrop { background: #11182785; }
+.feedback-dialog h2 { font-size: 1.25rem; line-height: 1.35; }
+.feedback-dialog p { margin-top: 0.75rem; color: #4b5563; line-height: 1.5; }
+
+.feedback-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1.25rem;
+}
+
+.feedback-actions button { min-height: 44px; }
+.feedback-danger { background: #b91c1c; }
+.feedback-danger:hover:not(:disabled) { background: #991b1b; box-shadow: none; transform: none; }
+
+.feedback-toasts {
+  position: fixed;
+  z-index: 11000;
+  right: 1rem;
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  display: grid;
+  width: min(24rem, calc(100% - 2rem));
+  gap: 0.5rem;
+  pointer-events: none;
+}
+
+.feedback-toast {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.6rem 0.6rem 0.6rem 1rem;
+  border: 1px solid #d1d5db;
+  border-inline-start: 4px solid #15803d;
+  border-radius: 10px;
+  background: #fff;
+  color: #1f2937;
+  box-shadow: 0 4px 18px #11182726;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  pointer-events: auto;
+}
+
+.feedback-toast-close {
+  flex-shrink: 0;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0.25rem;
+  background: transparent;
+  color: #4b5563;
+  font-size: 1.25rem;
+}
+
+.feedback-toast-close:hover { background: #f3f4f6; }

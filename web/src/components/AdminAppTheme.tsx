@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useFeedback } from './Feedback';
 import { getDriverAppTheme, updateDriverAppTheme } from '../services/api';
 import type { DriverAppTheme } from '../services/api';
 
@@ -8,7 +9,7 @@ export function AdminAppTheme() {
   const [theme, setTheme] = useState<DriverAppTheme>();
   const [pending, setPending] = useState<'save' | 'reset'>();
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const { showToast } = useFeedback();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -22,11 +23,10 @@ export function AdminAppTheme() {
     if (!theme || pending) return;
     const resetting = action === 'reset';
     setPending(action);
-    setNotice('');
     setError('');
     try {
       setTheme(await updateDriverAppTheme(resetting ? defaultTheme : theme));
-      setNotice(resetting ? 'Cores padrão do UniEntregador restauradas.' : 'Cores do UniEntregador atualizadas.');
+      showToast(resetting ? 'Cores padrão do UniEntregador restauradas.' : 'Cores do UniEntregador atualizadas.');
     } catch {
       setError(resetting ? 'Não foi possível restaurar as cores padrão do app.' : 'Não foi possível salvar as cores do app.');
     } finally {
@@ -38,7 +38,6 @@ export function AdminAppTheme() {
     <section className="form-box admin-app-theme" aria-labelledby="driver-app-theme-title">
       <h2 id="driver-app-theme-title">Cores do UniEntregador</h2>
       {error && <p role="alert">{error}</p>}
-      {notice && <p role="status">{notice}</p>}
       {!theme && !error && <p role="status">Carregando cores…</p>}
       {theme && <form onSubmit={(event) => {
         event.preventDefault();
@@ -51,7 +50,6 @@ export function AdminAppTheme() {
               <div className="app-theme-swatch">
                 <input id={`driver-app-${key}`} type="color" value={theme[key]} disabled={!!pending}
                   onChange={(event) => {
-                    setNotice('');
                     setTheme({ ...theme, [key]: event.target.value });
                   }} />
                 <output htmlFor={`driver-app-${key}`}>{theme[key].toUpperCase()}</output>

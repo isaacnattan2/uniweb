@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { deleteStoreCoupon, getStoreCoupons, saveStoreCoupon } from '../services/api';
 import type { StoreCoupon, StoreCouponInput } from '../services/api';
@@ -17,7 +17,7 @@ export function StoreCoupons({ businessId, products }: { businessId: string; pro
   const [form, setForm] = useState(emptyForm);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [notice, setNotice] = useState('');
+  const { confirmAction, showToast } = useFeedback();
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -40,10 +40,9 @@ export function StoreCoupons({ businessId, products }: { businessId: string; pro
   async function update(action: () => Promise<void>, success: string) {
     setBusy(true);
     setError('');
-    setNotice('');
     try {
       await action();
-      setNotice(success);
+      showToast(success);
     } catch (err) {
       setError(axios.isAxiosError(err) ? err.response?.data?.error || 'Não foi possível atualizar os cupons.' : 'Não foi possível atualizar os cupons.');
     } finally {
@@ -73,12 +72,11 @@ export function StoreCoupons({ businessId, products }: { businessId: string; pro
       scope: coupon.scope, category: coupon.category || '', productIds: coupon.product_ids, active: coupon.active,
     });
     setError('');
-    setNotice('');
     document.getElementById('store-coupon-code')?.focus();
   }
 
-  function remove(coupon: StoreCoupon) {
-    if (busy || !window.confirm('Excluir o cupom ' + coupon.code + '?')) return;
+  async function remove(coupon: StoreCoupon) {
+    if (busy || !(await confirmAction({ title: 'Excluir cupom?', message: coupon.code, confirmLabel: 'Excluir cupom' }))) return;
     void update(async () => {
       await deleteStoreCoupon(businessId, coupon.id);
       setCoupons((rows) => rows.filter((item) => item.id !== coupon.id));
@@ -153,7 +151,6 @@ export function StoreCoupons({ businessId, products }: { businessId: string; pro
         </fieldset>
       </form>
       {error && <p className="error-message" role="alert">{error}</p>}
-      {notice && <p className="business-notice" role="status">{notice}</p>}
       {loading && <p role="status">Carregando cupons…</p>}
       {!loading && !coupons.length && !error && <p>Nenhum cupom cadastrado.</p>}
       {!!coupons.length && <ul className="store-coupon-list">
@@ -175,3 +172,4 @@ export function StoreCoupons({ businessId, products }: { businessId: string; pro
     </section>
   );
 }
+import { useFeedback } from './Feedback';

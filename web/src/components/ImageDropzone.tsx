@@ -1,5 +1,6 @@
 import React, { useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
+import { useFeedback } from './Feedback';
 import { resolveAssetUrl, uploadImages } from '../services/api';
 import '../styles/dropzone.css';
 
@@ -18,9 +19,9 @@ export function ImageDropzone({
   onUploadingChange,
   maxFiles = 5,
 }: ImageDropzoneProps) {
+  const { showToast } = useFeedback();
   const [uploading, setUploading] = React.useState(false);
   const [uploadError, setUploadError] = React.useState('');
-  const [uploadSuccess, setUploadSuccess] = React.useState('');
 
   React.useEffect(() => {
     if (uploadError) {
@@ -28,13 +29,6 @@ export function ImageDropzone({
       return () => clearTimeout(timer);
     }
   }, [uploadError]);
-
-  React.useEffect(() => {
-    if (uploadSuccess) {
-      const timer = setTimeout(() => setUploadSuccess(''), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [uploadSuccess]);
 
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
@@ -57,7 +51,7 @@ export function ImageDropzone({
         const result = await uploadImages(filesToUpload);
         if (result?.urls && result.urls.length > 0) {
           onImagesAdded(result.urls);
-          setUploadSuccess(`${result.urls.length} imagem(ns) enviada(s) com sucesso!`);
+          showToast(result.urls.length === 1 ? 'Imagem enviada.' : `${result.urls.length} imagens enviadas.`);
           setUploadError('');
         } else {
           setUploadError('Nenhuma imagem foi enviada com sucesso');
@@ -74,7 +68,7 @@ export function ImageDropzone({
         onUploadingChange?.(false);
       }
     },
-    [onImagesAdded, onUploadingChange, existingImages.length, maxFiles]
+    [onImagesAdded, onUploadingChange, existingImages.length, maxFiles, showToast]
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -129,7 +123,6 @@ export function ImageDropzone({
       </div>
 
       {uploadError && <div className="error-message">{uploadError}</div>}
-      {uploadSuccess && <div className="success-message">{uploadSuccess}</div>}
 
       {existingImages.length > 0 && (
         <div className="image-gallery">

@@ -4,6 +4,7 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { Header } from './components/Header';
 import { SessionGate } from './components/SessionGate';
 import { StorePush } from './components/StorePush';
+import { FeedbackProvider } from './components/Feedback';
 import { LoginPage } from './pages/LoginPage';
 import { DriverPage, DriverRegisterPage } from './pages/DriverRegisterPage';
 import { RegisterPage } from './pages/RegisterPage';
@@ -24,6 +25,7 @@ function App() {
   return (
     <SessionGate>
     <Router>
+      <FeedbackProvider>
       <Header />
       <StorePush />
       <Routes>
@@ -106,6 +108,7 @@ function App() {
           }
         />
       </Routes>
+      </FeedbackProvider>
     </Router>
     </SessionGate>
   );

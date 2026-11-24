@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useFeedback } from './Feedback';
 import { getAdminDrivers, setAdminBlock, setDriverDeliveryRateLock } from '../services/api';
 import type { AdminDriver } from '../services/api';
 import { AdminDeliveryRates } from './AdminDeliveryRates';
@@ -20,7 +21,7 @@ export function AdminDrivers() {
   const [savingId, setSavingId] = useState<string>();
   const [lockingId, setLockingId] = useState<string>();
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const { confirmAction, showToast } = useFeedback();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -32,17 +33,20 @@ export function AdminDrivers() {
 
   async function changeAccess(driver: AdminDriver) {
     const blocked = driver.status === 'active';
-    if (blocked && !window.confirm(`Bloquear o acesso de ${driver.full_name}? Durante o bloqueio, o entregador ficará impedido de atualizar as entregas pelo app.`)) return;
+    if (blocked && !(await confirmAction({
+      title: `Bloquear o acesso de ${driver.full_name}?`,
+      message: 'Durante o bloqueio, o entregador ficará impedido de atualizar as entregas pelo app.',
+      confirmLabel: 'Bloquear acesso',
+    }))) return;
 
     setSavingId(driver.id);
     setError('');
-    setNotice('');
     try {
       await setAdminBlock('drivers', driver.id, blocked);
       setDrivers((current) => current?.map((item) =>
         item.id === driver.id ? { ...item, status: blocked ? 'suspended' : 'active' } : item
       ));
-      setNotice(blocked ? 'Acesso do entregador bloqueado.' : 'Acesso do entregador restabelecido.');
+      showToast(blocked ? 'Acesso do entregador bloqueado.' : 'Acesso do entregador restabelecido.');
     } catch {
       setError('Não foi possível alterar o acesso do entregador.');
     } finally {
@@ -53,13 +57,12 @@ export function AdminDrivers() {
   async function changeRateLock(driver: AdminDriver) {
     setLockingId(driver.id);
     setError('');
-    setNotice('');
     try {
       const { locked } = await setDriverDeliveryRateLock(driver.id, !driver.delivery_rate_locked);
       setDrivers((current) => current?.map((item) =>
         item.id === driver.id ? { ...item, delivery_rate_locked: locked } : item
       ));
-      setNotice(locked ? 'Taxa individual bloqueada. A taxa padrão será aplicada.' : 'Bloqueio individual da taxa removido.');
+      showToast(locked ? 'Taxa individual bloqueada. A taxa padrão será aplicada.' : 'Bloqueio individual da taxa removido.');
     } catch {
       setError('Não foi possível alterar o bloqueio da taxa individual.');
     } finally {
@@ -73,7 +76,6 @@ export function AdminDrivers() {
       <AdminDeliveryRates />
       <AdminDeliveryDispatch />
       {error && <p className="error-message" role="alert">{error}</p>}
-      {notice && <p role="status">{notice}</p>}
       {!drivers && !error && <p role="status">Carregando entregadores…</p>}
       {drivers?.length === 0 && <p>Nenhum entregador cadastrado.</p>}
       {!!drivers?.length && (

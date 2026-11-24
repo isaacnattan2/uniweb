@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../context/store';
 import { getMarketplaceComments, getMyMarketplaceReview, rateMarketplaceItem } from '../services/api';
@@ -27,7 +27,7 @@ export function RatingControl({ kind, id, onRated }: {
   const [commentsError, setCommentsError] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState('');
+  const { showToast } = useFeedback();
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -62,14 +62,13 @@ export function RatingControl({ kind, id, onRated }: {
     event.preventDefault();
     if (saving || eligibility !== 'allowed' || (!choice && !comment.trim())) return;
     setSaving(true);
-    setMessage('');
     setError('');
     try {
       const summary = await rateMarketplaceItem(kind, id, { rating: choice || null, comment: comment.trim() || null });
       onRated(summary);
       setPage(0);
       setRefresh((value) => value + 1);
-      setMessage('Avaliação salva.');
+      showToast('Avaliação salva.');
     } catch (err: any) {
       if (err.response?.status === 403) setEligibility('denied');
       setError(err.response?.data?.error || 'Não foi possível registrar sua avaliação.');
@@ -115,7 +114,6 @@ export function RatingControl({ kind, id, onRated }: {
           )}
         </>
       )}
-      {message && <p role="status">{message}</p>}
       {error && <p role="alert">{error}</p>}
       {!!comments.length && (
         <ul className="marketplace-comments">
@@ -136,3 +134,4 @@ export function RatingControl({ kind, id, onRated }: {
     </section>
   );
 }
+import { useFeedback } from './Feedback';

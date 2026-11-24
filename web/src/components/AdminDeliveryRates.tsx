@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useFeedback } from './Feedback';
 import { getAdminDeliveryRatePolicy, saveAdminDeliveryRatePolicy } from '../services/api';
 import type { DeliveryRatePolicy } from '../services/api';
 
@@ -23,7 +24,7 @@ export function AdminDeliveryRates() {
   const [form, setForm] = useState<typeof initialForm>();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const { showToast } = useFeedback();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -41,7 +42,6 @@ export function AdminDeliveryRates() {
     const minimumCents = form.minimumCents === '' ? null : Math.round(Number(form.minimumCents) * 100);
     const maximumCents = form.maximumCents === '' ? null : Math.round(Number(form.maximumCents) * 100);
     const defaultCents = Math.round(Number(form.defaultCents) * 100);
-    setNotice('');
     setError('');
     if (minimumCents !== null && maximumCents !== null && minimumCents > maximumCents) {
       setError('A taxa mínima deve ser menor ou igual à máxima.');
@@ -50,7 +50,7 @@ export function AdminDeliveryRates() {
     setSaving(true);
     try {
       setForm(toForm(await saveAdminDeliveryRatePolicy({ minimumCents, maximumCents, defaultCents, allowCustom: form.allowCustom })));
-      setNotice('Regras da taxa de corrida salvas.');
+      showToast('Regras da taxa de corrida salvas.');
     } catch {
       setError('Não foi possível salvar as regras da taxa de corrida.');
     } finally {
@@ -62,7 +62,6 @@ export function AdminDeliveryRates() {
     <div className="form-box admin-delivery-rate-form">
       <h3>Taxa de corrida</h3>
       {error && <p className="error-message" role="alert">{error}</p>}
-      {notice && <p role="status">{notice}</p>}
       {!form && !error && <p role="status">Carregando regras da taxa…</p>}
       {form && (
         <form onSubmit={(event) => void save(event)}>

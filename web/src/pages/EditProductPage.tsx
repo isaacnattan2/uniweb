@@ -1,5 +1,6 @@
 import { CategoryOptions } from '../components/CategoryOptions';
 import React, { useState, useEffect } from 'react';
+import { useFeedback } from '../components/Feedback';
 import { useNavigate, useParams } from 'react-router-dom';
 import { getProductsByBusiness, resolveAssetUrl, updateProduct } from '../services/api';
 import { ImageDropzone } from '../components/ImageDropzone';
@@ -7,6 +8,7 @@ import '../styles/product-form.css';
 import '../styles/dropzone.css';
 
 export function EditProductPage() {
+  const { showToast } = useFeedback();
   const navigate = useNavigate();
   const { productId, businessId } = useParams<{ productId: string; businessId?: string }>();
   
@@ -86,7 +88,7 @@ export function EditProductPage() {
         images,
       });
 
-      alert('Produto atualizado com sucesso!');
+      showToast('Produto atualizado com sucesso!');
       navigate(-1);
     } catch (err: any) {
       console.error('Erro ao atualizar produto:', err);
