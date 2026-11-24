@@ -388,11 +388,11 @@ export async function scheduleDeliveryAlternative(orderId: string, scheduledAt: 
 }
 
 export async function getDispatchSettings() {
-  return (await api.get<{ radius_meters: number; subsidy_cents: number }>('/admin/delivery-dispatch/settings')).data;
+  return (await api.get<{ radius_meters: number; subsidy_cents: number; offer_delivery_mode: 'push' | 'polling' }>('/admin/delivery-dispatch/settings')).data;
 }
 
-export async function saveDispatchSettings(radiusMeters: number, subsidyCents: number) {
-  await api.put('/admin/delivery-dispatch/settings', { radiusMeters, subsidyCents });
+export async function saveDispatchSettings(radiusMeters: number, subsidyCents: number, offerDeliveryMode: 'push' | 'polling') {
+  await api.put('/admin/delivery-dispatch/settings', { radiusMeters, subsidyCents, offerDeliveryMode });
 }
 
 export interface DispatchIncident {

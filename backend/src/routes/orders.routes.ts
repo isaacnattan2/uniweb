@@ -7,7 +7,7 @@ import { asaasWebhook } from '../controllers/AsaasWebhook';
 import { lookupPostalCode } from '../services/DeliveryAddress';
 import OrderController from '../controllers/OrderController';
 import { authMiddleware } from '../middleware/auth';
-import { quoteDelivery, respondDispatch, markDeliveryPickedUp, listDeliveryAlternatives, rescheduleDelivery } from '../controllers/DeliveryDispatch';
+import { getCurrentDispatchOffer, quoteDelivery, respondDispatch, markDeliveryPickedUp, listDeliveryAlternatives, rescheduleDelivery } from '../controllers/DeliveryDispatch';
 
 const router = Router();
 
@@ -18,6 +18,7 @@ router.post('/', authMiddleware, (req, res) => OrderController.createOrder(req, 
 router.get('/my-orders', authMiddleware, OrderController.getMyOrders);
 router.get('/postal-code/:cep', authMiddleware, lookupPostalCode);
 router.get('/available-deliveries', authMiddleware, listAvailableDeliveries);
+router.get('/current-delivery-offer', authMiddleware, (req, res, next) => getCurrentDispatchOffer(req, res).catch(next));
 router.post('/available-deliveries/:orderId/accept', authMiddleware, acceptDelivery);
 router.post('/available-deliveries/:orderId/respond', authMiddleware, (req, res, next) => respondDispatch(req, res).catch(next));
 router.get('/accepted-deliveries', authMiddleware, listAcceptedDeliveries);

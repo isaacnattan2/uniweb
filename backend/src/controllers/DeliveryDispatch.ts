@@ -275,19 +275,53 @@ export async function markDeliveryPickedUp(req: AuthRequest, res: Response) {
 
 export async function dispatchSettings(req: Request, res: Response) {
   if (req.method === 'GET') {
-    const { rows } = await query('SELECT radius_meters, subsidy_cents FROM delivery_dispatch_settings WHERE id = true');
+    const { rows } = await query('SELECT radius_meters, subsidy_cents, offer_delivery_mode FROM delivery_dispatch_settings WHERE id = true');
     return res.json(rows[0]);
   }
-  const { radiusMeters, subsidyCents } = req.body ?? {};
+  const { radiusMeters, subsidyCents, offerDeliveryMode } = req.body ?? {};
   if (!Number.isInteger(radiusMeters) || radiusMeters < 100 || radiusMeters > 100000 ||
-      !Number.isInteger(subsidyCents) || subsidyCents < 0 || subsidyCents > 1000000) {
-    return res.status(400).json({ error: 'Informe um raio válido e o teto de subsídio por pedido.' });
+      !Number.isInteger(subsidyCents) || subsidyCents < 0 || subsidyCents > 1000000 ||
+      (offerDeliveryMode !== undefined && !['push', 'polling'].includes(offerDeliveryMode))) {
+    return res.status(400).json({ error: 'Informe um raio, um teto de subsídio e um modo de ofertas válidos.' });
   }
   const { rows } = await query(
-    'UPDATE delivery_dispatch_settings SET radius_meters = $1, subsidy_cents = $2 WHERE id = true RETURNING radius_meters, subsidy_cents',
-    [radiusMeters, subsidyCents]
+    `UPDATE delivery_dispatch_settings SET radius_meters = $1, subsidy_cents = $2,
+     offer_delivery_mode = COALESCE($3, offer_delivery_mode) WHERE id = true
+     RETURNING radius_meters, subsidy_cents, offer_delivery_mode`,
+    [radiusMeters, subsidyCents, offerDeliveryMode]
   );
   return res.json(rows[0]);
+}
+
+export async function getCurrentDispatchOffer(req: AuthRequest, res: Response) {
+  if (req.userType !== 'driver' || !req.userId) return res.sendStatus(403);
+  const { rows: [row] } = await query(
+    `SELECT s.offer_delivery_mode, clock_timestamp() AS server_now, pending.*
+     FROM delivery_dispatch_settings s LEFT JOIN LATERAL (
+       SELECT f.id AS offer_id, f.order_id, f.expires_at, f.fee_cents, f.rate_cents, o.order_number,
+              o.created_at, o.delivery_address, j.pickup_address, j.distance_meters, j.slot_at,
+              b.id AS store_id, b.name AS store_name
+       FROM delivery_dispatch_offers f
+       JOIN delivery_dispatch j ON j.order_id = f.order_id AND j.state = 'offered'
+       JOIN orders o ON o.id = f.order_id AND o.payment_status = 'paid'
+         AND o.order_status IN ('confirmed','processing') AND o.deleted_at IS NULL
+       JOIN businesses b ON b.id = o.business_id
+       WHERE f.user_id = $1 AND f.state = 'pending' AND f.expires_at > clock_timestamp()
+       LIMIT 1
+     ) pending ON true WHERE s.id = true`, [req.userId]
+  );
+  res.set('Cache-Control', 'no-store');
+  return res.json({
+    mode: row.offer_delivery_mode,
+    serverNow: row.server_now,
+    offer: row.offer_id ? {
+      managed: true, orderId: row.order_id, orderNumber: row.order_number, createdAt: row.created_at,
+      offerId: row.offer_id, offerExpiresAt: row.expires_at, deliveryFee: row.fee_cents / 100,
+      rateCents: row.rate_cents, distanceMeters: row.distance_meters, scheduledAt: row.slot_at,
+      pickup: { storeId: row.store_id, storeName: row.store_name, address: row.pickup_address },
+      destinationArea: null, destinationAddress: row.delivery_address,
+    } : null,
+  });
 }
 
 export async function listDeliveryAlternatives(req: AuthRequest, res: Response) {

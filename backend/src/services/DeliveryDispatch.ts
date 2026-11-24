@@ -206,11 +206,12 @@ export async function tickDispatch() {
   });
   notifyOrderEvent('delivery_unavailable', changed);
   const { rows } = await query(
-    `SELECT id, order_id, user_id FROM delivery_dispatch_offers
-     WHERE state = 'pending' AND notified_at IS NULL AND expires_at > NOW() LIMIT 25`
+    `SELECT f.id, f.order_id, f.user_id, f.expires_at FROM delivery_dispatch_offers f
+     JOIN delivery_dispatch_settings s ON s.id = true AND s.offer_delivery_mode = 'push'
+     WHERE f.state = 'pending' AND f.notified_at IS NULL AND f.expires_at > NOW() LIMIT 25`
   );
   await Promise.all(rows.map(async (offer) => {
-    if (await notifyDriverOffer(offer.id, offer.order_id, offer.user_id)) {
+    if (await notifyDriverOffer(offer.id, offer.order_id, offer.user_id, offer.expires_at)) {
       await query('UPDATE delivery_dispatch_offers SET notified_at = NOW() WHERE id = $1', [offer.id]);
     }
   }));

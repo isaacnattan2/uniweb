@@ -11,7 +11,7 @@ const actions = [
 const refunds: Record<string, string> = { pending: 'Estorno solicitado', processing: 'Estorno em processamento', review: 'Estorno requer conferência no Asaas' };
 
 export function AdminDeliveryDispatch() {
-  const [settings, setSettings] = useState<{ radius: string; subsidy: string }>();
+  const [settings, setSettings] = useState<{ radius: string; subsidy: string; offerMode: 'push' | 'polling' }>();
   const [incidents, setIncidents] = useState<DispatchIncident[]>();
   const [incidentId, setIncidentId] = useState('');
   const [action, setAction] = useState('');
@@ -23,7 +23,8 @@ export function AdminDeliveryDispatch() {
   useEffect(() => {
     let active = true;
     void getDispatchSettings().then((data) => {
-      if (active) setSettings({ radius: String(data.radius_meters / 1000), subsidy: (data.subsidy_cents / 100).toFixed(2) });
+      if (active) setSettings({ radius: String(data.radius_meters / 1000), subsidy: (data.subsidy_cents / 100).toFixed(2),
+        offerMode: data.offer_delivery_mode === 'polling' ? 'polling' : 'push' });
     }).catch(() => { if (active) setError('Não foi possível carregar as regras de alocação.'); });
     void getDispatchIncidents().then((data) => { if (active) setIncidents(data); })
       .catch(() => { if (active) setError('Não foi possível carregar as ocorrências.'); });
@@ -51,7 +52,7 @@ export function AdminDeliveryDispatch() {
       {notice && <p role="status">{notice}</p>}
       {!settings && !error && <p role="status">Carregando configuração…</p>}
       {settings && <form onSubmit={(event) => void apply(event, () =>
-        saveDispatchSettings(Math.round(Number(settings.radius) * 1000), Math.round(Number(settings.subsidy) * 100)),
+        saveDispatchSettings(Math.round(Number(settings.radius) * 1000), Math.round(Number(settings.subsidy) * 100), settings.offerMode),
         'Regras de alocação salvas.')}>
         <div className="admin-rate-fields">
           <div className="form-group">
@@ -64,6 +65,14 @@ export function AdminDeliveryDispatch() {
             <input id="dispatch-subsidy" type="number" min="0" max="10000" step="0.01" required disabled={saving} value={settings.subsidy}
               onChange={(event) => setSettings({ ...settings, subsidy: event.target.value })} />
           </div>
+        </div>
+        <div className="form-group">
+          <label htmlFor="dispatch-offer-mode">Recebimento de ofertas no UniEntregador</label>
+          <select id="dispatch-offer-mode" value={settings.offerMode} disabled={saving} onChange={(event) =>
+            setSettings({ ...settings, offerMode: event.target.value === 'polling' ? 'polling' : 'push' })}>
+            <option value="push">Notificação OneSignal (padrão)</option>
+            <option value="polling">Consulta periódica com o app aberto</option>
+          </select>
         </div>
         <button type="submit" className="btn-primary" disabled={saving}>Salvar regras de alocação</button>
       </form>}

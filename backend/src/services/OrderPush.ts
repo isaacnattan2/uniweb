@@ -89,17 +89,18 @@ async function sendOrderEvent(event: OrderEvent, orderIds: string[]) {
   }));
 }
 
-export async function notifyDriverOffer(offerId: string, orderId: string, userId: string) {
+export async function notifyDriverOffer(offerId: string, orderId: string, userId: string, expiresAt: Date) {
   const appId = process.env.ONESIGNAL_DRIVER_APP_ID;
   const key = process.env.ONESIGNAL_DRIVER_API_KEY;
   const alias = driverPushAlias(userId);
-  if (!appId || !key || !alias) return false;
+  const ttl = Math.floor((expiresAt.getTime() - Date.now()) / 1000);
+  if (!appId || !key || !alias || ttl < 1) return false;
   return sendPush(appId, key, [alias], 'delivery_offer', `Confira a oferta do pedido #${orderId.slice(0, 8).toUpperCase()}.`,
-    { data: { orderId, section: 'available' } }, offerId);
+    { data: { orderId, section: 'available', offerId }, ttl }, offerId);
 }
 
 async function sendPush(appId: string, apiKey: string, recipients: string[], event: OrderEvent, body: string,
-  destination: { url: string } | { data: { orderId: string; section: string } }, key: string = randomUUID()) {
+  destination: { url: string } | { data: { orderId: string; section: string; offerId?: string }; ttl?: number }, key: string = randomUUID()) {
   try {
     const response = await fetch('https://api.onesignal.com/notifications', {
       method: 'POST',
