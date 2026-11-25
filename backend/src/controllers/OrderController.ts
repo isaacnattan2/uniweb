@@ -1,7 +1,7 @@
 import { calculateCheckoutSplit, resolveCardSplitLimit, type SavedSplitCondition } from '../services/AsaasSplit';
 import { createHash } from 'node:crypto';
 import { notifyOrderEvent } from '../services/OrderPush';
-import { AsaasPixKeyMissingError, checkoutIdPattern, checkoutUrl, createAsaasCheckout, getAsaasConfig, getAsaasInstallmentCount } from '../services/AsaasCheckout';
+import { AsaasCheckoutSetupError, checkoutIdPattern, checkoutUrl, createAsaasCheckout, getAsaasConfig, getAsaasInstallmentCount } from '../services/AsaasCheckout';
 import { v4 as uuidv4 } from 'uuid';
 import { Response } from 'express';
 import { PoolClient } from 'pg';
@@ -302,9 +302,15 @@ export class OrderController {
         try {
           providerId = await createAsaasCheckout(config, checkoutId, paymentMethod, checkoutItems, maxCardInstallments, splits);
         } catch (error) {
-          if (error instanceof AsaasPixKeyMissingError) {
-            console.warn(error.message);
-            throw new CheckoutError(503, 'Pix indisponível no momento. Escolha cartão de crédito ou tente novamente mais tarde.');
+          if (error instanceof AsaasCheckoutSetupError) {
+            console.warn('Configuração pendente no checkout Asaas.', {
+              paymentMethod, pixKeyMissing: error.pixKeyMissing, splitDisabled: error.splitDisabled,
+            });
+            const pending = [
+              error.pixKeyMissing && 'cadastrar uma chave Pix',
+              error.splitDisabled && 'habilitar o split de pagamento',
+            ].filter(Boolean).join(' e ');
+            throw new CheckoutError(503, 'Pagamento indisponível. A plataforma precisa ' + pending + ' na conta Asaas.');
           }
           console.error('Falha ao abrir checkout Asaas:', error instanceof Error ? error.message : 'erro desconhecido');
           throw new CheckoutError(502, 'Não foi possível abrir o pagamento no Asaas. Tente novamente.');

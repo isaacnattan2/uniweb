@@ -1,7 +1,11 @@
 export const MAX_CARD_INSTALLMENTS = 12;
 export const checkoutIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export class AsaasPixKeyMissingError extends Error {}
+export class AsaasCheckoutSetupError extends Error {
+  constructor(readonly pixKeyMissing: boolean, readonly splitDisabled: boolean) {
+    super('Configuração de checkout Asaas pendente');
+  }
+}
 
 const sandboxApi = 'https://api-sandbox.asaas.com/v3';
 
@@ -53,20 +57,26 @@ export async function createAsaasCheckout(
         expiredUrl: callbackUrl('expired'),
       },
       items,
-      ...(splits.length && { splits }),
+      ...(splits.length && {
+        splits: splits.map(({ percentualValue, ...split }) => ({
+          ...split,
+          percentageValue: percentualValue,
+        })),
+      }),
     }),
   });
   if (!response.ok) {
     const failure = await response.json().catch(() => null) as { errors?: unknown } | null;
-    if (!card && response.status === 400 && Array.isArray(failure?.errors) &&
-        failure.errors.some((error) => error?.code === 'invalid_object' &&
-          typeof error.description === 'string' && /necessário criar uma chave Pix/i.test(error.description))) {
-      throw new AsaasPixKeyMissingError('O Asaas exige uma chave Pix cadastrada para abrir este checkout.');
+    const errors = Array.isArray(failure?.errors) ? failure.errors : [];
+    const describes = (pattern: RegExp) => errors.some((error) =>
+      error?.code === 'invalid_object' && typeof error.description === 'string' && pattern.test(error.description));
+    const pixKeyMissing = !card && describes(/necess[aá]rio criar uma chave pix/i);
+    const splitDisabled = describes(/cria[çc][aã]o de split de pagamento est[aá] desabilitada/i);
+    if (response.status === 400 && (pixKeyMissing || splitDisabled)) {
+      throw new AsaasCheckoutSetupError(pixKeyMissing, splitDisabled);
     }
-    const codes = Array.isArray(failure?.errors)
-      ? failure.errors.slice(0, 5).map((error) => error?.code)
-        .filter((code): code is string => typeof code === 'string' && /^[a-z_]{1,60}$/.test(code))
-      : [];
+    const codes = errors.slice(0, 5).map((error) => error?.code)
+      .filter((code): code is string => typeof code === 'string' && /^[a-z_]{1,60}$/.test(code));
     const suffix = codes.length ? ' (' + [...new Set(codes)].join(', ') + ')' : '';
     throw new Error('Asaas Checkout HTTP ' + response.status + suffix);
   }
