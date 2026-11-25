@@ -1,7 +1,7 @@
 import { AdminStoreAsaas } from './AdminStoreAsaas';
 import React, { useEffect, useState } from 'react';
 import { useFeedback } from './Feedback';
-import { getAdminDrivers, setAdminBlock, setDriverDeliveryRateLock } from '../services/api';
+import { getAdminDrivers, setAdminBlock, setDriverDeliveryRateLock, setDriverMissedOfferBlock } from '../services/api';
 import type { AdminDriver } from '../services/api';
 import { AdminDeliveryRates } from './AdminDeliveryRates';
 import { AdminDeliveryDispatch } from './AdminDeliveryDispatch';
@@ -23,6 +23,8 @@ export function AdminDrivers() {
   const [drivers, setDrivers] = useState<AdminDriver[]>();
   const [savingId, setSavingId] = useState<string>();
   const [lockingId, setLockingId] = useState<string>();
+  const [blockDrafts, setBlockDrafts] = useState<Record<string, string>>({});
+  const [savingBlockId, setSavingBlockId] = useState<string>();
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
   const { confirmAction, showToast } = useFeedback();
@@ -94,6 +96,29 @@ export function AdminDrivers() {
     }
   }
 
+  async function saveMissedOfferBlock(event: React.FormEvent, driver: AdminDriver) {
+    event.preventDefault();
+    if (savingBlockId) return;
+    const draft = blockDrafts[driver.id] ?? '';
+    setSavingBlockId(driver.id);
+    setError('');
+    try {
+      const { minutes } = await setDriverMissedOfferBlock(driver.id, draft === '' ? null : Number(draft));
+      setDrivers((current) => current?.map((item) => item.id === driver.id
+        ? { ...item, missed_offer_block_minutes: minutes } : item));
+      setBlockDrafts((current) => {
+        const next = { ...current };
+        delete next[driver.id];
+        return next;
+      });
+      showToast(minutes === null ? 'O entregador passou a usar o tempo global.' : 'Tempo de bloqueio individual salvo.');
+    } catch {
+      setError('Não foi possível salvar o tempo de bloqueio individual.');
+    } finally {
+      setSavingBlockId(undefined);
+    }
+  }
+
   const asaasDriver = drivers?.find((driver) => driver.id === selectedAsaasDriver);
 
   return (
@@ -136,6 +161,23 @@ export function AdminDrivers() {
                 )}
               </div>
               <div className="card-footer card-row-5 admin-driver-actions">
+                {driver.delivery_rate_locked != null && (
+                  <form onSubmit={(event) => void saveMissedOfferBlock(event, driver)}>
+                    <div className="form-group">
+                      <label htmlFor={'block-minutes-' + driver.id}>Bloqueio por pedidos sem resposta (minutos)</label>
+                      <input id={'block-minutes-' + driver.id} type="number" min={1} max={10080} step={1}
+                        placeholder="Usar tempo global" disabled={savingBlockId === driver.id}
+                        value={blockDrafts[driver.id] ?? driver.missed_offer_block_minutes ?? ''}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          setBlockDrafts((current) => ({ ...current, [driver.id]: value }));
+                        }} />
+                    </div>
+                    <button type="submit" className="btn-secondary" disabled={!!savingBlockId || blockDrafts[driver.id] === undefined}>
+                      {savingBlockId === driver.id ? 'Salvando…' : 'Salvar tempo de bloqueio'}
+                    </button>
+                  </form>
+                )}
                 <button type="button" className="btn-secondary" aria-expanded={selectedAsaasDriver === driver.id} onClick={() => setSelectedAsaasDriver((selected) => selected === driver.id ? undefined : driver.id)}>
                   {selectedAsaasDriver === driver.id ? 'Fechar cadastro Asaas' : 'Cadastro Asaas'}
                 </button>

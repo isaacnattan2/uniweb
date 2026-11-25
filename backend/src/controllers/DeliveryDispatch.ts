@@ -115,15 +115,18 @@ export async function updateDriverPresence(req: AuthRequest, res: Response) {
       'UPDATE driver_dispatch_presence SET latitude = $2, longitude = $3, location_at = NOW() WHERE user_id = $1 AND online',
       [req.userId, latitude, longitude]
     );
-    return res.json({ online: Boolean(rowCount) });
+    if (rowCount) return res.json({ online: true, blockedUntil: null });
+    return res.json(await driverBlockStatus(req.userId));
   }
   const { rowCount } = await query(
-    `INSERT INTO driver_dispatch_presence (user_id, online, latitude, longitude, location_at)
-     SELECT user_id, true, $2, $3, NOW() FROM drivers WHERE user_id = $1 AND deleted_at IS NULL
+    `INSERT INTO driver_dispatch_presence (user_id, online, latitude, longitude, location_at, checked_in_at)
+     SELECT user_id, true, $2, $3, NOW(), NOW() FROM drivers WHERE user_id = $1 AND deleted_at IS NULL
      ON CONFLICT (user_id) DO UPDATE SET online = true, latitude = EXCLUDED.latitude,
        longitude = EXCLUDED.longitude, location_at = NOW(),
-       ignored_offers = 0
-     WHERE NOT driver_dispatch_presence.online`,
+       checked_in_at = NOW(), blocked_until = NULL,
+       ignored_offers = CASE WHEN driver_dispatch_presence.blocked_until IS NOT NULL THEN 0 ELSE driver_dispatch_presence.ignored_offers END
+     WHERE NOT driver_dispatch_presence.online
+       AND (driver_dispatch_presence.blocked_until IS NULL OR driver_dispatch_presence.blocked_until <= NOW())`,
     [req.userId, latitude, longitude]
   );
   if (rowCount) {
@@ -135,20 +138,32 @@ export async function updateDriverPresence(req: AuthRequest, res: Response) {
      WHERE p.user_id = $1 AND p.online AND EXISTS (SELECT 1 FROM drivers d WHERE d.user_id = p.user_id AND d.deleted_at IS NULL)`,
     [req.userId, latitude, longitude],
   );
-  return res.json({ online: Boolean(refreshed.rowCount) });
+  if (refreshed.rowCount) return res.json({ online: true, blockedUntil: null });
+  return res.json(await driverBlockStatus(req.userId));
+}
+
+async function driverBlockStatus(userId: string) {
+  const { rows: [presence] } = await query(
+    'SELECT online, CASE WHEN blocked_until > NOW() THEN blocked_until END AS "blockedUntil", clock_timestamp() AS "serverNow" FROM driver_dispatch_presence WHERE user_id = $1',
+    [userId],
+  );
+  return { online: Boolean(presence?.online), blockedUntil: presence?.blockedUntil ?? null, serverNow: presence?.serverNow };
 }
 
 export async function readDriverDispatch(req: AuthRequest, res: Response) {
   if (req.userType !== 'driver' || !req.userId) return res.sendStatus(403);
-  const [presence, shifts, weeklyShifts] = await Promise.all([
-    query('SELECT online FROM driver_dispatch_presence WHERE user_id = $1', [req.userId]),
+  const [presence, shifts, weeklyShifts, missed] = await Promise.all([
+    driverBlockStatus(req.userId),
     query('SELECT id, starts_at, ends_at FROM driver_dispatch_shifts WHERE user_id = $1 AND ends_at > NOW() ORDER BY starts_at LIMIT 100', [req.userId]),
     query(`SELECT id, days, to_char(start_time, 'HH24:MI') AS start_time,
       to_char(end_time, 'HH24:MI') AS end_time, time_zone
       FROM driver_dispatch_weekly_shifts WHERE user_id = $1 ORDER BY days, start_time, id`, [req.userId]),
+    query(`SELECT f.id, f.order_id, o.order_number, f.missed_at FROM delivery_dispatch_offers f
+           JOIN orders o ON o.id = f.order_id WHERE f.user_id = $1 AND f.missed_at IS NOT NULL
+           ORDER BY f.missed_at DESC, f.id LIMIT 100`, [req.userId]),
   ]);
   res.set('Cache-Control', 'no-store');
-  return res.json({ online: presence.rows[0]?.online ?? false, shifts: shifts.rows, weeklyShifts: weeklyShifts.rows });
+  return res.json({ ...presence, shifts: shifts.rows, weeklyShifts: weeklyShifts.rows, missedOffers: missed.rows });
 }
 
 export async function changeDriverShift(req: AuthRequest, res: Response) {
@@ -308,20 +323,24 @@ export async function markDeliveryPickedUp(req: AuthRequest, res: Response) {
 
 export async function dispatchSettings(req: Request, res: Response) {
   if (req.method === 'GET') {
-    const { rows } = await query('SELECT radius_meters, subsidy_cents, offer_delivery_mode FROM delivery_dispatch_settings WHERE id = true');
+    const { rows } = await query('SELECT radius_meters, subsidy_cents, offer_delivery_mode, missed_offer_block_minutes FROM delivery_dispatch_settings WHERE id = true');
     return res.json(rows[0]);
   }
-  const { radiusMeters, subsidyCents, offerDeliveryMode } = req.body ?? {};
+  const { radiusMeters, subsidyCents, offerDeliveryMode, missedOfferBlockMinutes } = req.body ?? {};
   if (!Number.isInteger(radiusMeters) || radiusMeters < 100 || radiusMeters > 100000 ||
       !Number.isInteger(subsidyCents) || subsidyCents < 0 || subsidyCents > 1000000 ||
       (offerDeliveryMode !== undefined && !['push', 'polling'].includes(offerDeliveryMode))) {
     return res.status(400).json({ error: 'Informe um raio, um teto de subsídio e um modo de ofertas válidos.' });
   }
+  if (missedOfferBlockMinutes !== undefined && (!Number.isInteger(missedOfferBlockMinutes) || missedOfferBlockMinutes < 1 || missedOfferBlockMinutes > 10080)) {
+    return res.status(400).json({ error: 'Informe um bloqueio entre 1 e 10080 minutos.' });
+  }
   const { rows } = await query(
     `UPDATE delivery_dispatch_settings SET radius_meters = $1, subsidy_cents = $2,
-     offer_delivery_mode = COALESCE($3, offer_delivery_mode) WHERE id = true
-     RETURNING radius_meters, subsidy_cents, offer_delivery_mode`,
-    [radiusMeters, subsidyCents, offerDeliveryMode]
+     offer_delivery_mode = COALESCE($3, offer_delivery_mode),
+     missed_offer_block_minutes = COALESCE($4, missed_offer_block_minutes) WHERE id = true
+     RETURNING radius_meters, subsidy_cents, offer_delivery_mode, missed_offer_block_minutes`,
+    [radiusMeters, subsidyCents, offerDeliveryMode, missedOfferBlockMinutes]
   );
   return res.json(rows[0]);
 }
@@ -340,6 +359,7 @@ export async function getCurrentDispatchOffer(req: AuthRequest, res: Response) {
          AND o.order_status IN ('confirmed','processing') AND o.deleted_at IS NULL
        JOIN businesses b ON b.id = o.business_id
        WHERE f.user_id = $1 AND f.state = 'pending' AND f.expires_at > clock_timestamp()
+         AND NOT EXISTS (SELECT 1 FROM driver_dispatch_presence p WHERE p.user_id = $1 AND p.blocked_until > NOW())
        LIMIT 1
      ) pending ON true WHERE s.id = true`, [req.userId]
   );

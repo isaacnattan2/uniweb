@@ -26,6 +26,7 @@ const titles = {
   delivered: 'Pedido entregue',
   assigned: 'Entregador confirmado',
   delivery_unavailable: 'Escolha uma nova opção de entrega',
+  driver_checkin_blocked: 'Check-in bloqueado',
   delivery_offer: 'Nova oferta de entrega',
   delivery_incident: 'Estamos verificando um imprevisto na entrega',
   delivery_reassigned: 'Buscando outro entregador',
@@ -117,6 +118,16 @@ export async function notifyDriverOffer(offerId: string, orderId: string, userId
   if (!appId || !key || !alias || ttl < 1) return false;
   return sendPush(appId, key, [alias], 'delivery_offer', `Confira a oferta do pedido #${orderId.slice(0, 8).toUpperCase()}.`,
     { data: { orderId, section: 'available', offerId }, ttl, priority: 10 }, offerId);
+}
+
+export async function notifyDriverCheckinBlocked(userId: string, orderId: string) {
+  const appId = process.env.ONESIGNAL_DRIVER_APP_ID;
+  const key = process.env.ONESIGNAL_DRIVER_API_KEY;
+  const alias = driverPushAlias(userId);
+  if (!appId || !key || !alias) return;
+  await sendPush(appId, key, [alias], 'driver_checkin_blocked',
+    'Seu check-out foi feito automaticamente após 3 pedidos sem resposta.',
+    { data: { orderId, section: 'available', event: 'driver_checkin_blocked' } });
 }
 
 async function sendPush(appId: string, apiKey: string, recipients: string[], event: PushEvent, body: string,

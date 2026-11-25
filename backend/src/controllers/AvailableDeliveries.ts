@@ -57,7 +57,7 @@ async function listDeliveries(req: AuthRequest, res: Response, next: NextFunctio
        LEFT JOIN delivery_dispatch_offers f ON f.order_id = o.id AND f.user_id = $3 AND f.state = 'pending' AND f.expires_at > NOW()
        WHERE ${accepted
          ? "o.deleted_at IS NULL AND o.delivery_type = 'delivery' AND o.delivery_driver_id = $3 AND o.delivery_status IN ('processing', 'in_transit', 'delivered', 'cancelled')"
-         : `(${availableOrder}) AND (j.order_id IS NULL OR (j.state = 'offered' AND f.id IS NOT NULL))`}
+         : `(${availableOrder}) AND NOT EXISTS (SELECT 1 FROM driver_dispatch_presence p WHERE p.user_id = $3 AND p.blocked_until > NOW()) AND (j.order_id IS NULL OR (j.state = 'offered' AND f.id IS NOT NULL))`}
        ORDER BY ${accepted ? "(o.delivery_status IN ('delivered', 'cancelled')), o.updated_at DESC" : '(f.id IS NULL), o.created_at ASC'} NULLS LAST, o.id
        LIMIT $1 OFFSET $2`,
       [pageSize + 1, start, req.userId]
@@ -139,6 +139,7 @@ export async function acceptDelivery(req: AuthRequest, res: Response, next: Next
          WHERE o.id = $1 AND b.id = o.business_id AND ${availableOrder}
            AND EXISTS (SELECT 1 FROM users WHERE id = $2 AND user_type = 'driver' AND status = 'active')
            AND NOT EXISTS (SELECT 1 FROM delivery_dispatch WHERE order_id = o.id)
+           AND NOT EXISTS (SELECT 1 FROM driver_dispatch_presence p WHERE p.user_id = $2 AND p.blocked_until > NOW())
            AND NOT EXISTS (SELECT 1 FROM orders current_order WHERE current_order.delivery_driver_id = $2
              AND current_order.id <> o.id AND current_order.deleted_at IS NULL AND current_order.delivery_status IN ('processing','in_transit'))
          RETURNING o.delivery_address, o.delivery_fee, b.address, ${ratePickupAddress} AS rate_pickup_address`,

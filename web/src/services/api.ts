@@ -27,6 +27,7 @@ export interface AdminBusiness {
 }
 
 export interface AdminDriver {
+  missed_offer_block_minutes: number | null;
   id: string;
   full_name: string;
   email: string;
@@ -360,6 +361,10 @@ export async function saveAdminDeliveryRatePolicy(policy: DeliveryRatePolicy) {
   return (await api.put<DeliveryRatePolicy>('/admin/drivers/delivery-rate', policy)).data;
 }
 
+export async function setDriverMissedOfferBlock(id: string, minutes: number | null) {
+  return (await api.put<{ minutes: number | null }>('/admin/drivers/' + encodeURIComponent(id) + '/missed-offer-block', { minutes })).data;
+}
+
 export async function setDriverDeliveryRateLock(id: string, locked: boolean) {
   return (await api.put<{ locked: boolean }>('/admin/drivers/' + id + '/delivery-rate-lock', { locked })).data;
 }
@@ -564,11 +569,11 @@ export async function scheduleDeliveryAlternative(orderId: string, scheduledAt: 
 }
 
 export async function getDispatchSettings() {
-  return (await api.get<{ radius_meters: number; subsidy_cents: number; offer_delivery_mode: 'push' | 'polling' }>('/admin/delivery-dispatch/settings')).data;
+  return (await api.get<{ radius_meters: number; subsidy_cents: number; missed_offer_block_minutes: number; offer_delivery_mode: 'push' | 'polling' }>('/admin/delivery-dispatch/settings')).data;
 }
 
-export async function saveDispatchSettings(radiusMeters: number, subsidyCents: number, offerDeliveryMode: 'push' | 'polling') {
-  await api.put('/admin/delivery-dispatch/settings', { radiusMeters, subsidyCents, offerDeliveryMode });
+export async function saveDispatchSettings(radiusMeters: number, subsidyCents: number, offerDeliveryMode: 'push' | 'polling', missedOfferBlockMinutes: number) {
+  await api.put('/admin/delivery-dispatch/settings', { radiusMeters, subsidyCents, offerDeliveryMode, missedOfferBlockMinutes });
 }
 
 export interface DispatchIncident {

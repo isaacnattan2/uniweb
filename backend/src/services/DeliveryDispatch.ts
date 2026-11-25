@@ -2,7 +2,7 @@ import { randomInt, randomUUID } from 'node:crypto';
 import type { PoolClient, QueryResult } from 'pg';
 import { getClient, query } from '../config/database';
 import { driverCanReceivePayout, filterDriversEligibleForPayout } from './AsaasStoreApproval';
-import { notifyAdminDriverPresence, notifyDriverOffer, notifyOrderEvent } from './OrderPush';
+import { notifyAdminDriverPresence, notifyDriverCheckinBlocked, notifyDriverOffer, notifyOrderEvent } from './OrderPush';
 
 export const dispatchUuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
@@ -51,7 +51,7 @@ const eligibleDrivers = `
       CASE WHEN $8 IS NOT NULL THEN shift.longitude
       WHEN p.location_at > NOW() - INTERVAL '2 minutes' THEN p.longitude END AS longitude
   ) location
-  WHERE d.deleted_at IS NULL AND ($8::timestamptz IS NOT NULL OR p.online)
+  WHERE d.deleted_at IS NULL AND (p.blocked_until IS NULL OR p.blocked_until <= NOW()) AND ($8::timestamptz IS NOT NULL OR p.online)
     AND ($11::uuid IS NULL OR d.user_id = $11)
     AND ($11 IS NOT NULL OR $9::uuid IS NULL OR NOT EXISTS (
       SELECT 1 FROM delivery_dispatch_offers f JOIN delivery_dispatch j ON j.order_id = f.order_id
@@ -148,9 +148,9 @@ export async function dispatchTransaction<T>(operation: (client: PoolClient) => 
 }
 
 export async function tickDispatch() {
-  const { unavailable, presenceChanged } = await dispatchTransaction(async (client) => {
+  const { unavailable, blockedDrivers } = await dispatchTransaction(async (client) => {
     const { rows: [lock] } = await client.query('SELECT pg_try_advisory_xact_lock(19750214) AS acquired');
-    if (!lock.acquired) return { unavailable: [], presenceChanged: false };
+    if (!lock.acquired) return { unavailable: [], blockedDrivers: [] };
     const { rows } = await client.query(
       `SELECT j.*, o.order_status, o.payment_status FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id
        WHERE (j.state IN ('scheduled','searching','offered') OR (j.state = 'assigned' AND j.promised_at <= NOW())) AND
@@ -161,7 +161,7 @@ export async function tickDispatch() {
        ORDER BY j.promised_at LIMIT 25 FOR UPDATE OF o, j SKIP LOCKED`
     );
     const unavailable: string[] = [];
-    let presenceChanged = false;
+    const blockedDrivers: { userId: string; orderId: string }[] = [];
     for (const job of rows) {
       if (job.payment_status !== 'paid' || job.order_status === 'cancelled') {
         await client.query("UPDATE delivery_dispatch_offers SET state = 'withdrawn' WHERE order_id = $1 AND state = 'pending'", [job.order_id]);
@@ -182,14 +182,28 @@ export async function tickDispatch() {
       );
       if (offer && !offer.expired) continue;
       if (offer) {
-        await client.query("UPDATE delivery_dispatch_offers SET state = 'expired' WHERE id = $1", [offer.id]);
         const { rows: [presence] } = await client.query(
-          `WITH previous AS (SELECT online FROM driver_dispatch_presence WHERE user_id = $1 FOR UPDATE)
-           UPDATE driver_dispatch_presence p SET ignored_offers = ignored_offers + 1,
-           online = p.online AND ignored_offers < 2 FROM previous WHERE p.user_id = $1
-           RETURNING previous.online AND NOT p.online AS checked_out`, [offer.user_id]
+          `WITH counted AS (
+             UPDATE driver_dispatch_presence p SET
+               ignored_offers = p.ignored_offers + 1,
+               online = p.ignored_offers < 2,
+               blocked_until = CASE WHEN p.ignored_offers >= 2
+                 THEN clock_timestamp() + make_interval(mins => COALESCE(d.missed_offer_block_minutes, s.missed_offer_block_minutes)) ELSE p.blocked_until END,
+               latitude = CASE WHEN p.ignored_offers >= 2 THEN NULL ELSE p.latitude END,
+               longitude = CASE WHEN p.ignored_offers >= 2 THEN NULL ELSE p.longitude END,
+               location_at = CASE WHEN p.ignored_offers >= 2 THEN NULL ELSE p.location_at END
+             FROM delivery_dispatch_settings s
+             LEFT JOIN drivers d ON d.user_id = $1 AND d.deleted_at IS NULL
+             WHERE s.id = true AND p.user_id = $1 AND p.online
+               AND p.checked_in_at <= $3::timestamptz
+             RETURNING NOT p.online AS checked_out
+           )
+           UPDATE delivery_dispatch_offers SET state = 'expired',
+             missed_at = CASE WHEN EXISTS (SELECT 1 FROM counted) THEN expires_at END
+           WHERE id = $2 RETURNING COALESCE((SELECT checked_out FROM counted), false) AS checked_out`,
+          [offer.user_id, offer.id, offer.offered_at]
         );
-        presenceChanged ||= !!presence?.checked_out;
+        if (presence?.checked_out) blockedDrivers.push({ userId: offer.user_id, orderId: job.order_id });
       }
       if (job.search_until.getTime() <= Date.now()) {
         await client.query("UPDATE delivery_dispatch SET state = 'needs_choice', capacity_driver_id = NULL WHERE order_id = $1", [job.order_id]);
@@ -203,19 +217,22 @@ export async function tickDispatch() {
       }
       const candidate = candidates[0];
       const { rowCount } = await client.query(
-        `INSERT INTO delivery_dispatch_offers (id, order_id, user_id, state, rate_cents, fee_cents, expires_at, search_cycle)
+        `INSERT INTO delivery_dispatch_offers (id, order_id, user_id, state, rate_cents, fee_cents, expires_at, search_cycle, offered_at)
          VALUES ($1, $2, $3, 'pending', $4, $5,
-           LEAST($6::timestamptz, NOW() + CASE WHEN $7::timestamptz IS NULL THEN INTERVAL '60 seconds' ELSE INTERVAL '5 minutes' END), $8)
+           LEAST($6::timestamptz, NOW() + CASE WHEN $7::timestamptz IS NULL THEN INTERVAL '60 seconds' ELSE INTERVAL '5 minutes' END), $8, clock_timestamp())
          ON CONFLICT DO NOTHING`,
         [randomUUID(), job.order_id, candidate.user_id, candidate.rate_cents, candidate.fee_cents, job.search_until, job.slot_at, job.search_cycle]
       );
       if (rowCount) await client.query("UPDATE delivery_dispatch SET state = 'offered' WHERE order_id = $1", [job.order_id]);
     }
     await client.query("DELETE FROM delivery_quotes WHERE expires_at < NOW() - INTERVAL '1 hour'");
-    return { unavailable, presenceChanged };
+    return { unavailable, blockedDrivers };
   });
   notifyOrderEvent('delivery_unavailable', unavailable);
-  if (presenceChanged) notifyAdminDriverPresence();
+  if (blockedDrivers.length) {
+    notifyAdminDriverPresence();
+    void Promise.all(blockedDrivers.map(({ userId, orderId }) => notifyDriverCheckinBlocked(userId, orderId)));
+  }
   const { rows } = await query(
     `SELECT f.id, f.order_id, f.user_id, f.expires_at FROM delivery_dispatch_offers f
      JOIN delivery_dispatch_settings s ON s.id = true AND s.offer_delivery_mode = 'push'

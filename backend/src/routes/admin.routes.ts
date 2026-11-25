@@ -41,7 +41,7 @@ router.get('/drivers', async (_req, res, next) => {
     const { rows } = await query(
       `SELECT u.id, u.full_name, u.email, u.phone, u.status, d.vehicle_type,
               d.vehicle_manufacturer, d.vehicle_brand, d.vehicle_color, d.vehicle_plate,
-              d.delivery_rate_cents, d.delivery_rate_locked,
+              d.delivery_rate_cents, d.delivery_rate_locked, d.missed_offer_block_minutes,
               (u.status = 'active' AND d.user_id IS NOT NULL AND COALESCE(p.online, false)) AS checked_in
        FROM users u
        LEFT JOIN drivers d ON d.user_id = u.id AND d.deleted_at IS NULL
@@ -51,6 +51,26 @@ router.get('/drivers', async (_req, res, next) => {
     );
     res.set('Cache-Control', 'no-store');
     res.json(rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.put('/drivers/:id/missed-offer-block', async (req, res, next) => {
+  const { id } = req.params;
+  const { minutes } = req.body ?? {};
+  if (!uuid.test(id) || (minutes !== null && (!Number.isInteger(minutes) || minutes < 1 || minutes > 10080))) {
+    return res.status(400).json({ error: 'Informe um bloqueio entre 1 e 10080 minutos ou use o tempo global.' });
+  }
+  try {
+    const { rows } = await query(
+      `UPDATE drivers d SET missed_offer_block_minutes = $2, updated_at = NOW()
+       FROM users u WHERE u.id = $1 AND u.id = d.user_id AND u.user_type = 'driver'
+         AND u.status <> 'deleted' AND d.deleted_at IS NULL
+       RETURNING d.missed_offer_block_minutes AS minutes`, [id, minutes],
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Cadastro de entregador não encontrado.' });
+    return res.json(rows[0]);
   } catch (error) {
     next(error);
   }
