@@ -1,3 +1,4 @@
+import { AdminSplitSimulator } from '../components/AdminSplitSimulator';
 import React, { useEffect, useState } from 'react';
 import { useFeedback } from '../components/Feedback';
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
@@ -16,6 +17,7 @@ export const adminSections = [
   { path: 'entregadores', label: 'Entregadores' },
   { path: 'categorias', label: 'Categorias' },
   { path: 'anuncios', label: 'Anúncios' },
+  { path: 'simulador-split', label: 'Simulador de split' },
   { path: 'cores-do-app', label: 'Cores do app' },
 ] as const;
 
@@ -45,11 +47,12 @@ export function AdminPage() {
 export function AdminSection({ section }: { section: AdminSectionPath }) {
   if (section === 'entregadores') return <AdminDrivers />;
   if (section === 'categorias') return <AdminCategories />;
+  if (section === 'simulador-split') return <AdminSplitSimulator />;
   if (section === 'cores-do-app') return <AdminAppTheme />;
   return <AdminManagementSection section={section} />;
 }
 
-function AdminManagementSection({ section }: { section: Exclude<AdminSectionPath, 'entregadores' | 'categorias' | 'cores-do-app'> }) {
+function AdminManagementSection({ section }: { section: Exclude<AdminSectionPath, 'entregadores' | 'categorias' | 'cores-do-app' | 'simulador-split'> }) {
   const navigate = useNavigate();
   const [businesses, setBusinesses] = useState<AdminBusiness[]>([]);
   const [sellers, setSellers] = useState<Seller[]>([]);
