@@ -1,3 +1,4 @@
+import { StoreSplitConditions } from '../components/StoreSplitConditions';
 import { AdminStoreAsaas } from '../components/AdminStoreAsaas';
 import { CategoryOptions } from '../components/CategoryOptions';
 import { useFeedback } from '../components/Feedback';
@@ -8,6 +9,7 @@ import type { DeliveryAddress } from '../services/api';
 import { StoreCoupons } from '../components/StoreCoupons';
 import { StoreOrders } from '../components/StoreOrders';
 import { StoreWithdrawals } from '../components/StoreWithdrawals';
+import { StorePlatformFee } from '../components/StorePlatformFee';
 import { StorePaymentSettings } from '../components/StorePaymentSettings';
 import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { getBusiness, getProductsByBusiness, updateBusiness } from '../services/api';
@@ -229,7 +231,26 @@ export function BusinessPage() {
         </div>}
 
         {activeSection === 'pedidos' && <StoreOrders key={currentBusiness.id} businessId={currentBusiness.id} />}
-        {activeSection === 'pagamentos' && <StorePaymentSettings key={currentBusiness.id} business={currentBusiness} onSave={setCurrentBusiness} />}
+        {activeSection === 'pagamentos' && (
+          <>
+            <StorePlatformFee key={currentBusiness.id} businessId={currentBusiness.id} admin={userType === 'admin'}
+              fee={currentBusiness.platform_fee_basis_points ?? null}
+              hasAppliedCondition={Boolean(currentBusiness.asaas_pix_split_condition || currentBusiness.asaas_card_split_condition)}
+              onSave={(fee) => {
+                const business = useBusinessStore.getState().currentBusiness;
+                if (business?.id === currentBusiness.id) setCurrentBusiness({ ...business, platform_fee_basis_points: fee });
+              }} />
+            <StoreSplitConditions key={currentBusiness.id} business={currentBusiness} admin={userType === 'admin'}
+              onRemove={(method, version) => {
+                const column = method === 'pix' ? 'asaas_pix_split_condition' : 'asaas_card_split_condition';
+                const business = useBusinessStore.getState().currentBusiness;
+                if (business?.id === currentBusiness.id && business[column]?.version === version) {
+                  setCurrentBusiness({ ...business, [column]: null });
+                }
+              }} />
+            <StorePaymentSettings key={currentBusiness.id} business={currentBusiness} onSave={setCurrentBusiness} />
+          </>
+        )}
         {activeSection === 'asaas' && (userType === 'admin'
           ? <AdminStoreAsaas key={currentBusiness.id} accountId={currentBusiness.id} />
           : <StoreWithdrawals key={currentBusiness.id} businessId={currentBusiness.id} />)}

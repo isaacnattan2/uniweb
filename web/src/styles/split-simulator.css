@@ -94,3 +94,34 @@
 .split-error {
   color: #991b1b;
 }
+.split-asaas-fees {
+  display: grid;
+  gap: 0.5rem;
+  margin-block-end: 1rem;
+  padding: 0.75rem;
+  border-radius: 6px;
+  background: #f1f5f9;
+}
+
+.split-asaas-fees ul {
+  padding-inline-start: 1.25rem;
+  margin-block-start: 0.5rem;
+}
+
+.split-asaas-fees button {
+  justify-self: start;
+}
+
+.split-apply-warning {
+  border: 1px solid #f2d27a;
+  background: #fff8df;
+  color: #6d470a;
+}
+
+.split-apply-warning ul {
+  margin-block-start: 0;
+}
+
+.split-apply-warning li + li {
+  margin-block-start: 0.25rem;
+}

@@ -16,6 +16,11 @@ export interface AdminBusiness {
   description: string;
   owner_id: string;
   owner_name: string;
+  payment_methods?: StorePaymentMethod[];
+  max_card_installments?: number;
+  card_payment_configured?: boolean;
+  asaas_pix_split_condition?: SavedPaymentSplit | null;
+  asaas_card_split_condition?: SavedPaymentSplit | null;
   owner_email: string;
   owner_status: Seller['status'] | 'deleted';
   status: 'active' | 'inactive' | 'suspended';
@@ -72,6 +77,10 @@ export interface PublicBusiness extends RatingSummary {
   address?: string | null;
   payment_methods?: StorePaymentMethod[];
   max_card_installments?: number;
+  card_payment_configured?: boolean;
+  platform_fee_basis_points?: number | null;
+  asaas_pix_split_condition?: SavedPaymentSplit | null;
+  asaas_card_split_condition?: SavedPaymentSplit | null;
   id: string;
   name: string;
   description?: string;
@@ -114,6 +123,89 @@ export type StoreOrderAction = 'requeue' | 'cancel';
 export async function getStorePushIdentity() {
   const { data } = await api.get<{ externalId: string; token: string }>('/auth/me/push-identity', { params: { channel: 'web' } });
   return data;
+}
+
+export interface AsaasSimulationFees {
+  environment: 'sandbox' | 'production';
+  fetchedAt: string;
+  pix: {
+    standardFixed: number | null;
+    fixed: number;
+    rate: number;
+    minimum: number | null;
+    maximum: number | null;
+    promotionExpiresAt: string | null;
+  } | null;
+  creditCard: {
+    daysToReceive: number | null;
+    bands: { min: number; max: number; standardRate: number | null; rate: number; fixed: number; promotionExpiresAt: string | null }[];
+  };
+}
+
+export async function getAsaasSimulationFees(signal: AbortSignal): Promise<AsaasSimulationFees> {
+  return (await api.get('/admin/asaas/fees', { signal })).data;
+}
+
+export type PaymentSplitDraft = {
+  method: 'pix' | 'credit_card';
+  maxInstallments: number;
+  fixedFeePerInstallment?: boolean;
+  mode: 'fixed' | 'percentage';
+  feeOwner: string;
+  discountOwner: string;
+  commissionBase: string;
+  commissionRate: number;
+  commissionFixed: number;
+  feeSource: 'manual' | 'account';
+  asaasRate: number;
+  asaasFixed: number;
+  asaasMinimum: number | null;
+  asaasMaximum: number | null;
+  fixedOverride: number | null;
+  rateOverride: number | null;
+};
+
+export type SavedPaymentSplit = Omit<PaymentSplitDraft, 'method' | 'maxInstallments' | 'feeSource'> & {
+  version: string;
+  ownerId: string;
+  expiresAt: string | null;
+  maxInstallments?: number;
+  feeSource?: PaymentSplitDraft['feeSource'];
+  manualFixedPerInstallment?: number;
+  cardFeeBands?: { min: number; max: number; rate: number; fixed: number }[];
+};
+
+export async function removePaymentSplitCondition(id: string, method: PaymentSplitDraft['method'], version: string) {
+  await api.delete('/admin/businesses/' + id + '/split-conditions/' + (method === 'pix' ? 'pix' : 'card') + '/' + version);
+}
+
+export async function applyPaymentSplitCondition(id: string, draft: PaymentSplitDraft, expectedVersion: string | null, authorizeCardSetup: boolean, expectedCardLimit?: number): Promise<{ condition: SavedPaymentSplit; maxInstallments: number; configuredCard: boolean }> {
+  const conditionPath = draft.method === 'pix' ? '/pix-split' : '/card-split';
+  return (await api.put('/admin/businesses/' + id + conditionPath, { ...draft, expectedVersion, authorizeCardSetup, expectedCardLimit })).data;
+}
+
+export interface AdminSplitPayment {
+  id: string;
+  store: string;
+  payment_status: string;
+  order_status: string;
+  delivery_status: string;
+  driver_cents: number | null;
+  payment_method: 'pix' | 'credit_card';
+  payout_state: 'sending' | 'processing' | 'done' | 'review' | null;
+  provider_status: string | null;
+  payment_net_cents: string | null;
+  store_cents: string | null;
+  confirmed_driver_cents: string | null;
+  snapshot: { gross: number; fee: number; net: number; storeEstimate: number; condition: { mode: string; version: string } };
+}
+
+export async function getAdminSplitPayments(signal: AbortSignal): Promise<{ balance: number | null; orders: AdminSplitPayment[] }> {
+  return (await api.get('/admin/asaas/split-payments', { signal })).data;
+}
+
+export async function requestAdminDriverSplitPayment(id: string): Promise<{ state: string }> {
+  return (await api.post('/admin/asaas/split-payments/' + id + '/driver')).data;
 }
 
 export interface StoreAsaasApproval {
@@ -301,6 +393,11 @@ export async function getMyBusinesses() {
 export async function getBusiness(id: string): Promise<Business> {
   const response = await api.get(`/businesses/${id}`);
   return response.data;
+}
+
+export async function updateBusinessPlatformFee(id: string, fee: number | null): Promise<number | null> {
+  const { data } = await api.put('/admin/businesses/' + id + '/platform-fee', { platform_fee_basis_points: fee });
+  return data.platform_fee_basis_points;
 }
 
 export async function updateBusiness(id: string, data: { name: string; category: string; description: string; address?: string | null } | { payment_methods: StorePaymentMethod[]; max_card_installments: number }): Promise<Business> {

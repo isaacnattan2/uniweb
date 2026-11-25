@@ -45,7 +45,8 @@ export function StorePaymentSettings({ business, onSave }: { business: Business;
   const { showToast } = useFeedback();
   const grossCents = Math.round(Number(saleAmount) * 100);
   const validAmount = saleAmount !== '' && Number.isSafeInteger(grossCents) && grossCents >= 1 && grossCents <= 100000000;
-  const changed = methods.length !== saved.length || methods.some((method) => !saved.includes(method)) || maxCardInstallments !== savedLimit;
+  const needsCardConfirmation = methods.includes('credit_card') && !business.card_payment_configured;
+  const changed = needsCardConfirmation || methods.length !== saved.length || methods.some((method) => !saved.includes(method)) || maxCardInstallments !== savedLimit;
 
   function toggle(method: StorePaymentMethod) {
     setMethods((current) => current.includes(method) ? current.filter((value) => value !== method) : [...current, method]);
@@ -72,6 +73,7 @@ export function StorePaymentSettings({ business, onSave }: { business: Business;
     <section className="business-info store-payment-settings" aria-labelledby="store-payment-heading">
       <h2 id="store-payment-heading">Formas de pagamento</h2>
       <p>Escolha quais meios de pagamento seus clientes podem usar nesta loja.</p>
+      {needsCardConfirmation && <p>Confirme o cartão e o limite de parcelas ao salvar, mesmo se mantiver os valores exibidos.</p>}
       <div className="form-group payment-simulation">
         <label htmlFor="payment-simulation-amount">Valor da venda para simular (R$)</label>
         <input id="payment-simulation-amount" type="number" min="0.01" max="1000000" step="0.01"

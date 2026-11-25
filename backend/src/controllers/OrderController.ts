@@ -1,3 +1,4 @@
+import { calculateCheckoutSplit, resolveCardSplitLimit, type SavedSplitCondition } from '../services/AsaasSplit';
 import { createHash } from 'node:crypto';
 import { notifyOrderEvent } from '../services/OrderPush';
 import { AsaasPixKeyMissingError, checkoutIdPattern, checkoutUrl, createAsaasCheckout, getAsaasConfig, getAsaasInstallmentCount } from '../services/AsaasCheckout';
@@ -32,6 +33,9 @@ interface CheckoutProduct {
   category: string | null;
   payment_methods: string[];
   max_card_installments: number;
+  owner_id: string;
+  asaas_pix_split_condition: SavedSplitCondition | null;
+  asaas_card_split_condition: SavedSplitCondition | null;
 }
 
 function formatCents(cents: bigint): string {
@@ -141,7 +145,7 @@ export class OrderController {
       }
       if (config) await lockCart(client, req.userId);
       const result = await client.query<CheckoutProduct>(
-        `SELECT p.id, p.business_id, p.name, p.price, p.stock, p.category, b.payment_methods, b.max_card_installments
+        `SELECT p.id, p.business_id, p.name, p.price, p.stock, p.category, b.payment_methods, b.max_card_installments, b.owner_id, b.asaas_pix_split_condition, b.asaas_card_split_condition
          FROM products p
          JOIN businesses b ON b.id = p.business_id
          JOIN users u ON u.id = b.owner_id
@@ -205,6 +209,8 @@ export class OrderController {
       }
 
       const orderIds: string[] = [];
+      const maxCardInstallments = Math.min(...result.rows.map((product) => product.max_card_installments));
+      const splits: { walletId: string; fixedValue?: number; percentualValue?: number }[] = [];
       const checkoutItems: Array<{ name: string; value: number; quantity: number }> = [];
       for (const [businessId, group] of groups) {
         const subtotal = group.reduce((sum, entry) => sum + entry.subtotal, 0n);
@@ -234,6 +240,22 @@ export class OrderController {
           [orderId, req.userId, businessId, orderId, amount, paymentMethod, deliveryType, deliveryType === 'pickup' ? null : address,
             formatCents(subtotal - discount + deliveryFee), formatCents(discount), couponCode || null, formatCents(deliveryFee)]
         );
+        const store = result.rows.find((product) => product.business_id === businessId);
+        const savedCondition = !config ? null : paymentMethod === 'pix'
+          ? store?.asaas_pix_split_condition : store?.asaas_card_split_condition;
+        if (savedCondition) {
+          const condition = paymentMethod === 'credit_card' ? resolveCardSplitLimit(savedCondition, maxCardInstallments) : savedCondition;
+          if (!condition) throw new CheckoutError(409, 'A condição de repasse do cartão precisa ser atualizada para o limite de parcelas da loja.');
+          if (groups.size !== 1) throw new CheckoutError(409, 'Com o split ativo, finalize cada loja em um pedido separado.');
+          if (condition.ownerId !== store?.owner_id || (condition.expiresAt && Date.parse(condition.expiresAt) <= Date.now())) {
+            throw new CheckoutError(409, 'A condição de repasse desta loja precisa ser atualizada.');
+          }
+          const snapshot = calculateCheckoutSplit(condition, Number(subtotal), Number(discount), Number(deliveryFee),
+            quote ? Number(deliveryFee) + quote.subsidy_cents : 0);
+          if (!snapshot) throw new CheckoutError(409, 'O valor líquido estimado não cobre os repasses deste pedido.');
+          if (snapshot.storeEstimate > 0) splits.push(snapshot.split);
+          await client.query('UPDATE orders SET asaas_split_snapshot = $2::jsonb WHERE id = $1', [orderId, JSON.stringify(snapshot)]);
+        }
         if (quote) {
           await client.query(
             `INSERT INTO delivery_dispatch (order_id, state, slot_at, promised_at, pickup_address, pickup_latitude, pickup_longitude,
@@ -278,8 +300,7 @@ export class OrderController {
       if (config) {
         let providerId: string;
         try {
-          const maxCardInstallments = Math.min(...result.rows.map((product) => product.max_card_installments));
-          providerId = await createAsaasCheckout(config, checkoutId, paymentMethod, checkoutItems, maxCardInstallments);
+          providerId = await createAsaasCheckout(config, checkoutId, paymentMethod, checkoutItems, maxCardInstallments, splits);
         } catch (error) {
           if (error instanceof AsaasPixKeyMissingError) {
             console.warn(error.message);

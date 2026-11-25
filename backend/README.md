@@ -103,3 +103,20 @@ Para validar saldo e histórico nesta etapa, gere saldo e simule uma transferên
 Aplique `migrations/add_asaas_driver_accounts.sql` no banco de teste. O fluxo usa a mesma conta-pai, configuração do Sandbox e chave de criptografia do cadastro de lojistas. No Uniweb, o entregador acessa **Meu cadastro de entregador → Recebimentos e saques Asaas** para criar a subconta e consultar o cadastro. Em **Admin → Entregadores → Cadastro Asaas**, o administrador consulta a situação e pode simular a aprovação de uma subconta de teste.
 
 O cadastro disponibiliza o `wallet_id` do entregador para a futura integração de repasses. A criação da subconta não inicia nenhuma transferência de ganhos.
+
+### Split Pix e repasse de entregas no Sandbox
+
+Depois de `add_business_platform_fee.sql`, aplique `add_asaas_split_conditions.sql` no banco de teste. Habilite Split na conta-pai Sandbox e confirme que o Pix da conta funciona. A loja e o entregador precisam de subcontas aprovadas.
+
+1. Em **Admin → Simulador de split**, selecione Pix, configure a regra e use **Aplicar condição** para escolher uma loja. A condição Pix e o percentual da taxa da plataforma são salvos para compras futuras. Valores absolutos de split só devem ser preenchidos se a intenção for reutilizá-los nos próximos pedidos da loja.
+2. Compre como cliente nessa loja, faça o pagamento de teste e conclua a entrega com o entregador. O split da loja é enviado na criação do checkout e só é liquidado pelo Asaas após recebimento.
+3. No painel de repasses Pix do simulador, clique em **Liberar repasse**. O backend consulta a cobrança e o split da loja, verifica o saldo e pode transferir apenas o ganho registrado para quem concluiu a entrega. Resultado incerto fica em revisão. A referência na conta Asaas é `uniweb-entrega-<ID_DO_PEDIDO>`.
+4. Confira os saldos reais de Sandbox no painel do admin e nas áreas de saques da loja e do entregador. O saldo da plataforma é o saldo agregado da conta-pai. A tabela do pedido mostra quanto ela retém naquela operação.
+
+O checkout aplica condições somente a pedidos Pix de uma loja. Cartão permanece para simulação nesta etapa. A aplicação de condições e a liberação de repasses são restritas ao Sandbox.
+
+### Condições de split no cartão
+
+Aplique também `migrations/add_asaas_card_split_condition.sql` e `migrations/add_business_card_payment_configured.sql`. O simulador salva condições independentes para Pix e cartão em cada loja. O checkout usa o limite definido em **Pagamentos**. Se o cartão ou o limite ainda não tiver confirmação, o admin pode autorizar explicitamente o limite simulado ao aplicar a condição. Para um limite de 1x, selecione fixo ou percentual. Para limites acima de 1x, selecione percentual. A projeção para a loja usa a maior tarifa das opções oferecidas pelo limite cadastrado. O Asaas efetiva cada split percentual sobre o líquido da respectiva parcela.
+
+No teste de cartão, o repasse manual ao entregador é liberado no Sandbox após o recebimento de todas as parcelas e a confirmação dos splits correspondentes. Aprovação do pagamento e crédito em saldo são etapas distintas.

@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import axios from 'axios';
 import { changeCustomerCart, getCustomerCart } from '../services/api';
-import type { CustomerCartAction } from '../services/api';
+import type { CustomerCartAction, SavedPaymentSplit } from '../services/api';
 
 export type UserType = 'admin' | 'business' | 'customer' | 'driver';
 
@@ -18,6 +18,11 @@ export interface Business {
   status: string;
   payment_methods?: StorePaymentMethod[];
   max_card_installments?: number;
+  card_payment_configured?: boolean;
+  platform_fee_basis_points?: number | null;
+  owner_id?: string;
+  asaas_pix_split_condition?: SavedPaymentSplit | null;
+  asaas_card_split_condition?: SavedPaymentSplit | null;
 }
 
 interface Product {

@@ -1,8 +1,21 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
-import BusinessService, { BusinessUpdate } from '../services/BusinessService';
+import BusinessService, { BusinessUpdate, CardSplitLimitError } from '../services/BusinessService';
 import { MAX_CARD_INSTALLMENTS } from '../services/AsaasCheckout';
 import { query } from '../config/database';
+
+function businessForViewer<T extends {
+  owner_id?: string;
+  asaas_pix_split_condition?: { ownerId?: string } | null;
+  asaas_card_split_condition?: { ownerId?: string } | null;
+}>(business: T, viewer: AuthRequest) {
+  if (viewer.userType === 'admin') return business;
+  return {
+    ...business,
+    asaas_pix_split_condition: business.asaas_pix_split_condition?.ownerId === viewer.userId ? business.asaas_pix_split_condition : null,
+    asaas_card_split_condition: business.asaas_card_split_condition?.ownerId === viewer.userId ? business.asaas_card_split_condition : null,
+  };
+}
 
 export class BusinessController {
   async createBusiness(req: AuthRequest, res: Response) {
@@ -32,7 +45,7 @@ export class BusinessController {
       }
 
       const businesses = await BusinessService.getBusinessesByOwner(req.userId);
-      res.json(businesses);
+      res.json(businesses.map((business) => businessForViewer(business, req)));
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -47,7 +60,7 @@ export class BusinessController {
         return res.status(404).json({ error: 'Business not found' });
       }
 
-      res.json(business);
+      res.json(businessForViewer(business, req));
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -108,13 +121,16 @@ export class BusinessController {
           return res.status(400).json({ error: 'Escolha um limite de 1 a 12 parcelas.' });
         }
         data.max_card_installments = count;
+        if (data.payment_methods) data.card_payment_configured = data.payment_methods.includes('credit_card');
       }
+      if (data.payment_methods && !data.payment_methods.includes('credit_card')) data.card_payment_configured = false;
       const business = await BusinessService.updateBusiness(id, data, req.userType === 'admin' ? undefined : req.userId);
       if (!business) {
         return res.status(req.userType === 'admin' ? 404 : 403).json({ error: 'Sem acesso a esta loja ou loja não encontrada' });
       }
-      res.json(business);
+      res.json(businessForViewer(business, req));
     } catch (error) {
+      if (error instanceof CardSplitLimitError) return res.status(409).json({ error: error.message });
       console.error('Erro ao atualizar loja:', error);
       res.status(500).json({ error: 'Não foi possível atualizar a loja' });
     }

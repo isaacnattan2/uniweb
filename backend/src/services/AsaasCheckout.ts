@@ -27,7 +27,8 @@ export async function createAsaasCheckout(
   reference: string,
   method: 'pix' | 'credit_card',
   items: Array<{ name: string; quantity: number; value: number }>,
-  maxCardInstallments: number
+  maxCardInstallments: number,
+  splits: { walletId: string; fixedValue?: number; percentualValue?: number }[] = []
 ): Promise<string> {
   const card = method === 'credit_card';
   const allowsInstallments = card && maxCardInstallments > 1;
@@ -52,6 +53,7 @@ export async function createAsaasCheckout(
         expiredUrl: callbackUrl('expired'),
       },
       items,
+      ...(splits.length && { splits }),
     }),
   });
   if (!response.ok) {

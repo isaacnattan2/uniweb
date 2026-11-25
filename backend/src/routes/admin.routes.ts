@@ -1,3 +1,5 @@
+import { applyCardSplit, applyPixSplit, removeSplitCondition, readSplitPayments, sendDriverSplitPayment } from '../controllers/AdminAsaasSplit';
+import { getAdminAsaasFees } from '../controllers/AdminAsaasFees';
 import { adminAsaasApproval, adminDriverAsaasApproval } from '../controllers/AdminAsaasApproval';
 import { deleteAd, listAdminAds, saveAd } from '../controllers/MarketplaceAd';
 import { Router } from 'express';
@@ -11,6 +13,12 @@ import { notifyAdminDriverPresence } from '../services/OrderPush';
 
 const router = Router();
 router.use(authMiddleware, requireAdmin);
+router.put('/businesses/:id/pix-split', (req, res, next) => applyPixSplit(req, res).catch(next));
+router.put('/businesses/:id/card-split', (req, res, next) => applyCardSplit(req, res).catch(next));
+router.delete('/businesses/:id/split-conditions/:method/:version', (req, res, next) => removeSplitCondition(req, res).catch(next));
+router.get('/asaas/split-payments', (req, res, next) => readSplitPayments(req, res).catch(next));
+router.post('/asaas/split-payments/:id/driver', (req, res, next) => sendDriverSplitPayment(req, res).catch(next));
+router.get('/asaas/fees', (req, res, next) => getAdminAsaasFees(req, res).catch(next));
 router.get('/businesses/:id/asaas-account', (req, res, next) => adminAsaasApproval(req, res).catch(next));
 router.post('/businesses/:id/asaas-account/sandbox-approve', (req, res, next) => adminAsaasApproval(req, res).catch(next));
 router.get('/delivery-dispatch/settings', (req, res, next) => dispatchSettings(req, res).catch(next));
@@ -240,6 +248,27 @@ router.put('/sellers/:id/status', async (req, res, next) => {
     );
     if (!result.rows.length) return res.status(404).json({ error: 'Lojista não encontrado.' });
     res.json(result.rows[0]);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.put('/businesses/:id/platform-fee', async (req, res, next) => {
+  const { id } = req.params;
+  const { platform_fee_basis_points: fee } = req.body || {};
+  if (!uuid.test(id) || (fee !== null &&
+      (typeof fee !== 'number' || !Number.isInteger(fee) || fee < 0 || fee > 10000))) {
+    return res.status(400).json({ error: 'Informe uma taxa entre 0% e 100%, com até duas casas decimais.' });
+  }
+
+  try {
+    const { rows: [business] } = await query(
+      `UPDATE businesses SET platform_fee_basis_points = $2, updated_at = NOW()
+       WHERE id = $1 AND deleted_at IS NULL RETURNING platform_fee_basis_points`,
+      [id, fee],
+    );
+    if (!business) return res.status(404).json({ error: 'Loja não encontrada.' });
+    return res.json(business);
   } catch (error) {
     next(error);
   }
