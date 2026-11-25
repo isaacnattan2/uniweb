@@ -4,6 +4,7 @@
 - Preserve a proporção entre os espaçamentos. Reutilize a escala e os intervalos entre seções, cartões e controles da tela, inclusive em layouts responsivos.
 - Em cartões lado a lado, alinhe as ações à base de cada linha mesmo quando o conteúdo tiver tamanhos diferentes. Reutilize `card-layout` e `card-footer` quando apropriado.
 - Alinhe também os campos correspondentes dos cartões por linha, reservando automaticamente o espaço necessário para textos maiores ou campos ausentes, sem cortar o conteúdo. Reutilize `card-grid` e as classes `card-row-*` quando apropriado.
+- Em cards comparáveis com listas de tamanho variável, use painéis de altura uniforme, limites visuais claros e rolagem interna quando necessária. Mantenha os botões fora da rolagem e alinhados horizontalmente na mesma linha, inclusive com listas vazias ou itens expandidos. Preserve o acesso por teclado e a proporção em telas menores.
 
 # Notificações web
 

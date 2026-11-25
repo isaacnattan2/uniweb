@@ -124,7 +124,6 @@ export function AdminDrivers() {
   return (
     <section aria-labelledby="drivers-heading">
       <h2 id="drivers-heading">Entregadores</h2>
-      {drivers && <p role="status">{drivers.filter((driver) => driver.checked_in).length} com check-in ativo</p>}
       {loadError && <p className="error-message" role="alert">{loadError}</p>}
       <AdminDeliveryRates />
       <AdminDeliveryDispatch />

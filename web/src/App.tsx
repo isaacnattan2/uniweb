@@ -11,6 +11,7 @@ import { RegisterPage } from './pages/RegisterPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { AdminIndex, AdminPage, AdminSection, adminSections } from './pages/AdminPage';
 import { BusinessPage } from './pages/BusinessPage';
+import { AdminNewSellerPage } from './pages/AdminNewSellerPage';
 import { NewBusinessPage } from './pages/NewBusinessPage';
 import { NewProductPage } from './pages/NewProductPage';
 import { EditProductPage } from './pages/EditProductPage';
@@ -63,6 +64,10 @@ function App() {
           }
         >
           <Route index element={<AdminIndex />} />
+          <Route path="lojas" element={<Navigate to="/admin/lojistas" replace />} />
+          <Route path="cadastrar-lojista" element={<Navigate to="/admin/lojistas/novo" replace />} />
+          <Route path="lojistas/novo" element={<AdminNewSellerPage />} />
+          <Route path="lojistas/:sellerId/nova-loja" element={<NewBusinessPage />} />
           {adminSections.map(({ path }) => (
             <Route key={path} path={path} element={<AdminSection key={path} section={path} />} />
           ))}
