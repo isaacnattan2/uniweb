@@ -1,3 +1,4 @@
+import { getAdminAsaasBalance } from '../controllers/AdminAsaasBalance';
 import { applyCardSplit, applyPixSplit, removeSplitCondition, readSplitPayments, sendDriverSplitPayment } from '../controllers/AdminAsaasSplit';
 import { getAdminAsaasFees } from '../controllers/AdminAsaasFees';
 import { adminAsaasApproval, adminDriverAsaasApproval } from '../controllers/AdminAsaasApproval';
@@ -18,6 +19,7 @@ router.put('/businesses/:id/card-split', (req, res, next) => applyCardSplit(req,
 router.delete('/businesses/:id/split-conditions/:method/:version', (req, res, next) => removeSplitCondition(req, res).catch(next));
 router.get('/asaas/split-payments', (req, res, next) => readSplitPayments(req, res).catch(next));
 router.post('/asaas/split-payments/:id/driver', (req, res, next) => sendDriverSplitPayment(req, res).catch(next));
+router.get('/asaas/balance', (req, res, next) => getAdminAsaasBalance(req, res).catch(next));
 router.get('/asaas/fees', (req, res, next) => getAdminAsaasFees(req, res).catch(next));
 router.get('/businesses/:id/asaas-account', (req, res, next) => adminAsaasApproval(req, res).catch(next));
 router.post('/businesses/:id/asaas-account/sandbox-approve', (req, res, next) => adminAsaasApproval(req, res).catch(next));

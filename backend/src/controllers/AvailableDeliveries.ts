@@ -1,6 +1,7 @@
 ﻿import { NextFunction, Response } from 'express';
 import { randomInt } from 'node:crypto';
 import { getClient, query } from '../config/database';
+import { driverCanReceivePayout } from '../services/AsaasStoreApproval';
 import { AuthRequest } from '../middleware/auth';
 import { notifyOrderEvent } from '../services/OrderPush';
 import { calculateDeliveryFee, getDriverDeliveryRate } from '../services/DriverDeliveryRates';
@@ -37,6 +38,7 @@ async function listDeliveries(req: AuthRequest, res: Response, next: NextFunctio
   const start = Number(offset);
   res.set('Cache-Control', 'no-store');
   try {
+    if (!accepted && !await driverCanReceivePayout(req.userId)) return res.json({ items: [], nextOffset: null });
     const result = await query(
       `SELECT o.id, o.order_number, o.created_at, o.delivery_status, o.order_status, b.id AS store_id, b.name AS store_name,
               NULLIF(TRIM(b.address), '') AS pickup_address,
@@ -108,6 +110,9 @@ export async function acceptDelivery(req: AuthRequest, res: Response, next: Next
     return res.status(400).json({ error: 'Pedido inválido.' });
   }
   try {
+    if (!await driverCanReceivePayout(req.userId)) {
+      return res.status(409).json({ error: 'Regularize sua conta Asaas e seus dados banc\u00e1rios para aceitar entregas.' });
+    }
     const rate = (await getDriverDeliveryRate(req.userId)).effectiveCents;
     let candidate: DeliveryDistanceOrder | undefined;
     let distance = null;

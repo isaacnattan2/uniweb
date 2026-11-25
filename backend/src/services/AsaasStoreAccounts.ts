@@ -1,4 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
+import type { QueryResult } from 'pg';
 import { query } from '../config/database';
 
 export const storeSandboxApi = 'https://api-sandbox.asaas.com/v3';
@@ -53,10 +54,12 @@ export function decryptStoreKey(envelope: string, secret: Buffer, businessId: st
   return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString('utf8');
 }
 
-export async function getSandboxStoreAccount(businessId: string, ownerId: string) {
-  const result = await query(
-    'SELECT encrypted_key, created_at FROM asaas_store_accounts WHERE business_id = $1 AND owner_id = $2',
+export type AsaasAccountDatabase = { query: (sql: string, parameters?: unknown[]) => Promise<QueryResult> };
+
+export async function getSandboxStoreAccount(businessId: string, ownerId: string, db: AsaasAccountDatabase = { query }) {
+  const result = await db.query(
+    'SELECT encrypted_key, created_at, wallet_id FROM asaas_store_accounts WHERE business_id = $1 AND owner_id = $2',
     [businessId, ownerId],
   );
-  return result.rows[0] as { encrypted_key: string | null; created_at: Date } | undefined;
+  return result.rows[0] as { encrypted_key: string | null; created_at: Date; wallet_id: string | null } | undefined;
 }

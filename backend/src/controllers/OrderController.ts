@@ -10,6 +10,7 @@ import { formatDeliveryAddress, normalizeDeliveryAddress } from '../services/Del
 import { lockCart } from '../services/CustomerCart';
 import { getClient, query } from '../config/database';
 import { applyCoupon, Coupon, CouponError, normalizeCouponCode } from '../services/StoreCoupons';
+import { storeCanReceivePayout } from '../services/AsaasStoreApproval';
 import { dispatchUuid, dispatchWindowMinutes, findDispatchCandidates } from '../services/DeliveryDispatch';
 
 class CheckoutError extends Error {
@@ -178,6 +179,15 @@ export class OrderController {
         const group = groups.get(product.business_id) || [];
         group.push({ product, item, subtotal: priceCents * BigInt(item.quantity) });
         groups.set(product.business_id, group);
+      }
+
+      const payoutEligibility = await Promise.all([...groups].map(([businessId, entries]) => {
+        const { product } = entries[0];
+        const condition = paymentMethod === 'pix' ? product.asaas_pix_split_condition : product.asaas_card_split_condition;
+        return storeCanReceivePayout(businessId, product.owner_id, condition?.walletId, client);
+      }));
+      if (payoutEligibility.includes(false)) {
+        throw new CheckoutError(409, 'Uma loja do carrinho est\u00e1 com o cadastro de recebimentos pendente.');
       }
 
       if (couponCode && groups.size !== 1) {

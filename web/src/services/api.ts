@@ -200,6 +200,10 @@ export interface AdminSplitPayment {
   snapshot: { gross: number; fee: number; net: number; storeEstimate: number; condition: { mode: string; version: string } };
 }
 
+export async function getPlatformAsaasBalance(signal: AbortSignal): Promise<{ balance: number; sandbox: boolean }> {
+  return (await api.get('/admin/asaas/balance', { signal })).data;
+}
+
 export async function getAdminSplitPayments(signal: AbortSignal): Promise<{ balance: number | null; orders: AdminSplitPayment[] }> {
   return (await api.get('/admin/asaas/split-payments', { signal })).data;
 }

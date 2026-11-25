@@ -1,6 +1,7 @@
 import { randomInt, randomUUID } from 'node:crypto';
 import type { PoolClient, QueryResult } from 'pg';
 import { getClient, query } from '../config/database';
+import { driverCanReceivePayout, filterDriversEligibleForPayout } from './AsaasStoreApproval';
 import { notifyAdminDriverPresence, notifyDriverOffer, notifyOrderEvent } from './OrderPush';
 
 export const dispatchUuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
@@ -35,6 +36,7 @@ const eligibleDrivers = `
         + cos(radians($1::float8)) * cos(radians(location.latitude)) * power(sin(radians(location.longitude - $2::float8)/2), 2)
       ))) END AS pickup_meters
   FROM drivers d JOIN users u ON u.id = d.user_id AND u.status = 'active' AND u.user_type = 'driver'
+  JOIN asaas_driver_accounts a ON a.driver_id = d.user_id AND a.wallet_id IS NOT NULL AND a.encrypted_key IS NOT NULL
   LEFT JOIN driver_dispatch_presence p ON p.user_id = d.user_id
   LEFT JOIN driver_delivery_rate_policy cfg ON cfg.id = true
   LEFT JOIN LATERAL (
@@ -96,11 +98,14 @@ export async function findDispatchCandidates(
     WHERE ($12::boolean OR $11::uuid IS NOT NULL OR fee_cents <= $6::int)
       AND ($10::timestamptz IS NULL OR GREATEST(NOW(), COALESCE($8, NOW())) +
         make_interval(mins => pickup_minutes + $4::int) <= $10)
-    ORDER BY pickup_minutes, fee_cents, user_id LIMIT CASE WHEN $12::boolean THEN NULL ELSE 10 END`,
+    ORDER BY pickup_minutes, fee_cents, user_id`,
     [route.pickup_latitude, route.pickup_longitude, route.distance_meters, route.duration_minutes,
       route.rate_cents, route.fee_cents + route.subsidy_cents, route.radius_meters, slot, orderId, promisedAt, reservedUserId, allRates],
   );
-  return rows as { user_id: string; rate_cents: number; fee_cents: number; pickup_minutes: number; latitude: number; longitude: number }[];
+  const candidates = rows as { user_id: string; rate_cents: number; fee_cents: number; pickup_minutes: number; latitude: number; longitude: number }[];
+  if (reservedUserId) return candidates.length && await driverCanReceivePayout(reservedUserId, db) ? candidates : [];
+  const eligible = await filterDriversEligibleForPayout(candidates, (candidate) => candidate.user_id, db);
+  return allRates ? eligible : eligible.slice(0, 10);
 }
 
 export async function findDispatchSlots(route: DispatchRoute, db: DispatchDatabase = { query }) {

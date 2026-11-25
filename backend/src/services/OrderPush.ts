@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { createHmac, randomUUID } from 'node:crypto';
+import { filterDriversEligibleForPayout } from './AsaasStoreApproval';
 import { query } from '../config/database';
 
 export function signStorePushIdentity(externalId: string) {
@@ -73,10 +74,11 @@ async function sendOrderEvent(event: OrderEvent, orderIds: string[], offeredDriv
      WHERE o.id = ANY($1::uuid[])`, [orderIds],
   );
   if (!rows.length) return;
-  const availableDrivers = mobile && event === 'ready' && rows.some((order) => !order.managed_delivery) ? (await query(
+  const availableDrivers = mobile && event === 'ready' && rows.some((order) => !order.managed_delivery) ? await filterDriversEligibleForPayout((await query(
     `SELECT DISTINCT u.id FROM users u JOIN drivers d ON d.user_id = u.id
+     JOIN asaas_driver_accounts a ON a.driver_id = d.user_id AND a.wallet_id IS NOT NULL AND a.encrypted_key IS NOT NULL
      WHERE u.user_type = 'driver' AND u.status = 'active' AND d.deleted_at IS NULL`,
-  )).rows.map(({ id }) => driverPushAlias(id)!) : [];
+  )).rows, ({ id }) => id) : [];
 
   await Promise.all(rows.map(async (order) => {
     const orderCode = order.id.slice(0, 8).toUpperCase();
@@ -95,7 +97,7 @@ async function sendOrderEvent(event: OrderEvent, orderIds: string[], offeredDriv
     if (driverApp && driverKey && mobile && ['ready', 'cancelled', 'delivered'].includes(event)) {
       const assigned = order.delivery_driver_id && driverPushAlias(order.delivery_driver_id);
       const offered = event === 'cancelled' && offeredDriverId ? driverPushAlias(offeredDriverId) : null;
-      const recipients = event === 'ready' ? order.managed_delivery ? [] : availableDrivers
+      const recipients = event === 'ready' ? order.managed_delivery ? [] : availableDrivers.map(({ id }) => driverPushAlias(id)!)
         : [...new Set([assigned, offered].filter((alias): alias is string => Boolean(alias)))];
       for (let offset = 0; offset < recipients.length; offset += 20000) {
         sends.push(sendPush(driverApp, driverKey, recipients.slice(offset, offset + 20000), event, body, {

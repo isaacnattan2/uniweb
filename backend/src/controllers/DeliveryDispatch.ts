@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Request, Response } from 'express';
 import { query } from '../config/database';
 import type { AuthRequest } from '../middleware/auth';
+import { storeCanReceivePayout } from '../services/AsaasStoreApproval';
 import { formatDeliveryAddress, normalizeDeliveryAddress } from '../services/DeliveryAddress';
 import { DeliveryProviderHttpError, locateDeliveryAddress, routeDelivery, validCoordinate } from '../services/DeliveryRouting';
 import { ratePickupAddress } from '../services/OrderDeliveryDistance';
@@ -21,12 +22,15 @@ export async function quoteDelivery(req: AuthRequest, res: Response) {
     return res.status(400).json({ error: 'Escolha entrega imediata ou agendada.' });
   }
   const { rows: [settings] } = await query(
-    `SELECT ${ratePickupAddress} AS pickup_address, p.default_cents, s.radius_meters, s.subsidy_cents
+    `SELECT ${ratePickupAddress} AS pickup_address, b.owner_id, p.default_cents, s.radius_meters, s.subsidy_cents
      FROM businesses b JOIN users u ON u.id = b.owner_id AND u.status = 'active'
      CROSS JOIN delivery_dispatch_settings s CROSS JOIN driver_delivery_rate_policy p
      WHERE b.id = $1 AND b.status = 'active' AND b.deleted_at IS NULL`, [businessId]
   );
   if (!settings?.pickup_address) return res.status(422).json({ error: 'A loja ainda não disponibiliza frete para entrega.' });
+  if (!await storeCanReceivePayout(businessId, settings.owner_id)) {
+    return res.status(409).json({ error: 'A loja est\u00e1 com o cadastro de recebimentos pendente.' });
+  }
   const geocoder = process.env.NOMINATIM_SEARCH_URL?.trim();
   const router = process.env.VALHALLA_ROUTE_URL?.trim();
   if (!geocoder || !router) return res.status(503).json({ error: 'A cotação de entrega está temporariamente indisponível.' });
