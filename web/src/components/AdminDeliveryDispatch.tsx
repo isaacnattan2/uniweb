@@ -79,20 +79,16 @@ export function AdminDeliveryDispatch() {
             disabled={saving} value={settings.blockMinutes}
             onChange={(event) => setSettings({ ...settings, blockMinutes: event.target.value })} />
         </div>
-        <div className="form-group">
-          <label htmlFor="dispatch-enforce-deadline">
-            <input id="dispatch-enforce-deadline" type="checkbox" checked={settings.enforceDeadline} disabled={saving}
-              onChange={(event) => setSettings({ ...settings, enforceDeadline: event.target.checked })} />
-            {' '}Excluir entregadores quando a estimativa ultrapassar o prazo prometido
-          </label>
-        </div>
-        <div className="form-group">
-          <label htmlFor="dispatch-audit-enabled">
-            <input id="dispatch-audit-enabled" type="checkbox" checked={settings.auditEnabled} disabled={saving}
-              onChange={(event) => setSettings({ ...settings, auditEnabled: event.target.checked })} />
-            {' '}Registrar auditoria de entregas
-          </label>
-        </div>
+        <label className="admin-rate-checkbox" htmlFor="dispatch-enforce-deadline">
+          <input id="dispatch-enforce-deadline" type="checkbox" checked={settings.enforceDeadline} disabled={saving}
+            onChange={(event) => setSettings({ ...settings, enforceDeadline: event.target.checked })} />
+          Excluir entregadores quando a estimativa ultrapassar o prazo prometido
+        </label>
+        <label className="admin-rate-checkbox" htmlFor="dispatch-audit-enabled">
+          <input id="dispatch-audit-enabled" type="checkbox" checked={settings.auditEnabled} disabled={saving}
+            onChange={(event) => setSettings({ ...settings, auditEnabled: event.target.checked })} />
+          Registrar auditoria de entregas
+        </label>
         <button type="submit" className="btn-primary" disabled={saving}>Salvar regras de alocação</button>
       </form>}
       <h4>Ocorrências e estornos</h4>

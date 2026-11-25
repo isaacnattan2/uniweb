@@ -149,6 +149,12 @@
   gap: 0.5rem;
 }
 
+.admin-rate-checkbox input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: auto;
+  margin: 0;
+}
+
 .admin-category-list {
   list-style: none;
   max-block-size: 16rem;
