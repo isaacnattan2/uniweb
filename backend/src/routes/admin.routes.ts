@@ -34,6 +34,14 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 router.get('/drivers/:id/dispatch-audit', async (req, res, next) => {
   const { id } = req.params;
   if (!uuid.test(id)) return res.sendStatus(400);
+  const { start, end } = req.query;
+  const validTimestamp = (value: unknown): value is string =>
+    typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)
+    && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value;
+  if ((start !== undefined && !validTimestamp(start)) || (end !== undefined && !validTimestamp(end))
+      || (typeof start === 'string' && typeof end === 'string' && start >= end)) {
+    return res.status(400).json({ error: 'Informe um intervalo de datas válido.' });
+  }
   try {
     const { rows } = await query(
       `SELECT a.id, a.order_id, a.search_cycle, a.created_at,
@@ -42,13 +50,15 @@ router.get('/drivers/:id/dispatch-audit', async (req, res, next) => {
                   'decision', (SELECT d FROM jsonb_array_elements(a.details->'drivers') d
                                WHERE d->>'driverId' = $1::text LIMIT 1)) AS details
        FROM delivery_dispatch_audit a
-       WHERE a.driver_ids @> ARRAY[$1::uuid]
+       WHERE ($2::timestamptz IS NULL OR a.created_at >= $2)
+         AND ($3::timestamptz IS NULL OR a.created_at < $3)
+         AND (a.driver_ids @> ARRAY[$1::uuid]
           OR (a.details->>'event' = 'dispatch_search_expired' AND EXISTS (
             SELECT 1 FROM delivery_dispatch_audit related
             WHERE related.order_id = a.order_id AND related.search_cycle = a.search_cycle
               AND related.driver_ids @> ARRAY[$1::uuid]
-          ))
-       ORDER BY a.created_at DESC, a.id DESC LIMIT 50`, [id.toLowerCase()],
+          )))
+       ORDER BY a.created_at DESC, a.id DESC LIMIT 50`, [id.toLowerCase(), start ?? null, end ?? null],
     );
     res.set('Cache-Control', 'no-store');
     return res.json(rows);

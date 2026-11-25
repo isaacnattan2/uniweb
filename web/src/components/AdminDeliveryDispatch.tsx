@@ -12,7 +12,7 @@ const actions = [
 const refunds: Record<string, string> = { pending: 'Estorno solicitado', processing: 'Estorno em processamento', review: 'Estorno requer conferência no Asaas' };
 
 export function AdminDeliveryDispatch() {
-  const [settings, setSettings] = useState<{ radius: string; subsidy: string; blockMinutes: string; offerMode: 'push' | 'polling' }>();
+  const [settings, setSettings] = useState<{ radius: string; subsidy: string; blockMinutes: string; enforceDeadline: boolean; auditEnabled: boolean; offerMode: 'push' | 'polling' }>();
   const [incidents, setIncidents] = useState<DispatchIncident[]>();
   const [incidentId, setIncidentId] = useState('');
   const [action, setAction] = useState('');
@@ -25,7 +25,7 @@ export function AdminDeliveryDispatch() {
     let active = true;
     void getDispatchSettings().then((data) => {
       if (active) setSettings({ radius: String(data.radius_meters / 1000), subsidy: (data.subsidy_cents / 100).toFixed(2),
-        blockMinutes: String(data.missed_offer_block_minutes ?? 60), offerMode: data.offer_delivery_mode === 'polling' ? 'polling' : 'push' });
+        blockMinutes: String(data.missed_offer_block_minutes ?? 60), enforceDeadline: data.enforce_delivery_deadline === true, auditEnabled: data.audit_enabled !== false, offerMode: data.offer_delivery_mode === 'polling' ? 'polling' : 'push' });
     }).catch(() => { if (active) setError('Não foi possível carregar as regras de alocação.'); });
     void getDispatchIncidents().then((data) => { if (active) setIncidents(data); })
       .catch(() => { if (active) setError('Não foi possível carregar as ocorrências.'); });
@@ -51,7 +51,7 @@ export function AdminDeliveryDispatch() {
       {error && <p className="error-message" role="alert">{error}</p>}
       {!settings && !error && <p role="status">Carregando configuração…</p>}
       {settings && <form onSubmit={(event) => void apply(event, () =>
-        saveDispatchSettings(Math.round(Number(settings.radius) * 1000), Math.round(Number(settings.subsidy) * 100), settings.offerMode, Number(settings.blockMinutes)),
+        saveDispatchSettings(Math.round(Number(settings.radius) * 1000), Math.round(Number(settings.subsidy) * 100), settings.offerMode, Number(settings.blockMinutes), settings.enforceDeadline, settings.auditEnabled),
         'Regras de alocação salvas.')}>
         <div className="admin-rate-fields">
           <div className="form-group">
@@ -78,6 +78,20 @@ export function AdminDeliveryDispatch() {
           <input id="dispatch-block-duration" type="number" min={1} max={10080} step={1} required
             disabled={saving} value={settings.blockMinutes}
             onChange={(event) => setSettings({ ...settings, blockMinutes: event.target.value })} />
+        </div>
+        <div className="form-group">
+          <label htmlFor="dispatch-enforce-deadline">
+            <input id="dispatch-enforce-deadline" type="checkbox" checked={settings.enforceDeadline} disabled={saving}
+              onChange={(event) => setSettings({ ...settings, enforceDeadline: event.target.checked })} />
+            {' '}Excluir entregadores quando a estimativa ultrapassar o prazo prometido
+          </label>
+        </div>
+        <div className="form-group">
+          <label htmlFor="dispatch-audit-enabled">
+            <input id="dispatch-audit-enabled" type="checkbox" checked={settings.auditEnabled} disabled={saving}
+              onChange={(event) => setSettings({ ...settings, auditEnabled: event.target.checked })} />
+            {' '}Registrar auditoria de entregas
+          </label>
         </div>
         <button type="submit" className="btn-primary" disabled={saving}>Salvar regras de alocação</button>
       </form>}

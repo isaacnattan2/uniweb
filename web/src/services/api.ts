@@ -569,11 +569,11 @@ export async function scheduleDeliveryAlternative(orderId: string, scheduledAt: 
 }
 
 export async function getDispatchSettings() {
-  return (await api.get<{ radius_meters: number; subsidy_cents: number; missed_offer_block_minutes: number; offer_delivery_mode: 'push' | 'polling' }>('/admin/delivery-dispatch/settings')).data;
+  return (await api.get<{ radius_meters: number; subsidy_cents: number; missed_offer_block_minutes: number; enforce_delivery_deadline: boolean; audit_enabled: boolean; offer_delivery_mode: 'push' | 'polling' }>('/admin/delivery-dispatch/settings')).data;
 }
 
-export async function saveDispatchSettings(radiusMeters: number, subsidyCents: number, offerDeliveryMode: 'push' | 'polling', missedOfferBlockMinutes: number) {
-  await api.put('/admin/delivery-dispatch/settings', { radiusMeters, subsidyCents, offerDeliveryMode, missedOfferBlockMinutes });
+export async function saveDispatchSettings(radiusMeters: number, subsidyCents: number, offerDeliveryMode: 'push' | 'polling', missedOfferBlockMinutes: number, enforceDeliveryDeadline: boolean, auditEnabled: boolean) {
+  await api.put('/admin/delivery-dispatch/settings', { radiusMeters, subsidyCents, offerDeliveryMode, missedOfferBlockMinutes, enforceDeliveryDeadline, auditEnabled });
 }
 
 export interface DispatchIncident {
@@ -795,6 +795,6 @@ export interface DriverAuditEntry {
   };
 }
 
-export async function getDriverDispatchAudit(id: string, signal: AbortSignal) {
-  return (await api.get<DriverAuditEntry[]>('/admin/drivers/' + encodeURIComponent(id) + '/dispatch-audit', { signal })).data;
+export async function getDriverDispatchAudit(id: string, signal: AbortSignal, period: { start?: string; end?: string }) {
+  return (await api.get<DriverAuditEntry[]>('/admin/drivers/' + encodeURIComponent(id) + '/dispatch-audit', { signal, params: period })).data;
 }

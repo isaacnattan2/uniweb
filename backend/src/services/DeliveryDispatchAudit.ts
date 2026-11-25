@@ -23,7 +23,8 @@ export async function recordDispatchAudit(events: DispatchAuditEvent[]) {
     await query(
       `INSERT INTO delivery_dispatch_audit (order_id, search_cycle, driver_ids, details, created_at)
        SELECT order_id, search_cycle, driver_ids, details, created_at FROM jsonb_to_recordset($1::jsonb)
-       AS entry(order_id uuid, search_cycle integer, driver_ids uuid[], details jsonb, created_at timestamptz)`,
+       AS entry(order_id uuid, search_cycle integer, driver_ids uuid[], details jsonb, created_at timestamptz)
+       WHERE EXISTS (SELECT 1 FROM delivery_dispatch_settings WHERE id = true AND audit_enabled)`,
       [JSON.stringify(entries)],
     );
   } catch (error) {

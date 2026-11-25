@@ -32,16 +32,19 @@ const date = (value: string) => dateTime.format(new Date(value));
 
 export function AdminDriverAudit({ driver, onClose }: { driver: AdminDriver; onClose: () => void }) {
   const [entries, setEntries] = useState<DriverAuditEntry[]>([]);
-  const [revision, setRevision] = useState(0);
+  const [start, setStart] = useState('');
+  const [end, setEnd] = useState('');
+  const [period, setPeriod] = useState<{ start?: string; end?: string }>({});
+  const [filterError, setFilterError] = useState('');
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
 
   useEffect(() => {
     const controller = new AbortController();
-    void getDriverDispatchAudit(driver.id, controller.signal)
+    void getDriverDispatchAudit(driver.id, controller.signal, period)
       .then((data) => { if (!controller.signal.aborted) { setEntries(data); setStatus('ready'); } })
       .catch(() => { if (!controller.signal.aborted) setStatus('error'); });
     return () => controller.abort();
-  }, [driver.id, revision]);
+  }, [driver.id, period]);
 
   return (
     <section className="form-box" aria-labelledby="driver-audit-heading">
@@ -49,13 +52,53 @@ export function AdminDriverAudit({ driver, onClose }: { driver: AdminDriver; onC
         <h3 id="driver-audit-heading">Auditoria de {driver.full_name}</h3>
         <div className="card-actions">
           <button className="btn-secondary" type="button" disabled={status === 'loading'}
-            onClick={() => { setStatus('loading'); setRevision((value) => value + 1); }}>Atualizar</button>
+            onClick={() => { setStatus('loading'); setPeriod((current) => ({ ...current })); }}>Atualizar</button>
           <button className="btn-secondary" type="button" onClick={onClose}>Fechar</button>
         </div>
       </div>
+      <form onSubmit={(event) => {
+        event.preventDefault();
+        const startTime = start ? new Date(start).getTime() : undefined;
+        const endTime = end ? new Date(end).getTime() : undefined;
+        if ((startTime !== undefined && !Number.isFinite(startTime)) ||
+            (endTime !== undefined && !Number.isFinite(endTime)) ||
+            (startTime !== undefined && endTime !== undefined && startTime > endTime)) {
+          setFilterError('Informe um intervalo válido. O início deve ser anterior ou igual ao fim.');
+          return;
+        }
+        setFilterError('');
+        setStatus('loading');
+        setPeriod({
+          start: startTime === undefined ? undefined : new Date(startTime).toISOString(),
+          end: endTime === undefined ? undefined : new Date(endTime + 60_000).toISOString(),
+        });
+      }}>
+        <div className="admin-rate-fields">
+          <div className="form-group">
+            <label htmlFor="driver-audit-start">Início</label>
+            <input id="driver-audit-start" type="datetime-local" value={start} onChange={(event) => setStart(event.target.value)} />
+          </div>
+          <div className="form-group">
+            <label htmlFor="driver-audit-end">Fim</label>
+            <input id="driver-audit-end" type="datetime-local" value={end} onChange={(event) => setEnd(event.target.value)} />
+          </div>
+        </div>
+        <div className="card-actions">
+          <button className="btn-primary" type="submit">Filtrar</button>
+          <button className="btn-secondary" type="button" onClick={() => {
+            setStart('');
+            setEnd('');
+            setFilterError('');
+            setStatus('loading');
+            setPeriod({});
+          }}>Limpar filtro</button>
+        </div>
+        {filterError && <p role="alert" className="error-message">{filterError}</p>}
+      </form>
+      {status === 'ready' && entries.length === 50 && <p>Exibindo os 50 registros mais recentes do período.</p>}
       {status === 'loading' && <p role="status">Carregando auditoria…</p>}
       {status === 'error' && <p role="alert" className="error-message">Não foi possível carregar a auditoria.</p>}
-      {status === 'ready' && !entries.length && <p>Nenhum registro de auditoria para este entregador.</p>}
+      {status === 'ready' && !entries.length && <p>Nenhum registro de auditoria para este entregador no período.</p>}
       {status === 'ready' && entries.length > 0 && (
         <div className="admin-driver-audit-list" role="region" tabIndex={0} aria-labelledby="driver-audit-heading">
           {entries.map(({ id, order_id, search_cycle, created_at, details }) => {
