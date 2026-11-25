@@ -60,7 +60,7 @@ export function NewProductPage() {
         images
       );
       addProduct(product);
-      navigate(`/business/${businessId}`);
+      navigate(`/business/${businessId}?aba=produtos`);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to create product');
     } finally {
@@ -169,7 +169,7 @@ export function NewProductPage() {
           <div className="form-actions">
             <button
               type="button"
-              onClick={() => navigate(`/business/${businessId}`)}
+              onClick={() => navigate(`/business/${businessId}?aba=produtos`)}
               className="btn-secondary"
             >
               Cancelar

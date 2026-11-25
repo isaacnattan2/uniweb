@@ -80,6 +80,7 @@ export function StoreOrders({ businessId }: { businessId: string }) {
         setOffset(0);
         setSearch((params) => {
           params.delete('order');
+          params.set('aba', 'pedidos');
           return params;
         });
       }}>Ver todos os pedidos</button>}

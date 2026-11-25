@@ -9,11 +9,21 @@ import { StoreCoupons } from '../components/StoreCoupons';
 import { StoreOrders } from '../components/StoreOrders';
 import { StoreWithdrawals } from '../components/StoreWithdrawals';
 import { StorePaymentSettings } from '../components/StorePaymentSettings';
-import { useParams, useNavigate } from 'react-router-dom';
+import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { getBusiness, getProductsByBusiness, updateBusiness } from '../services/api';
 import { useAuthStore, useBusinessStore, useProductStore } from '../context/store';
+import '../styles/dashboard.css';
 import '../styles/business.css';
 import '../styles/product-form.css';
+
+const businessSections = [
+  { id: 'dados', label: 'Dados da loja' },
+  { id: 'pedidos', label: 'Pedidos' },
+  { id: 'produtos', label: 'Produtos' },
+  { id: 'cupons', label: 'Cupons' },
+  { id: 'pagamentos', label: 'Pagamentos' },
+  { id: 'asaas', label: 'Saques Asaas' },
+] as const;
 
 function parseStoreAddress(value: string): DeliveryAddress | null {
   const match = /^([^·]+), ([^,·]+)(?: · Complemento: ([^·]+))?(?: · Bairro: ([^·]+))? · ([^·]+)\/([A-Z]{2}) · CEP (\d{5}-\d{3})$/.exec(value);
@@ -26,6 +36,10 @@ function parseStoreAddress(value: string): DeliveryAddress | null {
 export function BusinessPage() {
   const { businessId } = useParams<{ businessId: string }>();
   const navigate = useNavigate();
+  const [search] = useSearchParams();
+  const sectionId = search.get('aba');
+  const activeSection = search.get('order') ? 'pedidos'
+    : businessSections.find(({ id }) => id === sectionId)?.id ?? 'dados';
   const userType = useAuthStore((state) => state.userType);
   const dashboardPath = userType === 'admin' ? '/admin' : '/dashboard';
   const currentBusiness = useBusinessStore((state) => state.currentBusiness);
@@ -154,7 +168,15 @@ export function BusinessPage() {
         <div className="page-heading">
           <h1>{currentBusiness.name}</h1>
         </div>
-        <div className="business-info">
+        <nav className="admin-menu" aria-label="Gerenciamento da loja">
+          {businessSections.map(({ id, label }) => (
+            <Link key={id} to={'?aba=' + id} aria-current={activeSection === id ? 'page' : undefined}>
+              {id === 'asaas' && userType === 'admin' ? 'Cadastro Asaas' : label}
+            </Link>
+          ))}
+        </nav>
+
+        {activeSection === 'dados' && <div className="business-info">
           <div className="business-info-heading">
             <h2>Informações da Loja</h2>
             {!editing && <button type="button" className="btn-secondary" onClick={startEditing}>Editar dados</button>}
@@ -204,18 +226,16 @@ export function BusinessPage() {
               <p><strong>Status:</strong> {currentBusiness.status}</p>
             </>
           )}
-        </div>
+        </div>}
 
-        <StoreOrders key={currentBusiness.id} businessId={currentBusiness.id} />
+        {activeSection === 'pedidos' && <StoreOrders key={currentBusiness.id} businessId={currentBusiness.id} />}
+        {activeSection === 'pagamentos' && <StorePaymentSettings key={currentBusiness.id} business={currentBusiness} onSave={setCurrentBusiness} />}
+        {activeSection === 'asaas' && (userType === 'admin'
+          ? <AdminStoreAsaas key={currentBusiness.id} accountId={currentBusiness.id} />
+          : <StoreWithdrawals key={currentBusiness.id} businessId={currentBusiness.id} />)}
+        {activeSection === 'cupons' && <StoreCoupons key={currentBusiness.id} businessId={currentBusiness.id} products={products ?? []} />}
 
-        <StorePaymentSettings key={currentBusiness.id} business={currentBusiness} onSave={setCurrentBusiness} />
-
-        {userType === 'business' && <StoreWithdrawals key={currentBusiness.id} businessId={currentBusiness.id} />}
-        {userType === 'admin' && <AdminStoreAsaas key={currentBusiness.id} accountId={currentBusiness.id} />}
-
-        <StoreCoupons key={currentBusiness.id} businessId={currentBusiness.id} products={products ?? []} />
-
-        <div className="products-section">
+        {activeSection === 'produtos' && <div className="products-section">
           <div className="business-info-heading">
             <h2>Produtos ({products?.length || 0})</h2>
             {!!products?.length && <button onClick={() => navigate('/business/' + businessId + '/new-product')} className="btn-primary">
@@ -265,7 +285,7 @@ export function BusinessPage() {
               </table>
             </div>
           )}
-        </div>
+        </div>}
       </div>
     </div>
   );
