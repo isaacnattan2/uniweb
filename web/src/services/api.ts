@@ -773,3 +773,28 @@ export async function registerDriver(data: DriverRegistrationInput): Promise<{
 export async function getDriverRegistration(signal: AbortSignal): Promise<DriverRegistration> {
   return (await api.get('/auth/me/driver', { signal })).data;
 }
+
+export interface DriverAuditEntry {
+  id: string;
+  order_id: string;
+  search_cycle: number | null;
+  created_at: string;
+  details: {
+    event: string;
+    selected?: boolean;
+    acceptedByProvider?: boolean;
+    missedAt?: string;
+    ignoredOffers?: number;
+    blockedUntil?: string;
+    expiresAt?: string;
+    notifiedAt?: string;
+    maxFeeCents?: number;
+    radiusMeters?: number;
+    promisedAt?: string;
+    decision?: { reasons: string[]; locationAt?: string; blockedUntil?: string; pickupMeters?: number; estimatedMinutes?: number; feeCents?: number };
+  };
+}
+
+export async function getDriverDispatchAudit(id: string, signal: AbortSignal) {
+  return (await api.get<DriverAuditEntry[]>('/admin/drivers/' + encodeURIComponent(id) + '/dispatch-audit', { signal })).data;
+}

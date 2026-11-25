@@ -1,3 +1,4 @@
+import { AdminDriverAudit } from './AdminDriverAudit';
 import { AdminStoreAsaas } from './AdminStoreAsaas';
 import React, { useEffect, useState } from 'react';
 import { useFeedback } from './Feedback';
@@ -19,6 +20,7 @@ const vehicleLabels: Record<string, string> = {
 };
 
 export function AdminDrivers() {
+  const [selectedAuditDriver, setSelectedAuditDriver] = useState<string>();
   const [selectedAsaasDriver, setSelectedAsaasDriver] = useState<string>();
   const [drivers, setDrivers] = useState<AdminDriver[]>();
   const [savingId, setSavingId] = useState<string>();
@@ -119,6 +121,7 @@ export function AdminDrivers() {
     }
   }
 
+  const auditDriver = drivers?.find((driver) => driver.id === selectedAuditDriver);
   const asaasDriver = drivers?.find((driver) => driver.id === selectedAsaasDriver);
 
   return (
@@ -127,6 +130,7 @@ export function AdminDrivers() {
       {loadError && <p className="error-message" role="alert">{loadError}</p>}
       <AdminDeliveryRates />
       <AdminDeliveryDispatch />
+      {auditDriver && <AdminDriverAudit key={auditDriver.id} driver={auditDriver} onClose={() => setSelectedAuditDriver(undefined)} />}
       {asaasDriver && <AdminStoreAsaas key={asaasDriver.id} accountId={asaasDriver.id} driverName={asaasDriver.full_name} />}
       {error && <p className="error-message" role="alert">{error}</p>}
       {!drivers && !loadError && <p role="status">Carregando entregadores…</p>}
@@ -179,6 +183,10 @@ export function AdminDrivers() {
                 )}
                 <button type="button" className="btn-secondary" aria-expanded={selectedAsaasDriver === driver.id} onClick={() => setSelectedAsaasDriver((selected) => selected === driver.id ? undefined : driver.id)}>
                   {selectedAsaasDriver === driver.id ? 'Fechar cadastro Asaas' : 'Cadastro Asaas'}
+                </button>
+                <button type="button" className="btn-secondary" aria-expanded={selectedAuditDriver === driver.id}
+                  onClick={() => setSelectedAuditDriver((selected) => selected === driver.id ? undefined : driver.id)}>
+                  {selectedAuditDriver === driver.id ? 'Fechar auditoria' : 'Auditoria de entregas'}
                 </button>
                 {driver.status !== 'inactive' && (
                   <button type="button" className={driver.status === 'suspended' ? 'btn-primary' : 'btn-secondary'}
