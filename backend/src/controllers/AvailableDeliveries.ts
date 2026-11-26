@@ -34,7 +34,7 @@ async function listDeliveries(req: AuthRequest, res: Response, next: NextFunctio
     return res.status(400).json({ error: 'Informe um limite entre 1 e 50 e um offset não negativo.' });
   }
 
-  if (history !== undefined && (!accepted || (history !== 'all' && history !== 'missed'))) {
+  if (history !== undefined && (!accepted || (history !== 'all' && history !== 'missed' && history !== 'declined'))) {
     return res.status(400).json({ error: 'Filtro de histórico inválido.' });
   }
   const pageSize = Number(limit);
@@ -44,14 +44,17 @@ async function listDeliveries(req: AuthRequest, res: Response, next: NextFunctio
     if (!accepted && !await driverCanReceivePayout(req.userId)) return res.json({ items: [], nextOffset: null });
     const result = await query(
       `${accepted ? `WITH history AS (
-         SELECT o.id AS order_id, NULL::uuid AS missed_offer_id, NULL::timestamptz AS missed_at,
+         SELECT o.id AS order_id, NULL::uuid AS history_offer_id, NULL::text AS offer_status, NULL::timestamptz AS missed_at,
                 o.created_at AS activity_at
-         FROM orders o WHERE $4::text IS DISTINCT FROM 'missed'
+         FROM orders o WHERE COALESCE($4::text, 'all') = 'all'
            AND o.delivery_driver_id = $3 AND o.deleted_at IS NULL AND o.delivery_type = 'delivery'
            AND o.delivery_status IN ('processing', 'in_transit', 'delivered', 'cancelled')
          UNION ALL
-         SELECT f.order_id, f.id, f.missed_at, f.missed_at
-         FROM delivery_dispatch_offers f WHERE f.user_id = $3 AND f.missed_at IS NOT NULL AND $4::text IS NOT NULL
+         SELECT f.order_id, f.id, 'missed', f.missed_at, f.missed_at
+         FROM delivery_dispatch_offers f WHERE f.user_id = $3 AND f.missed_at IS NOT NULL AND $4::text IN ('all', 'missed')
+         UNION ALL
+         SELECT f.order_id, f.id, 'declined', NULL, f.offered_at
+         FROM delivery_dispatch_offers f WHERE f.user_id = $3 AND f.state = 'declined' AND $4::text = 'declined'
        )` : ''} SELECT o.id, o.order_number, o.created_at, o.delivery_status, o.order_status, b.id AS store_id, b.name AS store_name,
               NULLIF(TRIM(b.address), '') AS pickup_address,
               ${ratePickupAddress} AS rate_pickup_address,
@@ -63,7 +66,7 @@ async function listDeliveries(req: AuthRequest, res: Response, next: NextFunctio
               j.slot_at, j.state AS dispatch_state, j.distance_meters AS offer_distance,
               f.id AS offer_id, f.fee_cents AS offer_fee_cents, f.rate_cents AS offer_rate_cents, f.expires_at AS offer_expires_at,
               CASE WHEN ${accepted} THEN accepted_offer.pickup_distance_meters ELSE f.pickup_distance_meters END AS pickup_distance_meters
-              ${accepted ? ', h.missed_offer_id, h.missed_at' : ''}
+              ${accepted ? ', h.history_offer_id, h.offer_status, h.missed_at' : ''}
        FROM orders o
        ${accepted ? 'JOIN history h ON h.order_id = o.id' : ''}
        JOIN businesses b ON b.id = o.business_id
@@ -78,7 +81,7 @@ async function listDeliveries(req: AuthRequest, res: Response, next: NextFunctio
        WHERE ${accepted
          ? 'o.deleted_at IS NULL'
          : `(${availableOrder}) AND NOT EXISTS (SELECT 1 FROM driver_dispatch_presence p WHERE p.user_id = $3 AND p.blocked_until > NOW()) AND (j.order_id IS NULL OR (j.state = 'offered' AND f.id IS NOT NULL))`}
-       ORDER BY ${accepted ? 'h.activity_at DESC NULLS LAST, o.id, h.missed_offer_id' : 'o.created_at DESC NULLS LAST, o.id'}
+       ORDER BY ${accepted ? 'h.activity_at DESC NULLS LAST, o.id, h.history_offer_id' : 'o.created_at DESC NULLS LAST, o.id'}
        LIMIT $1 OFFSET $2`,
       accepted ? [pageSize + 1, start, req.userId, history ?? null] : [pageSize + 1, start, req.userId]
     );
@@ -97,12 +100,13 @@ async function listDeliveries(req: AuthRequest, res: Response, next: NextFunctio
     return res.json({
       items: rows.map((row, index) => {
         const distance = distances[index] ?? null;
-        if (row.missed_offer_id) {
+        if (row.history_offer_id) {
           return {
             orderId: row.id, orderNumber: row.order_number, createdAt: row.created_at,
             pickup: { storeId: row.store_id, storeName: row.store_name, address: null },
             destinationArea: null, deliveryFee: null,
-            missedOfferId: row.missed_offer_id, missedAt: row.missed_at, status: 'missed',
+            ...(row.offer_status === 'declined' ? { declinedOfferId: row.history_offer_id, status: 'declined' } :
+              { missedOfferId: row.history_offer_id, missedAt: row.missed_at, status: 'missed' }),
           };
         }
         return {

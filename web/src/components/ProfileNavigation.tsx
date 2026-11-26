@@ -15,7 +15,7 @@ export function ProfileNavigation({ children }: { children: ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [branches, setBranches] = useState<Record<string, boolean>>({});
   const [storeMenu, setStoreMenu] = useState<{ token: string; stores: { id: string; name: string }[]; failed?: boolean }>();
-  const [driverDownload, setDriverDownload] = useState<{ token: string; url?: string }>();
+  const [driverDownload, setDriverDownload] = useState<{ token: string; pending?: boolean; error?: string }>();
   const [storeRetry, retryStores] = useState(0);
   const mobileToggle = useRef<HTMLButtonElement>(null);
   const mobileClose = useRef<HTMLButtonElement>(null);
@@ -36,16 +36,25 @@ export function ProfileNavigation({ children }: { children: ReactNode }) {
     return () => request.abort();
   }, [token, userType, pathname, storeRetry]);
 
-  useEffect(() => {
-    if (!token || userType !== 'driver') return;
-    const request = new AbortController();
-    void getDriverRegistration(request.signal).then((profile) => {
-      if (!request.signal.aborted) setDriverDownload({ token, url: profile.app_download_url ?? undefined });
-    }).catch(() => {
-      if (!request.signal.aborted) setDriverDownload({ token });
-    });
-    return () => request.abort();
-  }, [token, userType]);
+  async function downloadDriverApp() {
+    if (!token || userType !== 'driver' || (driverDownload?.token === token && driverDownload.pending)) return;
+    setDriverDownload({ token, pending: true });
+    try {
+      const { app_download_url: url } = await getDriverRegistration();
+      if (useAuthStore.getState().token !== token) return;
+      if (!url) {
+        setDriverDownload({ token, error: 'Download indisponível no momento.' });
+        return;
+      }
+      const link = document.createElement('a');
+      link.href = url;
+      link.referrerPolicy = 'no-referrer';
+      link.click();
+      setDriverDownload({ token });
+    } catch {
+      setDriverDownload({ token, error: 'Não foi possível consultar o APK. Tente novamente.' });
+    }
+  }
 
   if (/^\/(?:login(?:\/driver)?|register(?:\/driver)?)\/*$/i.test(pathname)) return <>{children}</>;
   if (!token || !userType || userType === 'customer') return <><Header />{children}</>;
@@ -124,7 +133,7 @@ export function ProfileNavigation({ children }: { children: ReactNode }) {
 
   const home = userType === 'admin' ? '/admin' : userType === 'business' ? '/dashboard'
     : userType === 'driver' ? '/driver' : '/shop';
-  const downloadUrl = driverDownload?.token === token ? driverDownload.url : undefined;
+  const currentDownload = driverDownload?.token === token ? driverDownload : undefined;
   function closeMobile() {
     setMobileOpen(false);
     mobileToggle.current?.focus();
@@ -164,19 +173,12 @@ export function ProfileNavigation({ children }: { children: ReactNode }) {
         </nav>
         {userType === 'driver' && (
           <div className="profile-sidebar-footer">
-            {downloadUrl ? (
-              <a href={downloadUrl} referrerPolicy="no-referrer" className="btn-primary profile-download"
-                aria-label="Baixar aplicativo" title="Baixar aplicativo">
-                <span className="profile-download-icon" aria-hidden="true">↓</span>
-                <span className="profile-download-label">Baixar aplicativo</span>
-              </a>
-            ) : (
-              <button type="button" disabled className="btn-primary profile-download"
-                aria-label="Download do aplicativo indisponível" title="Download do aplicativo indisponível">
-                <span className="profile-download-icon" aria-hidden="true">↓</span>
-                <span className="profile-download-label">{driverDownload?.token === token ? 'Download indisponível' : 'Carregando…'}</span>
-              </button>
-            )}
+            <button type="button" className="btn-primary profile-download" disabled={currentDownload?.pending}
+              onClick={() => void downloadDriverApp()}>
+              <span className="profile-download-icon" aria-hidden="true">↓</span>
+              <span className="profile-download-label">{currentDownload?.pending ? 'Buscando APK…' : 'Baixar aplicativo'}</span>
+            </button>
+            {currentDownload?.error && <p className="error-message" role="status">{currentDownload.error}</p>}
           </div>
         )}
       </aside>

@@ -1,10 +1,11 @@
+const { v5: uuidV5 } = require('uuid');
 const { spawnSync } = require('node:child_process');
 const { createHash, randomBytes } = require('node:crypto');
-const { createReadStream, existsSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync } = require('node:fs');
+const { copyFileSync, createReadStream, existsSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync } = require('node:fs');
 const { homedir } = require('node:os');
 const path = require('node:path');
 const { Pool } = require('pg');
-const { DeleteObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } = require('@aws-sdk/client-s3');
+const { CopyObjectCommand, DeleteObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } = require('@aws-sdk/client-s3');
 const { parse } = require('dotenv');
 
 const backend = path.resolve(__dirname, '..');
@@ -137,11 +138,20 @@ function httpsUrl(value, variable) {
   return url;
 }
 
-const managedApk = /^driver-app\/[1-9]\d*\/[0-9a-f]{64}\/unientregador\.apk$/;
+const managedApk = /^driver-app\/[1-9]\d*\/[0-9a-f]{64}\/unientregador(?:-[a-z0-9]+(?:[._-][a-z0-9]+)*-vc[1-9]\d*(?:-(?:preview|prod))?)?\.apk$/i;
+
+function artifactFilename(expo, channel) {
+  const displayVersion = (expo.extra?.displayVersion?.trim() || expo.version)
+    .replace(/[^a-z0-9]+/gi, (separator) => separator === '.' ? '.' : '-')
+    .replace(/^[.-]+|[.-]+$/g, '');
+  if (!displayVersion) throw new Error('Informe um displayVersion válido no app.json.');
+  const suffix = channel === 'production' ? '-prod' : channel === 'preview' ? '-preview' : '';
+  return `unientregador-${displayVersion}-vc${expo.android.versionCode}${suffix}.apk`;
+}
 
 async function readPublishedRelease(database) {
   const { rows: [release] } = await database.query(
-    'SELECT version_name, version_code, signer_sha256, download_url FROM driver_app_release WHERE id = true',
+    'SELECT version_name, version_code, signer_sha256, download_url, push_sent_at FROM driver_app_release WHERE id = true',
   );
   return release;
 }
@@ -176,6 +186,31 @@ async function removeOldApks(storage, bucket, currentKey) {
   }
 }
 
+async function namePublishedArtifact(client, storage, bucket, baseUrl, release, filename) {
+  if (!release.download_url.startsWith(baseUrl)) return release;
+  const oldKey = release.download_url.slice(baseUrl.length);
+  if (!managedApk.test(oldKey) || !oldKey.endsWith('/unientregador.apk')) return release;
+
+  const key = oldKey.slice(0, -'unientregador.apk'.length) + filename;
+  const url = baseUrl + key;
+  const size = await verifyPublicDownload(release.download_url);
+  await storage.send(new CopyObjectCommand({
+    Bucket: bucket, Key: key, CopySource: encodeURIComponent(bucket) + '/' + oldKey,
+    MetadataDirective: 'REPLACE', ContentType: 'application/vnd.android.package-archive',
+    ContentDisposition: `attachment; filename="${filename}"`,
+    CacheControl: 'public, max-age=31536000, immutable',
+  }), { abortSignal: AbortSignal.timeout(120000) });
+  await verifyPublicDownload(url, size);
+
+  const result = await client.query(
+    'UPDATE driver_app_release SET download_url = $1 WHERE version_code = $2 AND download_url = $3',
+    [url, release.version_code, release.download_url],
+  );
+  if (!result.rowCount) throw new Error('O link publicado mudou durante a renomeação.');
+  console.log('APK publicado com nome versionado: ' + filename);
+  return { ...release, download_url: url };
+}
+
 async function cleanPublishedRelease(storage, bucket, baseUrl, release) {
   try {
     const currentKey = release.download_url.startsWith(baseUrl) && release.download_url.slice(baseUrl.length);
@@ -190,6 +225,53 @@ async function cleanPublishedRelease(storage, bucket, baseUrl, release) {
   }
 }
 
+function releaseDisplayVersion(release) {
+  return release.download_url?.match(/\/unientregador-([a-z0-9][a-z0-9._-]*)-vc[0-9]+(?:-(?:preview|prod))?\.apk$/i)?.[1]
+    ?? release.version_name;
+}
+
+async function notifyApkRelease(client, config, release) {
+  if (release.push_sent_at) return;
+  const appId = config.ONESIGNAL_DRIVER_APP_ID?.trim();
+  const apiKey = config.ONESIGNAL_DRIVER_API_KEY?.trim();
+  if (!appId || !apiKey) throw new Error('Configure ONESIGNAL_DRIVER_APP_ID e ONESIGNAL_DRIVER_API_KEY para avisar os entregadores.');
+  if (appId !== config.expectedOneSignalAppId) throw new Error('O App ID do OneSignal difere do configurado no UniEntregador.');
+  const segment = config.ONESIGNAL_DRIVER_APK_SEGMENT?.trim() || 'Total Subscriptions';
+  const response = await fetch('https://api.onesignal.com/notifications', {
+    method: 'POST', signal: AbortSignal.timeout(30000),
+    headers: { Authorization: 'Key ' + apiKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      app_id: appId, target_channel: 'push',
+      included_segments: [segment],
+      isAndroid: true, isIos: false, isAnyWeb: false, isHuawei: false, isAdm: false,
+      idempotency_key: uuidV5('android-apk:' + appId + ':' + release.version_code + ':' + segment, uuidV5.URL),
+      headings: { en: 'Nova versão do UniEntregador' },
+      contents: { en: `Versão ${releaseDisplayVersion(release)} disponível. Abra o app para baixar e instalar o novo APK.` },
+      data: { event: 'android_apk_release', versionCode: release.version_code },
+    }),
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok || typeof result?.id !== 'string' || !result.id.trim()) {
+    const errors = result?.errors;
+    const messages = typeof errors === 'string' ? [errors] :
+      errors && typeof errors === 'object' ? Object.values(errors).flat() : [];
+    const reason = messages.filter((value) => typeof value === 'string').join('; ').slice(0, 400);
+    throw new Error(`O OneSignal não confirmou o aviso do APK (HTTP ${response.status}, segmento "${segment}"). ` +
+      (reason || 'Verifique se há inscrições Android habilitadas para push nesse segmento.'));
+  }
+  await client.query('UPDATE driver_app_release SET push_sent_at = now() WHERE version_code = $1', [release.version_code]);
+  console.log('OneSignal aceitou o aviso do novo APK.');
+}
+
+async function finishPublication(client, storage, bucket, baseUrl, config, release) {
+  const results = await Promise.allSettled([
+    cleanPublishedRelease(storage, bucket, baseUrl, release),
+    notifyApkRelease(client, config, release),
+  ]);
+  const errors = results.filter((result) => result.status === 'rejected').map((result) => result.reason.message);
+  if (errors.length) throw new Error(errors.join(' ') + ' O APK está publicado. Rode publishapp com o mesmo versionCode para tentar novamente.');
+}
+
 async function verifyPublicDownload(url, size) {
   const response = await fetch(url, {
     headers: { Range: 'bytes=0-0' }, signal: AbortSignal.timeout(15000), redirect: 'error',
@@ -200,9 +282,12 @@ async function verifyPublicDownload(url, size) {
     : response.status === 200 ? Number(response.headers.get('content-length')) : 0;
   const accessible = length > 0 && (size === undefined || length === size);
   if (!accessible) throw new Error('O APK não está disponível para download público. Confira o acesso public_read do bucket.');
+  return length;
 }
 
 async function main() {
+  const { androidReleaseTarget } = require(path.join(app, 'scripts/android-release-target.cjs'));
+  const { channel } = androidReleaseTarget(process.argv.slice(2));
   const config = { ...parse(readFileSync(path.join(backend, '.env'))), ...process.env };
   const { DATABASE_URL, AWS_ENDPOINT_URL_S3, AWS_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY } = config;
   const bucket = config.DRIVER_APP_APK_BUCKET || config.NEON_STORAGE_BUCKET;
@@ -212,8 +297,15 @@ async function main() {
   const endpoint = httpsUrl(AWS_ENDPOINT_URL_S3, 'AWS_ENDPOINT_URL_S3');
   const apiUrl = httpsUrl(config.DRIVER_APP_RELEASE_API_URL || 'https://uniweb-p7mz.onrender.com/api', 'DRIVER_APP_RELEASE_API_URL');
   const { expo } = JSON.parse(readFileSync(path.join(app, 'app.json'), 'utf8'));
+  const appEnv = Object.assign({}, ...['.env', '.env.local'].map((name) => {
+    const file = path.join(app, name);
+    return existsSync(file) ? parse(readFileSync(file, 'utf8')) : {};
+  }));
+  config.expectedOneSignalAppId = (process.env.EXPO_PUBLIC_ONESIGNAL_APP_ID ?? appEnv.EXPO_PUBLIC_ONESIGNAL_APP_ID)?.trim()
+    || expo.extra.oneSignalAppId;
   const { versionCode } = expo.android;
   if (!Number.isInteger(versionCode) || versionCode < 1) throw new Error('Informe um android.versionCode válido em app.json.');
+  const filename = artifactFilename(expo, channel);
   const baseUrl = endpoint.href.replace(/\/+$/, '') + '/' + encodeURIComponent(bucket) + '/';
   const database = new Pool({ connectionString: DATABASE_URL, connectionTimeoutMillis: 10000 });
   const storage = new S3Client({
@@ -226,7 +318,11 @@ async function main() {
     if (published?.version_code === versionCode && published.version_name === expo.version) {
       await withPublicationLock(database, async (client) => {
         const current = await readPublishedRelease(client);
-        await cleanPublishedRelease(storage, bucket, baseUrl, current);
+        if (current?.version_code !== versionCode || current.version_name !== expo.version) {
+          throw new Error('A versão publicada mudou. Confira o APK atual antes de publicar.');
+        }
+        const named = await namePublishedArtifact(client, storage, bucket, baseUrl, current, artifactFilename(expo));
+        await finishPublication(client, storage, bucket, baseUrl, config, named);
       });
       console.log('APK atual preservado e versões anteriores removidas.');
       return;
@@ -250,17 +346,23 @@ async function main() {
     }
     const releaseSigning = Object.keys(signingEnv).length ? signingEnv : distributionSigning(!expectedSigner);
 
-    const env = { ...process.env, EXPO_PUBLIC_API_URL: apiUrl.href, UNI_UPDATE_CHANNEL: 'production' };
+    const env = { ...process.env, EXPO_PUBLIC_API_URL: apiUrl.href, UNI_UPDATE_CHANNEL: channel };
+    console.log('Compilando APK Android para o canal ' + channel + '.');
     run(process.execPath, [require.resolve('expo/bin/cli', { paths: [app] }), 'prebuild', '--platform', 'android', '--no-clean', '--no-install'],
       { stdio: 'inherit', env });
     run(process.execPath, ['scripts/android-release.cjs'], { stdio: 'inherit', env: { ...env, ...releaseSigning } });
     const signer = verifyApk(tools, expo, expectedSigner);
 
-    const size = statSync(apk).size;
+    const artifact = path.join(path.dirname(apk), filename);
+    copyFileSync(apk, artifact);
+    console.log('APK de distribuição: ' + artifact);
+
+    const size = statSync(artifact).size;
     const hash = createHash('sha256');
-    for await (const chunk of createReadStream(apk)) hash.update(chunk);
-    const key = 'driver-app/' + versionCode + '/' + hash.digest('hex') + '/unientregador.apk';
+    for await (const chunk of createReadStream(artifact)) hash.update(chunk);
+    const key = 'driver-app/' + versionCode + '/' + hash.digest('hex') + '/' + filename;
     const url = baseUrl + key;
+    const displayVersion = releaseDisplayVersion({ download_url: url, version_name: expo.version });
     await withPublicationLock(database, async (client) => {
       const current = await readPublishedRelease(client);
       if (current && (versionCode <= current.version_code || current.signer_sha256 !== signer)) {
@@ -268,9 +370,9 @@ async function main() {
       }
       try {
         await storage.send(new PutObjectCommand({
-          Bucket: bucket, Key: key, Body: createReadStream(apk), ContentLength: size,
+          Bucket: bucket, Key: key, Body: createReadStream(artifact), ContentLength: size,
           ContentType: 'application/vnd.android.package-archive',
-          ContentDisposition: 'attachment; filename="unientregador.apk"',
+          ContentDisposition: `attachment; filename="${filename}"`,
           CacheControl: 'public, max-age=31536000, immutable',
         }), { abortSignal: AbortSignal.timeout(600000) });
         await verifyPublicDownload(url, size);
@@ -284,17 +386,27 @@ async function main() {
       }
 
       const result = await client.query(
-        `INSERT INTO driver_app_release (id, version_name, version_code, download_url, signer_sha256)
+        `WITH published AS (
+          INSERT INTO driver_app_release (id, version_name, version_code, download_url, signer_sha256)
          VALUES (true, $1, $2, $3, $4)
          ON CONFLICT (id) DO UPDATE SET version_name = EXCLUDED.version_name, version_code = EXCLUDED.version_code,
-           download_url = EXCLUDED.download_url, published_at = NOW()
+           download_url = EXCLUDED.download_url, published_at = NOW(), push_sent_at = NULL
          WHERE EXCLUDED.version_code > driver_app_release.version_code
-           AND EXCLUDED.signer_sha256 = driver_app_release.signer_sha256`,
-        [expo.version, versionCode, url, signer],
+           AND EXCLUDED.signer_sha256 = driver_app_release.signer_sha256
+         RETURNING version_name, version_code
+        )
+        INSERT INTO driver_notifications (id, kind, title, body, data)
+        SELECT 'apk:' || version_code, 'android_apk_release', 'Nova versão do UniEntregador',
+          'Baixe e instale o novo APK para atualizar o aplicativo.',
+          jsonb_build_object('versionCode', version_code, 'versionName', $5::text)
+        FROM published`,
+        [expo.version, versionCode, url, signer, displayVersion],
       );
       if (!result.rowCount) throw new Error('Outra publicação já registrou essa versão ou uma versão mais recente.');
-      console.log('APK ' + expo.version + ' publicado no UniWeb: ' + url);
-      await cleanPublishedRelease(storage, bucket, baseUrl, { download_url: url });
+      console.log(`APK ${displayVersion} (runtime ${expo.version}, código ${versionCode}) publicado no UniWeb: ${url}`);
+      await finishPublication(client, storage, bucket, baseUrl, config, {
+        download_url: url, version_name: expo.version, version_code: versionCode,
+      });
     });
   } finally {
     storage.destroy();
@@ -304,7 +416,7 @@ async function main() {
 
 main().catch((error) => {
   if (error.code === '42P01') {
-    console.error('Aplique a migração add_driver_app_release.sql antes da primeira publicação.');
+    console.error('Aplique as migrações add_driver_app_release.sql e add_driver_notifications.sql.');
   } else {
     console.error(error.message);
   }

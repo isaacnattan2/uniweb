@@ -35,6 +35,21 @@ const titles = {
 type OrderEvent = keyof typeof titles;
 type PushEvent = OrderEvent | 'driver_presence';
 
+async function recordDriverPush(driverIds: string[], kind: OrderEvent, orderId: string, body: string,
+  data: { section: string; offerId?: string; offerExpiresAtMs?: number }) {
+  if (!driverIds.length) return;
+  try {
+    await query(
+      `INSERT INTO driver_notifications (id, driver_id, kind, title, body, data)
+       SELECT $1 || ':' || driver_id, driver_id, $2, $3, $4, $5 FROM unnest($6::uuid[]) AS recipients(driver_id)
+       ON CONFLICT (id) DO NOTHING`,
+      [kind + ':' + (data.offerId ?? orderId), kind, titles[kind], body, JSON.stringify({ orderId, ...data }), driverIds],
+    );
+  } catch (error) {
+    console.warn('Falha ao registrar notificação do entregador', kind, error instanceof Error ? error.message : error);
+  }
+}
+
 export function notifyAdminDriverPresence() {
   const appId = process.env.ONESIGNAL_WEB_APP_ID;
   const key = process.env.ONESIGNAL_WEB_API_KEY;
@@ -96,13 +111,15 @@ async function sendOrderEvent(event: OrderEvent, orderIds: string[], offeredDriv
       }
     }
     if (driverApp && driverKey && mobile && ['ready', 'cancelled', 'delivered'].includes(event)) {
-      const assigned = order.delivery_driver_id && driverPushAlias(order.delivery_driver_id);
-      const offered = event === 'cancelled' && offeredDriverId ? driverPushAlias(offeredDriverId) : null;
-      const recipients = event === 'ready' ? order.managed_delivery ? [] : availableDrivers.map(({ id }) => driverPushAlias(id)!)
-        : [...new Set([assigned, offered].filter((alias): alias is string => Boolean(alias)))];
+      const driverIds: string[] = event === 'ready' ? order.managed_delivery ? [] : availableDrivers.map(({ id }) => id)
+        : [...new Set<string>([order.delivery_driver_id, event === 'cancelled' && offeredDriverId]
+          .filter((id): id is string => typeof id === 'string'))];
+      const section = event === 'ready' ? 'available' : 'accepted';
+      await recordDriverPush(driverIds, event, order.id, body, { section });
+      const recipients = driverIds.map((id) => driverPushAlias(id)!);
       for (let offset = 0; offset < recipients.length; offset += 20000) {
         sends.push(sendPush(driverApp, driverKey, recipients.slice(offset, offset + 20000), event, body, {
-          data: { orderId: order.id, section: event === 'ready' ? 'available' : 'accepted', event },
+          data: { orderId: order.id, section, event },
         }));
       }
     }
@@ -127,8 +144,11 @@ export async function notifyDriverOffer(offerId: string, orderId: string, userId
   const perKm = distanceMeters > 0 && Number.isFinite(feeCents)
     ? ` · ${offerCurrency.format((feeCents / 100) / (distanceMeters / 1000))}/km estimado` : '';
   const body = `Pedido #${orderId.slice(0, 8).toUpperCase()}${perKm}\nAceite até ${offerDeadline.format(expiresAt)} (Brasília).`;
-  return sendPush(appId, key, [alias], 'delivery_offer', body,
-    { data: { orderId, section: 'available', offerId, offerExpiresAtMs }, ttl, priority: 10 }, offerId);
+  const data = { orderId, section: 'available', offerId, offerExpiresAtMs };
+  await recordDriverPush([userId], 'delivery_offer', orderId, body, data);
+  const remaining = Math.floor((offerExpiresAtMs - Date.now()) / 1000);
+  if (remaining < 1) return false;
+  return sendPush(appId, key, [alias], 'delivery_offer', body, { data, ttl: remaining, priority: 10 }, offerId);
 }
 
 export async function notifyDriverCheckinBlocked(userId: string, orderId: string) {
@@ -136,8 +156,9 @@ export async function notifyDriverCheckinBlocked(userId: string, orderId: string
   const key = process.env.ONESIGNAL_DRIVER_API_KEY;
   const alias = driverPushAlias(userId);
   if (!appId || !key || !alias) return;
-  await sendPush(appId, key, [alias], 'driver_checkin_blocked',
-    'Seu check-out foi feito automaticamente após 3 pedidos sem resposta.',
+  const body = 'Seu check-out foi feito automaticamente após 3 pedidos sem resposta.';
+  await recordDriverPush([userId], 'driver_checkin_blocked', orderId, body, { section: 'available' });
+  await sendPush(appId, key, [alias], 'driver_checkin_blocked', body,
     { data: { orderId, section: 'available', event: 'driver_checkin_blocked' } });
 }
 

@@ -799,7 +799,7 @@ export async function registerDriver(data: DriverRegistrationInput): Promise<{
   return (await api.post('/auth/register/driver', data)).data;
 }
 
-export async function getDriverRegistration(signal: AbortSignal): Promise<DriverRegistration> {
+export async function getDriverRegistration(signal?: AbortSignal): Promise<DriverRegistration> {
   return (await api.get('/auth/me/driver', { signal })).data;
 }
 
