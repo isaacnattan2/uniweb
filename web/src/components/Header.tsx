@@ -62,7 +62,6 @@ export function Header({ compact = false, leading }: { compact?: boolean; leadin
           )}
 
           {!isAuthPage && isShopper && <nav className="nav" aria-label="Navegação principal">
-            <Link to="/shop" className="nav-link">Loja</Link>
             <Link to="/cart" className="nav-link">🛒 Carrinho ({cartItems.length})</Link>
             {token && (
               <>

@@ -26,8 +26,8 @@ export function ShopCarousel({ ads, preview = false, initialId }: { ads: Marketp
       </div>
       {ads.length > 1 && (
         <>
-          <button type="button" className="shop-carousel-arrow shop-carousel-prev" aria-label="Publicidade anterior" onClick={() => navigate(-1)}>‹</button>
-          <button type="button" className="shop-carousel-arrow shop-carousel-next" aria-label="Próxima publicidade" onClick={() => navigate(1)}>›</button>
+          <button type="button" className="shop-carousel-arrow shop-carousel-prev" aria-label="Publicidade anterior" onClick={() => navigate(-1)} />
+          <button type="button" className="shop-carousel-arrow shop-carousel-next" aria-label="Próxima publicidade" onClick={() => navigate(1)} />
           <div className="shop-carousel-dots" aria-label="Posições do carrossel">
             {ads.map((item, itemIndex) => (
               <button key={item.id} type="button" aria-current={index === itemIndex ? 'true' : undefined}

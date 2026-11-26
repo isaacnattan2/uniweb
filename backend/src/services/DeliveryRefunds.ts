@@ -15,6 +15,11 @@ interface AsaasPayment {
 export async function reconcileDeliveryRefunds() {
   const config = getAsaasConfig();
   if (!config) return;
+  await query(
+    `UPDATE delivery_dispatch j SET refund_state = 'review'
+     FROM orders o WHERE o.id = j.order_id AND o.payment_status = 'paid' AND j.refund_state = 'pending'
+       AND o.asaas_split_snapshot @> '{"sharedCard":true}'::jsonb`,
+  );
   const { rows } = await query(
     `WITH batch AS (
        SELECT j.order_id, c.provider_id, c.payment_flow, c.id AS checkout_reference, o.total, o.updated_at

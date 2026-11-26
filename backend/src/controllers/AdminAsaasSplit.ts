@@ -8,6 +8,37 @@ import { loadAsaasFees } from './AdminAsaasFees';
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const paymentId = /^pay_[a-z0-9]+$/i;
 
+interface SplitPayment {
+  id: string;
+  externalReference?: string;
+  billingType: string;
+  installment?: string | null;
+  status: string;
+  value: number;
+  netValue: number;
+  split?: { walletId: string; status: string; fixedValue?: number; percentualValue?: number }[];
+}
+
+async function readSharedCardPayments(key: string, reference: string, gross: number, count: number) {
+  const filter = new URLSearchParams({ externalReference: reference, limit: '100' });
+  const { data, hasMore } = await asaasStoreRequest<{ data: SplitPayment[]; hasMore: boolean }>(
+    storeSandboxApi, '/payments?' + filter, key);
+  const payments = data.filter((payment) => payment.externalReference === reference && payment.billingType === 'CREDIT_CARD');
+  const plan = payments[0]?.installment;
+  if (hasMore || !payments.length || payments.length !== count ||
+      (count > 1 && !plan) || new Set(payments.map(({ id }) => id)).size !== count ||
+      payments.some((payment) => !paymentId.test(payment.id) || payment.installment !== plan) ||
+      payments.reduce((total, payment) => total + Math.round(payment.value * 100), 0) !== gross) return;
+  return payments;
+}
+
+function sharedWalletSettled(payments: SplitPayment[], walletId: string, cents: number) {
+  if (cents === 0) return true;
+  const splits = payments.flatMap((payment) => payment.split?.filter((split) => split.walletId === walletId) ?? []);
+  return splits.every((split) => split.status === 'DONE') &&
+    splits.reduce((total, split) => total + Math.round((split.fixedValue ?? 0) * 100), 0) === cents;
+}
+
 export function applyPixSplit(req: Request, res: Response) {
   return applySplit(req, res, 'pix');
 }
@@ -129,17 +160,46 @@ export async function readSplitPayments(_req: Request, res: Response) {
   const { rows } = await query(
     `SELECT o.id, b.name AS store, o.payment_status, o.order_status, o.delivery_status, o.payment_method,
          o.asaas_split_snapshot AS snapshot, e.amount_cents AS driver_cents,
-         p.state AS payout_state, p.provider_status, p.payment_net_cents, p.store_cents, p.driver_cents AS confirmed_driver_cents
+         p.state AS payout_state, p.provider_status, p.payment_net_cents, p.store_cents, p.driver_cents AS confirmed_driver_cents,
+         c.id AS shared_reference, c.provider_id AS shared_payment_id, c.installment_count,
+         shared.gross AS shared_gross, shared.wallet_cents
      FROM orders o JOIN businesses b ON b.id = o.business_id
      LEFT JOIN delivery_driver_earnings e ON e.order_id = o.id
      LEFT JOIN asaas_driver_payouts p ON p.order_id = o.id
+     LEFT JOIN asaas_checkouts c ON c.id = o.asaas_checkout_id AND o.asaas_split_snapshot @> '{"sharedCard":true}'
+     LEFT JOIN LATERAL (
+       SELECT SUM((s.asaas_split_snapshot->>'gross')::bigint) AS gross,
+         SUM((s.asaas_split_snapshot->>'storeEstimate')::bigint) FILTER (
+           WHERE s.asaas_split_snapshot #>> '{split,walletId}' = o.asaas_split_snapshot #>> '{split,walletId}'
+         ) AS wallet_cents
+       FROM orders s WHERE s.asaas_checkout_id = c.id
+     ) shared ON c.id IS NOT NULL
      WHERE o.asaas_split_snapshot IS NOT NULL
      ORDER BY o.created_at DESC LIMIT 30`);
+  const byCheckout = new Map<string, ReturnType<typeof readSharedCardPayments>>();
+  const orders = await Promise.all(rows.map(async ({
+    shared_reference, shared_payment_id, installment_count, shared_gross, wallet_cents, ...order
+  }) => {
+    if (!shared_reference) return order;
+    let payments = byCheckout.get(shared_reference);
+    if (order.payment_status === 'paid' && paymentId.test(shared_payment_id) && !payments) {
+      payments = readSharedCardPayments(config.parentKey, shared_reference, Number(shared_gross), installment_count)
+        .catch(() => undefined);
+      byCheckout.set(shared_reference, payments);
+    }
+    const charges = await payments;
+    return {
+      ...order,
+      shared_payment_id: paymentId.test(shared_payment_id) ? shared_payment_id : null,
+      store_split_status: order.snapshot.storeEstimate === 0 ? 'none'
+        : charges && sharedWalletSettled(charges, order.snapshot.split.walletId, Number(wallet_cents)) ? 'done' : 'unconfirmed',
+    };
+  }));
   try {
     const { balance } = await asaasStoreRequest<{ balance: number }>(storeSandboxApi, '/finance/balance', config.parentKey);
-    return res.json({ orders: rows, balance: Number.isFinite(balance) ? balance : null });
+    return res.json({ orders, balance: Number.isFinite(balance) ? balance : null });
   } catch {
-    return res.json({ orders: rows, balance: null });
+    return res.json({ orders, balance: null });
   }
 }
 
@@ -151,7 +211,7 @@ export async function sendDriverSplitPayment(req: Request, res: Response) {
   if (!config) return res.status(503).json({ error: 'O repasse só está habilitado no Sandbox.' });
 
   const { rows: [order] } = await query(
-    `SELECT o.asaas_split_snapshot AS snapshot, c.provider_id AS checkout_id,
+    `SELECT o.asaas_split_snapshot AS snapshot, c.provider_id AS checkout_id, c.id AS checkout_reference, c.installment_count,
        o.payment_method, e.user_id, e.amount_cents, a.wallet_id, a.encrypted_key, p.state, p.provider_id
      FROM orders o JOIN asaas_checkouts c ON c.id = o.asaas_checkout_id
      JOIN delivery_driver_earnings e ON e.order_id = o.id AND e.user_id = o.delivery_driver_id
@@ -194,46 +254,71 @@ export async function sendDriverSplitPayment(req: Request, res: Response) {
       status: string; value: number; netValue: number;
       split?: { walletId: string; status: string; fixedValue?: number; percentualValue?: number }[];
     };
-    const billingType = order.payment_method === 'credit_card' ? 'CREDIT_CARD' : 'PIX';
-    const filter = new URLSearchParams({ checkoutSession: order.checkout_id, billingType, limit: '100' });
-    const { data } = await asaasStoreRequest<{ data: Payment[] }>(storeSandboxApi, '/payments?' + filter, config.parentKey);
-    const candidates = data.some((payment) => payment.checkoutSession === order.checkout_id) ? data
-      : (await asaasStoreRequest<{ data: Payment[] }>(storeSandboxApi, '/payments?limit=100&billingType=' + billingType, config.parentKey)).data;
-    const matched = candidates.filter((payment) => payment.checkoutSession === order.checkout_id && payment.billingType === billingType);
-    const planId = matched.find((payment) => payment.installment)?.installment;
-    let payments = matched;
-    if (planId) {
-      if (billingType !== 'CREDIT_CARD' || !uuid.test(planId) || matched.some((payment) => payment.installment !== planId)) {
-        return res.status(409).json({ error: 'O parcelamento retornado pelo Asaas não corresponde ao checkout.' });
+    let net: number;
+    let store: number;
+    if (order.snapshot.sharedCard) {
+      const { rows: siblings } = await query(
+        'SELECT asaas_split_snapshot AS snapshot FROM orders WHERE asaas_checkout_id = $1', [order.checkout_reference]);
+      const gross = siblings.reduce((sum, { snapshot }) => sum + snapshot.gross, 0);
+      const expectedNet = siblings.reduce((sum, { snapshot }) => sum + snapshot.net, 0);
+      const payments = await readSharedCardPayments(config.parentKey, order.checkout_reference, gross, order.installment_count);
+      if (!payments || payments.some(({ status, netValue, value }) =>
+        status !== 'RECEIVED' || !Number.isFinite(netValue) || netValue < 0 || netValue > value)) {
+        return res.status(409).json({ error: 'O Asaas ainda não confirmou o recebimento integral da compra.' });
       }
-      const plan = await asaasStoreRequest<{ data: Payment[]; hasMore: boolean; totalCount: number }>(
-        storeSandboxApi, '/installments/' + encodeURIComponent(planId) + '/payments?limit=100', config.parentKey);
-      payments = plan.data;
-      if (plan.hasMore || plan.totalCount !== payments.length || payments.length > (order.snapshot.condition.maxInstallments ?? 1) ||
-          payments.some((payment) => payment.installment !== planId ||
-            (payment.checkoutSession && payment.checkoutSession !== order.checkout_id) || payment.billingType !== billingType)) {
-        return res.status(409).json({ error: 'Não foi possível conferir todas as parcelas do checkout.' });
+      const wallets = new Map<string, number>();
+      for (const { snapshot } of siblings) {
+        const walletId = snapshot.split.walletId;
+        wallets.set(walletId, (wallets.get(walletId) ?? 0) + snapshot.storeEstimate);
       }
+      if ([...wallets].some(([wallet, cents]) => !sharedWalletSettled(payments, wallet, cents))) {
+        return res.status(409).json({ error: 'O Asaas ainda não confirmou todos os splits da compra.' });
+      }
+      const actualNet = payments.reduce((sum, payment) => sum + Math.round(payment.netValue * 100), 0);
+      net = order.snapshot.net - Math.max(0, expectedNet - actualNet);
+      store = order.snapshot.storeEstimate;
+    } else {
+      const billingType = order.payment_method === 'credit_card' ? 'CREDIT_CARD' : 'PIX';
+      const filter = new URLSearchParams({ checkoutSession: order.checkout_id, billingType, limit: '100' });
+      const { data } = await asaasStoreRequest<{ data: Payment[] }>(storeSandboxApi, '/payments?' + filter, config.parentKey);
+      const candidates = data.some((payment) => payment.checkoutSession === order.checkout_id) ? data
+        : (await asaasStoreRequest<{ data: Payment[] }>(storeSandboxApi, '/payments?limit=100&billingType=' + billingType, config.parentKey)).data;
+      const matched = candidates.filter((payment) => payment.checkoutSession === order.checkout_id && payment.billingType === billingType);
+      const planId = matched.find((payment) => payment.installment)?.installment;
+      let payments = matched;
+      if (planId) {
+        if (billingType !== 'CREDIT_CARD' || !uuid.test(planId) || matched.some((payment) => payment.installment !== planId)) {
+          return res.status(409).json({ error: 'O parcelamento retornado pelo Asaas não corresponde ao checkout.' });
+        }
+        const plan = await asaasStoreRequest<{ data: Payment[]; hasMore: boolean; totalCount: number }>(
+          storeSandboxApi, '/installments/' + encodeURIComponent(planId) + '/payments?limit=100', config.parentKey);
+        payments = plan.data;
+        if (plan.hasMore || plan.totalCount !== payments.length || payments.length > (order.snapshot.condition.maxInstallments ?? 1) ||
+            payments.some((payment) => payment.installment !== planId ||
+              (payment.checkoutSession && payment.checkoutSession !== order.checkout_id) || payment.billingType !== billingType)) {
+          return res.status(409).json({ error: 'Não foi possível conferir todas as parcelas do checkout.' });
+        }
+      }
+      const totalCents = (field: 'value' | 'netValue') => payments.reduce((sum, payment) => sum + Math.round(payment[field] * 100), 0);
+      net = totalCents('netValue');
+      if ((!planId && payments.length !== 1) || payments.length === 0 ||
+          new Set(payments.map((payment) => payment.id)).size !== payments.length ||
+          payments.some((payment) => !paymentId.test(payment.id) || payment.status !== 'RECEIVED' ||
+            !Number.isFinite(payment.netValue) || payment.netValue < 0 || payment.netValue > payment.value) ||
+          totalCents('value') !== order.snapshot.gross || !Number.isSafeInteger(net)) {
+        return res.status(409).json({ error: 'O Asaas ainda não confirmou o recebimento integral deste checkout.' });
+      }
+      const { split, storeEstimate } = order.snapshot;
+      const confirmed = (payment: Payment) => payment.split?.some((item) =>
+        item.walletId === split.walletId && item.status === 'DONE' &&
+        (typeof split.fixedValue === 'number' ? item.fixedValue === split.fixedValue : item.percentualValue === split.percentualValue));
+      if (storeEstimate > 0 && !payments.every(confirmed)) {
+        return res.status(409).json({ error: 'O Asaas ainda não confirmou o split da loja em todas as cobranças do pedido.' });
+      }
+      store = storeEstimate === 0 ? 0 : typeof split.fixedValue === 'number'
+        ? Math.round(split.fixedValue * 100) : payments.reduce((total, payment) =>
+          total + Math.round(Math.round(payment.netValue * 100) * split.percentualValue / 100), 0);
     }
-    const totalCents = (field: 'value' | 'netValue') => payments.reduce((sum, payment) => sum + Math.round(payment[field] * 100), 0);
-    const net = totalCents('netValue');
-    if ((!planId && payments.length !== 1) || payments.length === 0 ||
-        new Set(payments.map((payment) => payment.id)).size !== payments.length ||
-        payments.some((payment) => !paymentId.test(payment.id) || payment.status !== 'RECEIVED' ||
-          !Number.isFinite(payment.netValue) || payment.netValue < 0 || payment.netValue > payment.value) ||
-        totalCents('value') !== order.snapshot.gross || !Number.isSafeInteger(net)) {
-      return res.status(409).json({ error: 'O Asaas ainda não confirmou o recebimento integral deste checkout.' });
-    }
-    const { split, storeEstimate } = order.snapshot;
-    const confirmed = (payment: Payment) => payment.split?.some((item) =>
-      item.walletId === split.walletId && item.status === 'DONE' &&
-      (typeof split.fixedValue === 'number' ? item.fixedValue === split.fixedValue : item.percentualValue === split.percentualValue));
-    if (storeEstimate > 0 && !payments.every(confirmed)) {
-      return res.status(409).json({ error: 'O Asaas ainda não confirmou o split da loja em todas as cobranças do pedido.' });
-    }
-    const store = storeEstimate === 0 ? 0 : typeof split.fixedValue === 'number'
-      ? Math.round(split.fixedValue * 100) : payments.reduce((total, payment) =>
-        total + Math.round(Math.round(payment.netValue * 100) * split.percentualValue / 100), 0);
     const { balance } = await asaasStoreRequest<{ balance: number }>(storeSandboxApi, '/finance/balance', config.parentKey);
     if (!Number.isSafeInteger(store) || store < 0 || net - store < amount || !Number.isFinite(balance) || Math.round(balance * 100) < amount) {
       return res.status(409).json({ error: 'O líquido do pedido ou o saldo disponível da plataforma não cobre o repasse.' });

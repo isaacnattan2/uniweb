@@ -28,13 +28,16 @@ export function CartPage() {
   const [error, setError] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
   const [checkoutStore, setCheckoutStore] = useState('');
+  const [payTogether, setPayTogether] = useState(true);
   const [couponCode, setCouponCode] = useState('');
-  const [availability, setAvailability] = useState<{ key: string; methods: StorePaymentMethod[]; maxCardInstallments?: number; pickupAddress?: string | null; failed?: boolean }>();
+  const [availability, setAvailability] = useState<{ key: string; stores: Record<string, {
+    methods: StorePaymentMethod[]; maxCardInstallments?: number; pickupAddress?: string | null;
+  }>; failed?: boolean }>();
   const [deliveryType, setDeliveryType] = useState('');
   const [deliveryMode, setDeliveryMode] = useState<DeliveryQuoteMode>();
-  const [deliveryQuote, setDeliveryQuote] = useState<{ key: string; data?: DeliveryQuote; error?: string }>();
+  const [deliveryQuotes, setDeliveryQuotes] = useState<Record<string, { key: string; data?: DeliveryQuote; error?: string }>>({});
   const [quoteRefresh, setQuoteRefresh] = useState(0);
-  const [deliverySelection, setDeliverySelection] = useState<{ key: string; value: string }>();
+  const [deliverySelections, setDeliverySelections] = useState<Record<string, { key: string; value: string }>>({});
   const [acceptedFee, setAcceptedFee] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState(emptyDeliveryAddress);
   const [addressBook, setAddressBook] = useState<{ userId: string; entries: SavedDeliveryAddress[]; failed?: boolean }>();
@@ -52,25 +55,35 @@ export function CartPage() {
   const total = getTotal();
   const storeIds = [...new Set(cart.map((item) => item.businessId))].sort();
   const storeCount = storeIds.length;
-  const selectedStore = storeIds.includes(checkoutStore) ? checkoutStore : storeIds[0];
-  const storeItems = cart.filter((item) => item.businessId === selectedStore);
-  const storeTotal = storeItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const available = availability?.key === selectedStore ? availability : undefined;
-  const maxCardInstallments = available?.maxCardInstallments ?? DEFAULT_CARD_INSTALLMENTS;
-  const selectedMethod = available?.methods.find((method) => method === paymentMethod);
   const cards = cardBook?.userId === userId ? cardBook : undefined;
+  const grouped = storeCount > 1 && Boolean(cards?.enabled) && payTogether;
+  const selectedStore = storeIds.includes(checkoutStore) ? checkoutStore : storeIds[0];
+  const checkoutStores = grouped ? storeIds : selectedStore ? [selectedStore] : [];
+  const checkoutStoresKey = JSON.stringify(checkoutStores);
+  const storeItems = grouped ? cart : cart.filter((item) => item.businessId === selectedStore);
+  const storeTotal = storeItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const storeName = (id: string) => cart.find((item) => item.businessId === id)?.businessName || 'Loja';
+  const available = availability?.key === checkoutStoresKey ? availability : undefined;
+  const methods = (['pix', 'credit_card'] as const).filter((method) =>
+    (method === 'credit_card' || !grouped) && checkoutStores.every((id) => available?.stores[id]?.methods.includes(method)));
+  const maxCardInstallments = Math.min(...checkoutStores.map((id) => available?.stores[id]?.maxCardInstallments ?? DEFAULT_CARD_INSTALLMENTS));
+  const selectedMethod = methods.find((method) => method === (grouped ? 'credit_card' : paymentMethod));
   const card = selectedMethod === 'credit_card' ? cards?.items.find(({ id }) => id === selectedCard) : undefined;
   const chargeInstallments = Math.min(installments, maxCardInstallments);
   const addressComplete = !!savedAddresses && !!activeAddress && isDeliveryAddressComplete(activeAddress);
-  const quoteKey = JSON.stringify([selectedStore, activeAddress, userId, deliveryType, deliveryMode, quoteRefresh]);
-  const quoteResult = deliveryQuote?.key === quoteKey ? deliveryQuote : undefined;
-  const quote = quoteResult?.data;
-  const quoting = deliveryType === 'delivery' && !!deliveryMode && addressComplete && !quoteResult;
-  const selectedDelivery = deliverySelection?.key === quoteKey ? deliverySelection.value : '';
-  const selectedQuote = deliveryMode === 'immediate'
-    ? quote?.options.find((option) => option.id === selectedDelivery)
-    : quote?.slots.includes(selectedDelivery) ? quote.options[0] : undefined;
-  const consentKey = selectedQuote && selectedQuote.id + selectedDelivery;
+  const quoteKey = JSON.stringify([checkoutStoresKey, activeAddress, userId, deliveryType, deliveryMode, quoteRefresh]);
+  const deliveryOptions = checkoutStores.map((id) => {
+    const result = deliveryQuotes[id]?.key === quoteKey ? deliveryQuotes[id] : undefined;
+    const quote = result?.data;
+    const selection = deliverySelections[id]?.key === quoteKey ? deliverySelections[id].value : '';
+    const option = deliveryMode === 'immediate'
+      ? quote?.options.find((entry) => entry.id === selection)
+      : quote?.slots.includes(selection) ? quote.options[0] : undefined;
+    return { id, result, quote, selection, option };
+  });
+  const deliveryFees = deliveryOptions.reduce((sum, { option }) => sum + (option?.feeCents ?? 0), 0);
+  const allFreightSelected = deliveryOptions.every(({ option }) => Boolean(option));
+  const consentKey = allFreightSelected ? JSON.stringify(deliveryOptions.map(({ option, selection }) => [option?.id, selection])) : '';
   const feeAccepted = !!consentKey && acceptedFee === consentKey;
   useEffect(() => {
     setSelectedCard('hosted');
@@ -90,52 +103,59 @@ export function CartPage() {
   if (cartSyncing > 0) checkoutBlocker = 'Aguarde a atualização do carrinho.';
   else if (!available) checkoutBlocker = 'Aguarde a consulta das formas de pagamento.';
   else if (available.failed) checkoutBlocker = 'Atualize a página para consultar as formas de pagamento novamente.';
-  else if (!available.methods.length) checkoutBlocker = 'Esta loja está sem formas de pagamento disponíveis.';
+  else if (!methods.length) checkoutBlocker = grouped ? 'Todas as lojas precisam aceitar cartão para pagar juntas.' : 'Esta loja está sem formas de pagamento disponíveis.';
   else if (selectedMethod === 'credit_card' && addingCard) checkoutBlocker = 'Salve ou cancele o cadastro do cartão.';
+  else if (grouped && !card) checkoutBlocker = 'Selecione ou cadastre um cartão para pagar todas as lojas.';
   else if (!selectedMethod) checkoutBlocker = 'Selecione uma forma de pagamento.';
   else if (!deliveryType) checkoutBlocker = 'Selecione uma forma de entrega.';
   else if (deliveryType !== 'pickup' && !addressComplete) checkoutBlocker = 'Informe o endereço de entrega completo.';
   else if (deliveryType === 'delivery') {
     if (!deliveryMode) checkoutBlocker = 'Escolha entrega imediata ou agendada.';
-    else if (quoting) checkoutBlocker = 'Aguarde o cálculo do frete.';
-    else if (!quote || !quote.options.length) checkoutBlocker = 'Atualize o frete ou escolha outra modalidade.';
-    else if (!selectedQuote) checkoutBlocker = deliveryMode === 'immediate' ? 'Escolha uma opção de frete.' : 'Escolha um horário de entrega.';
+    else if (deliveryOptions.some(({ result }) => !result)) checkoutBlocker = 'Aguarde o cálculo do frete.';
+    else if (deliveryOptions.some(({ quote }) => !quote?.options.length)) checkoutBlocker = 'Atualize o frete ou escolha outra modalidade.';
+    else if (!allFreightSelected) checkoutBlocker = deliveryMode === 'immediate' ? 'Escolha o frete de cada loja.' : 'Escolha o horário de cada entrega.';
     else if (!feeAccepted) checkoutBlocker = 'Marque a opção “Aceito o frete” para continuar.';
   }
 
   function changeDeliveryMode(mode?: DeliveryQuoteMode) {
     setDeliveryMode(mode);
-    setDeliveryQuote(undefined);
-    setDeliverySelection(undefined);
+    setDeliveryQuotes({});
+    setDeliverySelections({});
     setAcceptedFee('');
     setError('');
   }
 
   useEffect(() => {
-    if (!token || userType !== 'customer' || !selectedStore || !activeAddress || !addressComplete || deliveryType !== 'delivery' || !deliveryMode) return;
+    if (!token || userType !== 'customer' || !activeAddress || !addressComplete || deliveryType !== 'delivery' || !deliveryMode) return;
     const request = new AbortController();
     const timer = setTimeout(() => {
-      getDeliveryQuote(selectedStore, activeAddress, deliveryMode, request.signal).then((data) => {
-        if (!request.signal.aborted) setDeliveryQuote({ key: quoteKey, data });
-      }).catch((err) => {
-        if (!request.signal.aborted) setDeliveryQuote({ key: quoteKey, error: err.response?.data?.error || 'Não foi possível calcular o frete.' });
-      });
+      for (const id of JSON.parse(checkoutStoresKey) as string[]) {
+        void getDeliveryQuote(id, activeAddress, deliveryMode, request.signal).then((data) => {
+          if (!request.signal.aborted) setDeliveryQuotes((current) => ({ ...current, [id]: { key: quoteKey, data } }));
+        }).catch((err) => {
+          if (!request.signal.aborted) setDeliveryQuotes((current) => ({
+            ...current, [id]: { key: quoteKey, error: err.response?.data?.error || 'Não foi possível calcular o frete.' },
+          }));
+        });
+      }
     }, 350);
     return () => { clearTimeout(timer); request.abort(); };
-  }, [token, userType, selectedStore, activeAddress, addressComplete, deliveryType, deliveryMode, quoteKey]);
+  }, [token, userType, checkoutStoresKey, activeAddress, addressComplete, deliveryType, deliveryMode, quoteKey]);
 
   useEffect(() => {
-    if (!token || userType !== 'customer' || !selectedStore) return;
+    if (!token || userType !== 'customer') return;
 
     let active = true;
-    getBusinessPublic(selectedStore).then((business) => {
-      const methods = business.payment_methods ?? ['pix', 'credit_card'];
-      if (active) setAvailability({ key: selectedStore, methods, maxCardInstallments: business.max_card_installments, pickupAddress: business.address });
+    Promise.all((JSON.parse(checkoutStoresKey) as string[]).map(async (id) => {
+      const business = await getBusinessPublic(id);
+      return [id, { methods: business.payment_methods ?? ['pix', 'credit_card'], maxCardInstallments: business.max_card_installments, pickupAddress: business.address }] as const;
+    })).then((entries) => {
+      if (active) setAvailability({ key: checkoutStoresKey, stores: Object.fromEntries(entries) });
     }).catch(() => {
-      if (active) setAvailability({ key: selectedStore, methods: [], failed: true });
+      if (active) setAvailability({ key: checkoutStoresKey, stores: {}, failed: true });
     });
     return () => { active = false; };
-  }, [selectedStore, token, userType]);
+  }, [checkoutStoresKey, token, userType]);
 
   useEffect(() => {
     setAddressBook(undefined);
@@ -173,15 +193,21 @@ export function CartPage() {
       setError('Informe CEP, logradouro, número, cidade e UF para continuar.');
       return;
     }
-    if (deliveryType === 'delivery' && (!selectedQuote || !feeAccepted)) {
+    if (checkoutBlocker) {
+      setError(checkoutBlocker);
+      return;
+    }
+    if (deliveryType === 'delivery' && (!allFreightSelected || !feeAccepted)) {
       setError('Calcule o frete, escolha o prazo e aceite o valor da entrega.');
       return;
     }
 
     const address = deliveryType === 'pickup' ? '' : activeAddress ?? '';
-    const dispatch = deliveryType === 'delivery' && selectedQuote
-      ? { deliveryQuoteId: selectedQuote.id, scheduledAt: deliveryMode === 'scheduled' ? selectedDelivery : null, deliveryFeeAccepted: true as const }
-      : undefined;
+    const selections = deliveryType === 'delivery' ? deliveryOptions.flatMap(({ option, selection }) => option ? [{
+      deliveryQuoteId: option.id, scheduledAt: deliveryMode === 'scheduled' ? selection : null, deliveryFeeAccepted: true as const,
+    }] : []) : [];
+    const dispatch = grouped && selections.length ? { deliveryQuotes: selections } : selections[0];
+    const appliedCoupon = grouped ? '' : couponCode.trim();
     submitting.current = true;
     setLoading(true);
     setError('');
@@ -193,12 +219,12 @@ export function CartPage() {
         price: item.price,
       }));
 
-      const signature = JSON.stringify([userId, items, paymentMethod, deliveryType, address, couponCode.trim(), dispatch, card?.id, chargeInstallments]);
+      const signature = JSON.stringify([userId, items, selectedMethod, deliveryType, address, appliedCoupon, dispatch, card?.id, chargeInstallments]);
       if (checkoutAttempt.current?.signature !== signature) {
         checkoutAttempt.current = { signature, id: crypto.randomUUID() };
       }
       const { checkoutUrl, paymentStatus } = await createOrder(
-        items, selectedMethod, deliveryType, address, checkoutAttempt.current.id, couponCode.trim(), dispatch, card ? { savedCardId: card.id, installments: chargeInstallments } : undefined
+        items, selectedMethod, deliveryType, address, checkoutAttempt.current.id, appliedCoupon, dispatch, card ? { savedCardId: card.id, installments: chargeInstallments } : undefined
       );
       if (useAuthStore.getState().userId !== userId) return;
       if (paymentStatus === 'failed') {
@@ -278,7 +304,7 @@ export function CartPage() {
                     <td>R$ {Number(item.price).toFixed(2)}</td>
                     <td>
                       <div className="quantity-control">
-                        <button disabled={loading || cartSyncing > 0} aria-label={`Diminuir quantidade de ${item.name}`} onClick={() => updateQuantity(item.productId, item.quantity - 1)}>-</button>
+                        <button type="button" disabled={loading || cartSyncing > 0} aria-label={`Diminuir quantidade de ${item.name}`} onClick={() => updateQuantity(item.productId, item.quantity - 1)} />
                         <input
                           type="number"
                           min="1"
@@ -298,7 +324,8 @@ export function CartPage() {
                           onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }}
                           aria-label={`Quantidade de ${item.name}`}
                         />
-                        <button disabled={loading || cartSyncing > 0} aria-label={`Aumentar quantidade de ${item.name}`} onClick={() => updateQuantity(item.productId, item.quantity + 1)}>+</button>
+                        <button type="button" className="quantity-increase" disabled={loading || cartSyncing > 0}
+                          aria-label={`Aumentar quantidade de ${item.name}`} onClick={() => updateQuantity(item.productId, item.quantity + 1)} />
                       </div>
                     </td>
                     <td>R$ {(item.price * item.quantity).toFixed(2)}</td>
@@ -331,16 +358,35 @@ export function CartPage() {
               </div>
               <div className="summary-row">
                 <span>Frete:</span>
-                <span>{selectedQuote ? currency.format(selectedQuote.feeCents / 100) : deliveryType === 'pickup' ? 'Sem frete' : 'A selecionar'}</span>
+                <span>{deliveryType === 'pickup' ? 'Sem frete' : allFreightSelected ? currency.format(deliveryFees / 100) : 'A selecionar'}</span>
               </div>
               <div className="summary-row total">
                 <span>Total:</span>
-                <span>{currency.format(total + (selectedQuote?.feeCents ?? 0) / 100)}</span>
+                <span>{currency.format(total + deliveryFees / 100)}</span>
               </div>
 
               {token && userType === 'customer' && (
                 <div className="checkout-options">
-                  {storeCount > 1 && (
+                  {storeCount > 1 && cards?.enabled && (
+                    <label className="checkout-fee-consent">
+                      <input type="checkbox" checked={grouped} disabled={loading} onChange={(event) => {
+                        setPayTogether(event.target.checked);
+                        setAddingCard(false);
+                        setError('');
+                      }} />
+                      <span>Pagar todas as lojas em uma única cobrança no cartão</span>
+                    </label>
+                  )}
+                  {grouped && (
+                    <ul className="checkout-store-list">
+                      {checkoutStores.map((id) => {
+                        const subtotal = cart.reduce((sum, item) => item.businessId === id ? sum + item.price * item.quantity : sum, 0);
+                        const freight = deliveryOptions.find((entry) => entry.id === id)?.option?.feeCents ?? 0;
+                        return <li key={id}>{storeName(id)} · {currency.format(subtotal + freight / 100)}</li>;
+                      })}
+                    </ul>
+                  )}
+                  {storeCount > 1 && !grouped && (
                     <>
                       <label htmlFor="checkout-store">Loja que você quer pagar</label>
                       <select id="checkout-store" value={selectedStore} disabled={loading} onChange={(event) => {
@@ -350,28 +396,25 @@ export function CartPage() {
                         setError('');
                       }}>
                         {storeIds.map((id) => (
-                          <option key={id} value={id}>{cart.find((item) => item.businessId === id)?.businessName || 'Loja'}</option>
+                          <option key={id} value={id}>{storeName(id)}</option>
                         ))}
                       </select>
-                      <p><strong>Total desta cobrança:</strong> {currency.format(storeTotal + (selectedQuote?.feeCents ?? 0) / 100)}. Os itens das outras lojas ficam no carrinho.</p>
+                      <p><strong>Total desta cobrança:</strong> {currency.format(storeTotal + deliveryFees / 100)}. Os itens das outras lojas ficam no carrinho.</p>
                     </>
                   )}
-                  <label htmlFor="checkout-coupon">Cupom da loja (opcional)</label>
+                  {!grouped && <><label htmlFor="checkout-coupon">Cupom da loja (opcional)</label>
                   <input id="checkout-coupon" type="text" value={couponCode} maxLength={30} disabled={loading}
                     onChange={(event) => setCouponCode(event.target.value.toUpperCase())} />
-                  {couponCode.trim() && <p>O desconto será validado ao continuar e o valor final aparecerá no Asaas.</p>}
-                  <label htmlFor="payment-method">Forma de pagamento</label>
-                  <select id="payment-method" value={selectedMethod || ''} onChange={(event) => setPaymentMethod(event.target.value)} disabled={loading || !available?.methods.length}>
+                  {couponCode.trim() && <p>O desconto será validado ao continuar e o valor final aparecerá no Asaas.</p>}</>}
+                  {!grouped && <><label htmlFor="payment-method">Forma de pagamento</label>
+                  <select id="payment-method" value={selectedMethod || ''} onChange={(event) => setPaymentMethod(event.target.value)} disabled={loading || !methods.length}>
                     <option value="">Selecione</option>
-                    {available?.methods.includes('pix') && <option value="pix">Pix</option>}
-                    {available?.methods.includes('credit_card') && <option value="credit_card">Cartão de crédito</option>}
+                    {methods.includes('pix') && <option value="pix">Pix</option>}
+                    {methods.includes('credit_card') && <option value="credit_card">Cartão de crédito</option>}
 
-                  </select>
+                  </select></>}
                   {!available && <p role="status">Consultando formas de pagamento da loja…</p>}
                   {available?.failed && <p role="alert">Não foi possível consultar as formas de pagamento. Atualize a página para tentar novamente.</p>}
-                  {available && !available.failed && !available.methods.length && (
-                    <p role="alert">Esta loja está sem formas de pagamento disponíveis.</p>
-                  )}
                   <label htmlFor="delivery-type">Forma de entrega</label>
                   <select id="delivery-type" value={deliveryType} onChange={(event) => { setDeliveryType(event.target.value); changeDeliveryMode(); }} disabled={loading}>
                     <option value="">Selecione</option>
@@ -385,9 +428,9 @@ export function CartPage() {
                       <label><input type="radio" name="delivery-mode" checked={deliveryMode === 'scheduled'} onChange={() => changeDeliveryMode('scheduled')} />Agendar entrega</label>
                     </fieldset>
                   )}
-                  {deliveryType === 'pickup' && available?.pickupAddress && (
-                    <p><strong>Endereço para retirada:</strong> {available.pickupAddress}</p>
-                  )}
+                  {deliveryType === 'pickup' && checkoutStores.map((id) => available?.stores[id]?.pickupAddress && (
+                    <p key={id}><strong>{grouped ? storeName(id) : 'Endereço para retirada'}:</strong> {available.stores[id].pickupAddress}</p>
+                  ))}
                   {deliveryType === 'delivery' && (
                     <div className="checkout-saved-address">
                       {!savedAddresses ? <p role="status">Consultando endereços da conta…</p> : (
@@ -418,8 +461,11 @@ export function CartPage() {
                   )}
                   {deliveryType === 'delivery' && deliveryMode && addressComplete && (
                     <>
-                      {quoting && <p role="status">Consultando opções de entrega…</p>}
-                      {quoteResult?.error && <p className="error-message" role="alert">{quoteResult.error}</p>}
+                      {deliveryOptions.map(({ id, result, quote, selection }) => (
+                        <React.Fragment key={id}>
+                      {grouped && <strong>{storeName(id)}</strong>}
+                      {!result && <p role="status">Consultando opções de entrega…</p>}
+                      {result?.error && <p className="error-message" role="alert">{result.error}</p>}
                       {quote && !quote.options.length && (
                         <p role="status">{deliveryMode === 'immediate' ? 'Nenhum entregador disponível para este endereço agora.' : 'Nenhum horário disponível para este endereço.'}</p>
                       )}
@@ -428,9 +474,9 @@ export function CartPage() {
                           <legend>Opções de frete</legend>
                           {quote.options.map((option) => (
                             <label key={option.id}>
-                              <input type="radio" name="delivery-freight" checked={selectedDelivery === option.id} onChange={() => {
+                              <input type="radio" name={`delivery-freight-${id}`} checked={selection === option.id} onChange={() => {
                                 setAcceptedFee('');
-                                setDeliverySelection({ key: quoteKey, value: option.id });
+                                setDeliverySelections((current) => ({ ...current, [id]: { key: quoteKey, value: option.id } }));
                               }} />
                               <span><strong>{currency.format(option.feeCents / 100)}</strong> · cerca de {option.estimatedMinutes} min após o pagamento</span>
                             </label>
@@ -439,10 +485,11 @@ export function CartPage() {
                       )}
                       {quote && quote.slots.length > 0 && deliveryMode === 'scheduled' && (
                         <>
-                          <label htmlFor="checkout-delivery-slot">Horário de entrega</label>
-                          <select id="checkout-delivery-slot" value={selectedDelivery} disabled={loading} onChange={(event) => {
+                          <label htmlFor={`checkout-delivery-slot-${id}`}>Horário de entrega</label>
+                          <select id={`checkout-delivery-slot-${id}`} value={selection} disabled={loading} onChange={(event) => {
+                            const value = event.target.value;
                             setAcceptedFee('');
-                            setDeliverySelection({ key: quoteKey, value: event.target.value });
+                            setDeliverySelections((current) => ({ ...current, [id]: { key: quoteKey, value } }));
                           }}>
                             <option value="">Selecione</option>
                             {quote.slots.map((slot) => <option key={slot} value={slot}>
@@ -451,14 +498,16 @@ export function CartPage() {
                           </select>
                         </>
                       )}
-                      {selectedQuote && consentKey && (
+                        </React.Fragment>
+                      ))}
+                      {consentKey && (
                         <label className="checkout-fee-consent">
                           <input type="checkbox" disabled={loading} checked={feeAccepted}
                             onChange={(event) => setAcceptedFee(event.target.checked ? consentKey : '')} />
-                          <span>Aceito o frete de {currency.format(selectedQuote.feeCents / 100)}.</span>
+                          <span>Aceito o frete {grouped ? 'total ' : ''}de {currency.format(deliveryFees / 100)}.</span>
                         </label>
                       )}
-                      {!quoting && <button type="button" className="btn-secondary" disabled={loading} onClick={() => {
+                      {deliveryOptions.every(({ result }) => result) && <button type="button" className="btn-secondary" disabled={loading} onClick={() => {
                         setError('');
                         setQuoteRefresh((current) => current + 1);
                       }}>Atualizar frete</button>}
@@ -475,11 +524,13 @@ export function CartPage() {
                               setSelectedCard(event.target.value);
                               setInstallments(1);
                             }}>
-                              <option value="hosted">Inserir cartão na página do Asaas</option>
+                              <option value="hosted">{grouped ? 'Selecione um cartão' : 'Inserir cartão na página do Asaas'}</option>
                               {cards.items.map((saved) => <option key={saved.id} value={saved.id}>{cardLabel(saved)}</option>)}
                             </select>
                           </div>
-                          {addingCard ? <SavedCardForm onCancel={() => setAddingCard(false)} onSaved={(saved) => {
+                          {addingCard ? <SavedCardForm addresses={savedAddresses?.entries}
+                            checkoutAddress={deliveryType === 'delivery' && activeAddressId === 'new' && addressComplete ? activeAddress : undefined}
+                            onCancel={() => setAddingCard(false)} onSaved={(saved) => {
                             if (useAuthStore.getState().userId !== userId) return;
                             setCardBook({ ...cards, items: [saved, ...cards.items] });
                             setSelectedCard(saved.id);
@@ -499,8 +550,8 @@ export function CartPage() {
                       </div>}
                     </>
                   )}
-                  <p>{card ? 'O Asaas vai processar o pagamento com o cartão salvo selecionado.' :
-                    'Você vai concluir o pagamento na página do Asaas.'}</p>
+                  {(!grouped || card) && <p>{card ? 'O Asaas vai processar o pagamento com o cartão salvo selecionado.' :
+                    'Você vai concluir o pagamento na página do Asaas.'}</p>}
                 </div>
               )}
 
@@ -527,7 +578,7 @@ export function CartPage() {
                     aria-describedby={!loading && checkoutBlocker ? 'checkout-blocker' : undefined}
                     className="btn-checkout"
                   >
-                    {loading ? 'Processando...' : storeCount > 1 ? 'Pagar esta loja' : '✓ Finalizar Compra'}
+                    {loading ? 'Processando...' : grouped ? `Pagar ${currency.format(storeTotal + deliveryFees / 100)}` : storeCount > 1 ? 'Pagar esta loja' : '✓ Finalizar Compra'}
                   </button>
                 </>
               ) : (

@@ -14,6 +14,7 @@ import { getClient, query } from '../config/database';
 import { applyCoupon, Coupon, CouponError, normalizeCouponCode } from '../services/StoreCoupons';
 import { storeCanReceivePayout } from '../services/AsaasStoreApproval';
 import { dispatchUuid, dispatchWindowMinutes, findDispatchCandidates } from '../services/DeliveryDispatch';
+import type { DispatchRoute } from '../services/DeliveryDispatch';
 
 class CheckoutError extends Error {
   constructor(public status: number, message: string) {
@@ -25,6 +26,19 @@ interface CheckoutItem {
   productId: string;
   quantity: number;
   price: number;
+}
+
+interface DeliverySelection {
+  deliveryQuoteId: string;
+  scheduledAt: string | null;
+  deliveryFeeAccepted: true;
+}
+
+interface CheckoutQuote extends DispatchRoute {
+  id: string;
+  business_id: string;
+  pickup_address: string;
+  immediate_minutes: number | null;
 }
 
 interface CheckoutProduct {
@@ -69,12 +83,18 @@ export class OrderController {
       }
       const remoteIp = savedCardId ? cardRemoteIp(req.ip) : '';
 
-      const quoteId = deliveryType === 'delivery' ? req.body?.deliveryQuoteId : null;
-      const scheduledAt = deliveryType === 'delivery' ? req.body?.scheduledAt ?? null : null;
-      const slot = typeof scheduledAt === 'string' ? new Date(scheduledAt) : null;
-      if (deliveryType === 'delivery' && (!config || req.body?.deliveryFeeAccepted !== true ||
-          typeof quoteId !== 'string' || !dispatchUuid.test(quoteId) ||
-          (scheduledAt !== null && (!slot || !Number.isFinite(slot.getTime()) || slot.getTime() % 1800000 !== 0)))) {
+      const groupedQuotes = req.body?.deliveryQuotes;
+      const deliverySelections: DeliverySelection[] = deliveryType !== 'delivery' ? [] :
+        groupedQuotes ?? [{
+          deliveryQuoteId: req.body?.deliveryQuoteId,
+          scheduledAt: req.body?.scheduledAt ?? null,
+          deliveryFeeAccepted: req.body?.deliveryFeeAccepted,
+        }];
+      if (deliveryType === 'delivery' && (!config || !Array.isArray(deliverySelections) || !deliverySelections.length ||
+          deliverySelections.some((selection) => !selection || selection.deliveryFeeAccepted !== true ||
+            typeof selection.deliveryQuoteId !== 'string' || !dispatchUuid.test(selection.deliveryQuoteId) ||
+            (selection.scheduledAt !== null && (typeof selection.scheduledAt !== 'string' ||
+              Date.parse(selection.scheduledAt) % 1800000 !== 0))))) {
         throw new CheckoutError(400, 'Calcule e aceite o frete antes de iniciar o pagamento.');
       }
       const inputCode = req.body?.couponCode;
@@ -132,7 +152,10 @@ export class OrderController {
       const requestHash = createHash('sha256').update(JSON.stringify([
         paymentMethod, deliveryType, address, [...itemById.values()].sort((a, b) => a.productId.localeCompare(b.productId)),
         ...(couponCode ? [couponCode] : []),
-        ...(quoteId ? [quoteId, slot?.toISOString() ?? null] : []),
+        ...(deliveryType !== 'delivery' ? [] : groupedQuotes == null
+          ? [deliverySelections[0].deliveryQuoteId, deliverySelections[0].scheduledAt && new Date(deliverySelections[0].scheduledAt).toISOString()]
+          : [deliverySelections.map(({ deliveryQuoteId, scheduledAt }) => [deliveryQuoteId.toLowerCase(), scheduledAt && new Date(scheduledAt).toISOString()])
+            .sort(([a], [b]) => String(a).localeCompare(String(b)))]),
         ...(savedCardId ? [savedCardId, installments] : []),
       ])).digest('hex');
       if (config) {
@@ -201,6 +224,13 @@ export class OrderController {
         groups.set(product.business_id, group);
       }
 
+      const groupedCard = Boolean(config && savedCard && groups.size > 1);
+      if (deliverySelections.length && groups.size > 1 && !groupedCard) {
+        throw new CheckoutError(400, 'Para pagar várias lojas juntas, selecione um cartão cadastrado.');
+      }
+      if (groupedCard && [...groups.values()].some(([{ product }]) => !product.asaas_card_split_condition)) {
+        throw new CheckoutError(409, 'Todas as lojas precisam ter uma condição de repasse para cartão.');
+      }
       const payoutEligibility = await Promise.all([...groups].map(([businessId, entries]) => {
         const { product } = entries[0];
         const condition = paymentMethod === 'pix' ? product.asaas_pix_split_condition : product.asaas_card_split_condition;
@@ -213,29 +243,27 @@ export class OrderController {
       if (couponCode && groups.size !== 1) {
         throw new CheckoutError(400, 'Use um cupom por compra de uma loja.');
       }
-      let quote;
-      let promisedAt: Date | undefined;
-      let reservedDriver: string | null = null;
-      if (quoteId) {
-        if (groups.size !== 1) throw new CheckoutError(400, 'Finalize a entrega de uma loja por vez.');
-        const { rows } = await client.query(
-          `SELECT * FROM delivery_quotes WHERE id = $1 AND user_id = $2 AND business_id = $3
-           AND destination = $4 AND expires_at > NOW() FOR UPDATE`,
-          [quoteId, req.userId, [...groups.keys()][0], address]
+      const deliveryByStore = new Map<string, { quote: CheckoutQuote; slot: Date | null }>();
+      if (deliverySelections.length) {
+        const { rows } = await client.query<CheckoutQuote>(
+          `SELECT * FROM delivery_quotes WHERE id = ANY($1::uuid[]) AND user_id = $2
+           AND destination = $3 AND expires_at > NOW() ORDER BY id FOR UPDATE`,
+          [deliverySelections.map(({ deliveryQuoteId }) => deliveryQuoteId), req.userId, address],
         );
-        quote = rows[0];
-        if (!quote || (slot && (slot.getTime() < Date.now() + 40 * 60000 || slot.getTime() > Date.now() + 7 * 86400000))) {
-          throw new CheckoutError(409, 'O frete ou o horário expirou. Atualize a cotação.');
+        const selections = new Map(deliverySelections.map((selection) => [selection.deliveryQuoteId.toLowerCase(), selection]));
+        if (rows.length !== deliverySelections.length || rows.length !== groups.size) {
+          throw new CheckoutError(409, 'Atualize o frete de cada loja do pedido.');
         }
-        if (!slot && quote.immediate_minutes == null) throw new CheckoutError(409, 'A entrega imediata não está disponível.');
-        if (slot && quote.immediate_minutes != null) throw new CheckoutError(409, 'Atualize a cotação para agendar a entrega.');
-        if (slot) await client.query('SELECT pg_advisory_xact_lock(19750215)');
-        promisedAt = new Date((slot?.getTime() ?? Date.now()) +
-          (slot ? dispatchWindowMinutes(quote) : quote.immediate_minutes) * 60000);
-        const candidates = await findDispatchCandidates(client, quote, slot, null, slot ? null : promisedAt);
-        if (!candidates.length) throw new CheckoutError(409, 'Este tipo de entrega ficou indisponível. Atualize a cotação.');
-        reservedDriver = slot ? candidates[0].user_id : null;
-        await client.query('DELETE FROM delivery_quotes WHERE id = $1', [quoteId]);
+        for (const quote of rows) {
+          if (!groups.has(quote.business_id) || deliveryByStore.has(quote.business_id)) {
+            throw new CheckoutError(409, 'Atualize o frete de cada loja do pedido.');
+          }
+          const scheduledAt = selections.get(quote.id)!.scheduledAt;
+          deliveryByStore.set(quote.business_id, { quote, slot: scheduledAt ? new Date(scheduledAt) : null });
+        }
+        if ([...deliveryByStore.values()].some(({ slot }) => slot)) {
+          await client.query('SELECT pg_advisory_xact_lock(19750215)');
+        }
       }
 
       const orderIds: string[] = [];
@@ -245,8 +273,11 @@ export class OrderController {
       }
       let payableCents = 0n;
       const splits: { walletId: string; fixedValue?: number; percentualValue?: number }[] = [];
+      const sharedSplitCents = new Map<string, number>();
       const checkoutItems: Array<{ name: string; value: number; quantity: number }> = [];
       for (const [businessId, group] of groups) {
+        const delivery = deliveryByStore.get(businessId);
+        const quote = delivery?.quote;
         const subtotal = group.reduce((sum, entry) => sum + entry.subtotal, 0n);
         const deliveryFee = BigInt(quote?.fee_cents ?? 0);
         if (subtotal + deliveryFee > 999999999999999n) {
@@ -279,26 +310,46 @@ export class OrderController {
         const savedCondition = !config ? null : paymentMethod === 'pix'
           ? store?.asaas_pix_split_condition : store?.asaas_card_split_condition;
         if (savedCondition) {
+          if (groups.size > 1 && !groupedCard) {
+            throw new CheckoutError(409, 'Para pagar várias lojas com split, selecione um cartão cadastrado.');
+          }
           const condition = paymentMethod === 'credit_card' ? resolveCardSplitLimit(savedCondition, savedCard ? installments : maxCardInstallments) : savedCondition;
           if (!condition) throw new CheckoutError(409, 'A condição de repasse do cartão precisa ser atualizada para o limite de parcelas da loja.');
-          if (groups.size !== 1) throw new CheckoutError(409, 'Com o split ativo, finalize cada loja em um pedido separado.');
           if (condition.ownerId !== store?.owner_id || (condition.expiresAt && Date.parse(condition.expiresAt) <= Date.now())) {
             throw new CheckoutError(409, 'A condição de repasse desta loja precisa ser atualizada.');
           }
           const snapshot = calculateCheckoutSplit(condition, Number(subtotal), Number(discount), Number(deliveryFee),
             quote ? Number(deliveryFee) + quote.subsidy_cents : 0);
           if (!snapshot) throw new CheckoutError(409, 'O valor líquido estimado não cobre os repasses deste pedido.');
-          if (snapshot.storeEstimate > 0) splits.push(snapshot.split);
-          await client.query('UPDATE orders SET asaas_split_snapshot = $2::jsonb WHERE id = $1', [orderId, JSON.stringify(snapshot)]);
+          if (snapshot.storeEstimate > 0) {
+            if (groupedCard) sharedSplitCents.set(condition.walletId, (sharedSplitCents.get(condition.walletId) ?? 0) + snapshot.storeEstimate);
+            else splits.push(snapshot.split);
+          }
+          await client.query('UPDATE orders SET asaas_split_snapshot = $2::jsonb WHERE id = $1',
+            [orderId, JSON.stringify({ ...snapshot, ...(groupedCard && { sharedCard: true }) })]);
         }
-        if (quote) {
+        if (delivery) {
+          const { slot } = delivery;
+          if (slot && (slot.getTime() < Date.now() + 40 * 60000 || slot.getTime() > Date.now() + 7 * 86400000)) {
+            throw new CheckoutError(409, 'O horário de entrega expirou. Atualize a cotação.');
+          }
+          if ((slot === null) !== (delivery.quote.immediate_minutes != null)) {
+            throw new CheckoutError(409, 'Atualize a cotação para a modalidade de entrega escolhida.');
+          }
+          const promisedAt = new Date((slot?.getTime() ?? Date.now()) +
+            (slot ? dispatchWindowMinutes(delivery.quote) : delivery.quote.immediate_minutes ?? 0) * 60000);
+          const candidates = await findDispatchCandidates(client, delivery.quote, slot, null, slot ? null : promisedAt);
+          if (!candidates.length) throw new CheckoutError(409, 'A entrega de uma loja ficou indisponível. Atualize a cotação.');
+          const reservedDriver = slot ? candidates[0].user_id : null;
           await client.query(
             `INSERT INTO delivery_dispatch (order_id, state, slot_at, promised_at, pickup_address, pickup_latitude, pickup_longitude,
               distance_meters, duration_minutes, rate_cents, fee_cents, subsidy_cents, radius_meters, capacity_driver_id)
              VALUES ($1,'payment_pending',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-            [orderId, slot, promisedAt, quote.pickup_address, quote.pickup_latitude, quote.pickup_longitude, quote.distance_meters,
-              quote.duration_minutes, quote.rate_cents, quote.fee_cents, quote.subsidy_cents, quote.radius_meters, reservedDriver]
+            [orderId, slot, promisedAt, delivery.quote.pickup_address, delivery.quote.pickup_latitude, delivery.quote.pickup_longitude,
+              delivery.quote.distance_meters, delivery.quote.duration_minutes, delivery.quote.rate_cents,
+              delivery.quote.fee_cents, delivery.quote.subsidy_cents, delivery.quote.radius_meters, reservedDriver]
           );
+          await client.query('DELETE FROM delivery_quotes WHERE id = $1', [delivery.quote.id]);
           if (deliveryFee > 0n) checkoutItems.push({ name: 'Frete', quantity: 1, value: Number(formatCents(deliveryFee)) });
         }
         for (const { product, item, subtotal, discount: lineDiscount } of pricedItems) {
@@ -324,6 +375,9 @@ export class OrderController {
         orderIds.push(orderId);
       }
 
+      if (payableCents > 999999999999999n) {
+        throw new CheckoutError(400, 'O valor da compra excede o limite permitido.');
+      }
       if (savedAddress) {
         await client.query(
           'INSERT INTO customer_addresses (user_id, address) VALUES ($1, $2::jsonb) ON CONFLICT (user_id, address) DO NOTHING',
@@ -342,8 +396,11 @@ export class OrderController {
         inTransaction = false;
         client.release();
         client = undefined;
+        const cardSplits = groupedCard ? [...sharedSplitCents].map(([walletId, cents]) => ({
+          walletId, ...(installments > 1 ? { totalFixedValue: cents / 100 } : { fixedValue: cents / 100 }),
+        })) : splits;
         const paymentStatus = await submitDirectCardPayment(config, checkoutId, savedCard,
-          Number(formatCents(payableCents)), installments, remoteIp, splits).catch(() => 'pending');
+          Number(formatCents(payableCents)), installments, remoteIp, cardSplits).catch(() => 'pending');
         return res.status(201).json({ orderId: orderIds[0], orderIds, status: 'pending', paymentStatus, checkoutUrl: null });
       }
 
@@ -386,7 +443,7 @@ export class OrderController {
       }
       await client.query('COMMIT');
       inTransaction = false;
-      if (!quote) notifyOrderEvent('new', orderIds);
+      if (!deliverySelections.length) notifyOrderEvent('new', orderIds);
       return res.status(201).json({ orderId: orderIds[0], orderIds, status: 'pending', ...(paymentUrl && { checkoutUrl: paymentUrl }) });
     } catch (error: unknown) {
       if (client && inTransaction) {

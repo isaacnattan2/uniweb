@@ -35,7 +35,7 @@ export async function cancelOwnedOrder(orderId: string, owner: string, managedSt
          delivery_status = CASE WHEN owned.delivery_status = 'delivered' THEN o.delivery_status ELSE 'cancelled' END,
          delivery_confirmation_code = NULL, delivery_confirmation_attempts = 0,
          delivery_confirmation_retry_at = NULL, updated_at = NOW()
-       FROM owned WHERE o.id = owned.id AND owned.order_status IS DISTINCT FROM 'cancelled'
+       FROM owned WHERE o.id = owned.id AND owned.order_status IS DISTINCT FROM 'cancelled' AND NOT owned.awaiting_card
          AND (owned.dispatch_state IS NULL OR (
            owned.dispatch_state IN ('payment_pending','scheduled','searching','offered','assigned','needs_choice')
            AND owned.delivery_status IN ('pending','processing')

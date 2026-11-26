@@ -197,8 +197,18 @@ export function AdminSplitOperations({ draft, requirements, accountCardBands, in
                       return (
                         <tr key={order.id}>
                           <th scope="row">{formatOrderCode(order.id)} · {order.store}</th>
-                          <td>{order.payment_method === 'pix' ? 'Pix' : 'Cartão'} · {order.payment_status === 'paid' ? 'Pago' : order.payment_status === 'pending' ? 'Pendente' : 'Encerrado'}</td>
-                          <td>{currency.format(store / 100)} {order.store_cents === null && <small>estimado</small>}</td>
+                          <td>
+                            {order.payment_method === 'pix' ? 'Pix' : 'Cartão'} · {order.payment_status === 'paid' ? 'Pago' : order.payment_status === 'pending' ? 'Pendente' : 'Encerrado'}
+                            {order.shared_payment_id && <><br /><small>{order.shared_payment_id}</small></>}
+                            {order.shared_payment_id && order.order_status === 'cancelled' && order.payment_status === 'paid' &&
+                              <><br /><small>Estorno parcial em revisão</small></>}
+                          </td>
+                          <td>
+                            {currency.format(store / 100)}{' '}
+                            {order.store_split_status === 'done' ? <small>Liquidado no Asaas</small>
+                              : order.store_split_status === 'unconfirmed' ? <small>Liquidação a confirmar</small>
+                              : order.store_cents === null && order.store_split_status !== 'none' && <small>estimado</small>}
+                          </td>
                           <td>{driver === null ? 'Aguardando entrega' : currency.format(driver / 100)}</td>
                           <td>{earnings === null ? '—' : currency.format((net - store - earnings) / 100)} {earnings !== null && payout !== 'done' && <small>previsto</small>}</td>
                           <td>

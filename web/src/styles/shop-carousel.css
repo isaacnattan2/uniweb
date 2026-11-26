@@ -35,15 +35,24 @@
   place-items: center;
   inline-size: 2.5rem;
   block-size: 2.5rem;
+  padding: 0;
   border: 0;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.93);
   color: #174ea6;
-  font-size: 1.75rem;
-  line-height: 1;
   cursor: pointer;
   box-shadow: 0 2px 8px #0f172a33;
 }
+
+.shop-carousel-arrow::before {
+  content: '';
+  inline-size: 0.625rem;
+  block-size: 0.875rem;
+  background: currentColor;
+  clip-path: polygon(0 12%, 20% 0, 100% 50%, 20% 100%, 0 88%, 62% 50%);
+}
+
+.shop-carousel-prev::before { transform: scaleX(-1); }
 
 .shop-carousel-prev { inset-inline-start: 0.65rem; }
 .shop-carousel-next { inset-inline-end: 0.65rem; }

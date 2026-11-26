@@ -212,6 +212,53 @@ test('valida o token do webhook e confirma ou cancela os pedidos em transacao', 
   assert.equal(calls.at(-1), 'COMMIT');
 });
 
+test('cobra uma vez com cartão salvo e envia o repasse calculado de cada loja', async (t) => {
+  const cards = require('../dist/services/AsaasSavedCards');
+  const checkout = require('../dist/services/AsaasCheckout');
+  const approval = require('../dist/services/AsaasStoreApproval');
+  const checkoutId = '20000000-0000-0000-0000-000000000002';
+  const walletA = '00000000-0000-0000-0000-00000000000a';
+  const walletB = '00000000-0000-0000-0000-00000000000b';
+  const base = {
+    version: 'test', ownerId: 'owner', expiresAt: null, feeOwner: 'store',
+    discountOwner: 'store', commissionBase: 'gross', commissionRate: 0, commissionFixed: 0,
+    asaasRate: 0, asaasFixed: 1, asaasMinimum: null, asaasMaximum: null,
+    fixedOverride: null, rateOverride: null,
+  };
+  const client = mockClient([
+    { ...products[0], owner_id: 'owner', asaas_card_split_condition: { ...base, mode: 'fixed', walletId: walletA, fixedOverride: 18 } },
+    { ...products[1], owner_id: 'owner', asaas_card_split_condition: { ...base, mode: 'percentage', walletId: walletB, rateOverride: 80 } },
+  ]);
+  database.getClient = async () => client;
+  t.mock.method(checkout, 'getAsaasConfig', () => ({ key: 'stub', apiUrl: 'https://api-sandbox.asaas.com/v3' }));
+  t.mock.method(approval, 'storeCanReceivePayout', async () => true);
+  t.mock.method(cards, 'readCardForCheckout', async () => ({ customer: 'cus_test', token: 'test-token' }));
+  const provider = t.mock.method(cards, 'cardApi', async () => ({}));
+  const req = request();
+  req.ip = '127.0.0.1';
+  Object.assign(req.body, {
+    checkoutId, savedCardId: checkoutId, paymentMethod: 'credit_card', deliveryType: 'pickup',
+  });
+  const res = response();
+  await controller.createOrder(req, res, true);
+
+  assert.equal(res.statusCode, 201);
+  assert.equal(res.body.orderIds.length, 2);
+  assert.equal(provider.mock.callCount(), 1);
+  const [, path, payload] = provider.mock.calls[0].arguments;
+  assert.equal(path, '/payments');
+  assert.equal(payload.externalReference, checkoutId);
+  assert.equal(payload.value, 39.50);
+  assert.equal(payload.creditCardToken, 'test-token');
+  assert.deepEqual(payload.split, [
+    { walletId: walletA, fixedValue: 18 },
+    { walletId: walletB, fixedValue: 10.80 },
+  ]);
+  const [, linked] = client.calls.find(([sql]) => sql.includes('UPDATE orders SET asaas_checkout_id'));
+  assert.deepEqual(linked, [checkoutId, res.body.orderIds]);
+  assert.equal(client.calls.at(-1)[0], 'COMMIT');
+});
+
 test('bloqueia um meio de pagamento desativado por uma loja do carrinho', async () => {
   const client = mockClient([
     products[0],

@@ -1,13 +1,44 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
-import { deleteCustomerCard, getCustomerCards, saveCustomerCard, type SavedCardInput, type SavedCustomerCard } from '../services/api';
+import { deleteCustomerCard, getCustomerCards, getSavedDeliveryAddresses, saveCustomerCard,
+  type DeliveryAddress, type SavedCardInput, type SavedCustomerCard, type SavedDeliveryAddress } from '../services/api';
 import './customer-saved-cards.css';
 
-export function SavedCardForm({ onSaved, onCancel }: { onSaved: (card: SavedCustomerCard) => void; onCancel: () => void }) {
+export function SavedCardForm({ onSaved, onCancel, addresses, checkoutAddress }: {
+  onSaved: (card: SavedCustomerCard) => void;
+  onCancel: () => void;
+  addresses?: SavedDeliveryAddress[];
+  checkoutAddress?: DeliveryAddress;
+}) {
   const prefix = useId();
   const formRef = useRef<HTMLFormElement>(null);
   const busy = useRef(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [loadedAddresses, setLoadedAddresses] = useState<SavedDeliveryAddress[]>([]);
+  const addressesProvided = addresses !== undefined;
+  const addressOptions = [
+    ...(checkoutAddress ? [{ id: 'checkout', address: checkoutAddress }] : []),
+    ...(addresses ?? loadedAddresses),
+  ];
+
+  useEffect(() => {
+    if (addressesProvided) return;
+    const request = new AbortController();
+    void getSavedDeliveryAddresses(request.signal).then((entries) => {
+      if (!request.signal.aborted) setLoadedAddresses(entries);
+    }).catch(() => {});
+    return () => request.abort();
+  }, [addressesProvided]);
+
+  function copyBillingAddress(id: string) {
+    const address = addressOptions.find((entry) => entry.id === id)?.address;
+    const form = formRef.current;
+    if (!address || !form) return;
+    const postalCode = form.elements.namedItem('postalCode');
+    const addressNumber = form.elements.namedItem('addressNumber');
+    if (postalCode instanceof HTMLInputElement) postalCode.value = address.cep;
+    if (addressNumber instanceof HTMLInputElement) addressNumber.value = address.number;
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -93,6 +124,20 @@ export function SavedCardForm({ onSaved, onCancel }: { onSaved: (card: SavedCust
         <div className="saved-card-fields-grid">
           {renderField('cpfCnpj', 'CPF ou CNPJ', 18, 'contact', { inputMode: 'numeric' })}
           {renderField('phone', 'Telefone com DDD', 16, 'contact', { inputMode: 'numeric' })}
+          {addressOptions.length > 0 && (
+            <div className="saved-card-field saved-card-field--full">
+              <label htmlFor={prefix + 'billingAddress'}>Usar endereço do cliente</label>
+              <select id={prefix + 'billingAddress'} defaultValue="" onChange={(event) => copyBillingAddress(event.currentTarget.value)}>
+                <option value="">Selecione para preencher CEP e número</option>
+                {addressOptions.map(({ id, address }) => (
+                  <option key={id} value={id}>
+                    {id === 'checkout' && 'Endereço desta compra · '}
+                    {address.street}, {address.number}{address.complement && ` · ${address.complement}`} · {address.city}/{address.state}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           {renderField('postalCode', 'CEP', 9, 'half', { inputMode: 'numeric', placeholder: '00000-000' })}
           {renderField('addressNumber', 'Número do endereço', 20, 'half')}
         </div>

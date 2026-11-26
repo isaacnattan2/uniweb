@@ -120,83 +120,85 @@ function CustomerAccount() {
         {error && <p className="error-message" role="alert">{error}</p>}
         {profile && (
           <div className="account-grid">
-            <section aria-labelledby="profile-heading">
-              <h2 id="profile-heading">Dados pessoais</h2>
-              <form onSubmit={uploadPhoto} className="account-photo">
-                {profile.avatar_url
-                  ? <img src={resolveAssetUrl(profile.avatar_url)} alt="Sua foto de perfil" />
-                  : <span className="account-initial" aria-hidden="true">{profile.full_name.trim().charAt(0).toUpperCase()}</span>}
-                <div className="form-group">
-                  <label htmlFor="profile-photo">Foto de perfil</label>
-                  <input id="profile-photo" ref={imageInput} type="file" disabled={saving}
-                    accept="image/jpeg,image/png,image/webp,image/gif" onChange={(event) => setPhoto(event.target.files?.[0])} />
-                  <button type="submit" className="btn-secondary" disabled={saving || !photo}>Salvar foto</button>
-                </div>
-              </form>
-              <form onSubmit={updateProfile}>
-                <fieldset disabled={saving}>
+            <div className="account-profile-column">
+              <section aria-labelledby="profile-heading">
+                <h2 id="profile-heading">Dados pessoais</h2>
+                <form onSubmit={uploadPhoto} className="account-photo">
+                  {profile.avatar_url
+                    ? <img src={resolveAssetUrl(profile.avatar_url)} alt="Sua foto de perfil" />
+                    : <span className="account-initial" aria-hidden="true">{profile.full_name.trim().charAt(0).toUpperCase()}</span>}
                   <div className="form-group">
-                    <label htmlFor="profile-name">Nome completo</label>
-                    <input id="profile-name" autoComplete="name" required maxLength={255} value={form.fullName}
-                      onChange={(event) => setForm({ ...form, fullName: event.target.value })} />
-                  </div>
-                  <div className="form-group">
-                    <label htmlFor="profile-email">E-mail</label>
-                    <input id="profile-email" type="email" autoComplete="email" required maxLength={255} value={form.email}
-                      onChange={(event) => setForm({ ...form, email: event.target.value })} />
-                  </div>
-                  <div className="form-group">
-                    <label htmlFor="profile-phone">Telefone (opcional)</label>
-                    <input id="profile-phone" type="tel" autoComplete="tel" maxLength={20} value={form.phone}
-                      onChange={(event) => setForm({ ...form, phone: event.target.value })} />
-                  </div>
-                  {changingEmail && (
-                    <div className="form-group">
-                      <label htmlFor="profile-password">Senha atual para alterar o e-mail</label>
-                      <input id="profile-password" type="password" autoComplete="current-password" required value={form.currentPassword}
-                        onChange={(event) => setForm({ ...form, currentPassword: event.target.value })} />
-                    </div>
-                  )}
-                  <button type="submit" className="btn-primary">Salvar dados</button>
-                </fieldset>
-              </form>
-            </section>
-            <CustomerSavedCards />
-            <section aria-labelledby="addresses-heading">
-              <div className="account-section-heading">
-                <h2 id="addresses-heading">Endereços de entrega</h2>
-                {!editor && <button type="button" className="btn-secondary" disabled={saving} onClick={() => openAddress()}>Adicionar endereço</button>}
-              </div>
-              {!!addresses.length && (
-                <ul className="account-address-list list-panel list-panel-inset">
-                  {addresses.map((entry, index) => {
-                    const item = entry.address;
-                    return (
-                      <li key={entry.id}>
-                        <div>
-                          <strong>{item.street}, {item.number}{item.complement && ' · ' + item.complement}</strong>
-                          {index === 0 && <p className="account-default">Endereço padrão</p>}
-                          <p>{[item.neighborhood, item.city + '/' + item.state, 'CEP ' + item.cep].filter(Boolean).join(' · ')}</p>
-                        </div>
-                        <button type="button" className="btn-secondary" disabled={saving || editor === entry.id}
-                          aria-label={'Editar endereço ' + item.street + ', ' + item.number} onClick={() => openAddress(entry)}>Editar</button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-              {!addresses.length && !editor && <p>Você ainda não tem endereços salvos.</p>}
-              {editor && (
-                <form className="account-address-form" onSubmit={updateAddress}>
-                  <h3>{editor === 'new' ? 'Novo endereço' : 'Editar endereço'}</h3>
-                  <CheckoutAddress key={editor} address={address} onChange={setAddress} disabled={saving} />
-                  <div className="account-actions">
-                    <button type="submit" className="btn-primary" disabled={saving}>Salvar endereço</button>
-                    <button type="button" className="btn-secondary" disabled={saving} onClick={() => setEditor(null)}>Cancelar</button>
+                    <label htmlFor="profile-photo">Foto de perfil</label>
+                    <input id="profile-photo" ref={imageInput} type="file" disabled={saving}
+                      accept="image/jpeg,image/png,image/webp,image/gif" onChange={(event) => setPhoto(event.target.files?.[0])} />
+                    <button type="submit" className="btn-secondary" disabled={saving || !photo}>Salvar foto</button>
                   </div>
                 </form>
-              )}
-            </section>
+                <form onSubmit={updateProfile}>
+                  <fieldset disabled={saving}>
+                    <div className="form-group">
+                      <label htmlFor="profile-name">Nome completo</label>
+                      <input id="profile-name" autoComplete="name" required maxLength={255} value={form.fullName}
+                        onChange={(event) => setForm({ ...form, fullName: event.target.value })} />
+                    </div>
+                    <div className="form-group">
+                      <label htmlFor="profile-email">E-mail</label>
+                      <input id="profile-email" type="email" autoComplete="email" required maxLength={255} value={form.email}
+                        onChange={(event) => setForm({ ...form, email: event.target.value })} />
+                    </div>
+                    <div className="form-group">
+                      <label htmlFor="profile-phone">Telefone (opcional)</label>
+                      <input id="profile-phone" type="tel" autoComplete="tel" maxLength={20} value={form.phone}
+                        onChange={(event) => setForm({ ...form, phone: event.target.value })} />
+                    </div>
+                    {changingEmail && (
+                      <div className="form-group">
+                        <label htmlFor="profile-password">Senha atual para alterar o e-mail</label>
+                        <input id="profile-password" type="password" autoComplete="current-password" required value={form.currentPassword}
+                          onChange={(event) => setForm({ ...form, currentPassword: event.target.value })} />
+                      </div>
+                    )}
+                    <button type="submit" className="btn-primary">Salvar dados</button>
+                  </fieldset>
+                </form>
+              </section>
+              <section aria-labelledby="addresses-heading">
+                <div className="account-section-heading">
+                  <h2 id="addresses-heading">Endereços de entrega</h2>
+                  {!editor && <button type="button" className="btn-secondary" disabled={saving} onClick={() => openAddress()}>Adicionar endereço</button>}
+                </div>
+                {!!addresses.length && (
+                  <ul className="account-address-list list-panel list-panel-inset">
+                    {addresses.map((entry, index) => {
+                      const item = entry.address;
+                      return (
+                        <li key={entry.id}>
+                          <div>
+                            <strong>{item.street}, {item.number}{item.complement && ' · ' + item.complement}</strong>
+                            {index === 0 && <p className="account-default">Endereço padrão</p>}
+                            <p>{[item.neighborhood, item.city + '/' + item.state, 'CEP ' + item.cep].filter(Boolean).join(' · ')}</p>
+                          </div>
+                          <button type="button" className="btn-secondary" disabled={saving || editor === entry.id}
+                            aria-label={'Editar endereço ' + item.street + ', ' + item.number} onClick={() => openAddress(entry)}>Editar</button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+                {!addresses.length && !editor && <p>Você ainda não tem endereços salvos.</p>}
+                {editor && (
+                  <form className="account-address-form" onSubmit={updateAddress}>
+                    <h3>{editor === 'new' ? 'Novo endereço' : 'Editar endereço'}</h3>
+                    <CheckoutAddress key={editor} address={address} onChange={setAddress} disabled={saving} />
+                    <div className="account-actions">
+                      <button type="submit" className="btn-primary" disabled={saving}>Salvar endereço</button>
+                      <button type="button" className="btn-secondary" disabled={saving} onClick={() => setEditor(null)}>Cancelar</button>
+                    </div>
+                  </form>
+                )}
+              </section>
+            </div>
+            <CustomerSavedCards />
           </div>
         )}
       </div>

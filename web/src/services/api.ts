@@ -197,6 +197,8 @@ export interface AdminSplitPayment {
   payout_state: 'sending' | 'processing' | 'done' | 'review' | null;
   provider_status: string | null;
   payment_net_cents: string | null;
+  shared_payment_id?: string | null;
+  store_split_status?: 'none' | 'done' | 'unconfirmed';
   store_cents: string | null;
   confirmed_driver_cents: string | null;
   snapshot: { gross: number; fee: number; net: number; storeEstimate: number; condition: { mode: string; version: string } };
@@ -564,6 +566,12 @@ export async function deleteCustomerCard(id: string) {
   await api.delete('/auth/me/cards/' + encodeURIComponent(id));
 }
 
+export interface CheckoutDeliverySelection {
+  deliveryQuoteId: string;
+  scheduledAt: string | null;
+  deliveryFeeAccepted: true;
+}
+
 export async function createOrder(
   items: Array<{ productId: string; quantity: number; price: number }>,
   paymentMethod: PaymentMethod,
@@ -571,7 +579,7 @@ export async function createOrder(
   deliveryAddress: DeliveryAddress | string,
   checkoutId: string,
   couponCode?: string,
-  delivery?: { deliveryQuoteId: string; scheduledAt: string | null; deliveryFeeAccepted: true },
+  delivery?: CheckoutDeliverySelection | { deliveryQuotes: CheckoutDeliverySelection[] },
   card?: { savedCardId: string; installments: number },
 ): Promise<{ orderIds: string[]; checkoutUrl: string | null; paymentStatus?: 'paid' | 'pending' | 'failed' }> {
   const response = await api.post('/orders/checkout',

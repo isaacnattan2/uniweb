@@ -55,7 +55,8 @@ async function declineAttempt(reference: string) {
 }
 
 export async function submitDirectCardPayment(config: AsaasConfig, reference: string, card: { customer: string; token: string },
-  total: number, installments: number, remoteIp: string, split: { walletId: string; fixedValue?: number; percentualValue?: number }[]
+  total: number, installments: number, remoteIp: string,
+  split: { walletId: string; fixedValue?: number; percentualValue?: number; totalFixedValue?: number }[]
 ): Promise<CardPaymentState> {
   let payment: ProviderPayment;
   try {
