@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
-import { deleteCustomerCard, getCustomerCards, saveCustomerCard, type SavedCustomerCard } from '../services/api';
+import { deleteCustomerCard, getCustomerCards, saveCustomerCard, type SavedCardInput, type SavedCustomerCard } from '../services/api';
+import './customer-saved-cards.css';
 
 export function SavedCardForm({ onSaved, onCancel }: { onSaved: (card: SavedCustomerCard) => void; onCancel: () => void }) {
   const prefix = useId();
@@ -52,36 +53,57 @@ export function SavedCardForm({ onSaved, onCancel }: { onSaved: (card: SavedCust
     setError('');
   }
 
-  const fields = [
-    ['holderName', 'Nome do titular', 120, false],
-    ['number', 'Número do cartão de teste', 23, true],
-    ['expiryMonth', 'Mês da validade', 2, true],
-    ['expiryYear', 'Ano da validade (AAAA)', 4, true],
-    ['ccv', 'Código de segurança', 4, true],
-    ['cpfCnpj', 'CPF ou CNPJ do titular', 18, true],
-    ['postalCode', 'CEP de cobrança', 9, true],
-    ['addressNumber', 'Número do endereço', 20, false],
-    ['phone', 'Telefone com DDD', 16, true],
-  ] as const;
+  function renderField(name: Exclude<keyof SavedCardInput, 'consent'>, label: string, maxLength: number,
+    size: 'full' | 'half' | 'third' | 'contact', options?: { inputMode?: 'numeric'; placeholder?: string }) {
+    return (
+      <div className={`saved-card-field saved-card-field--${size}`}>
+        <label htmlFor={prefix + name}>{label}</label>
+        <input id={prefix + name} name={name} maxLength={maxLength} inputMode={options?.inputMode}
+          placeholder={options?.placeholder} type={name === 'ccv' ? 'password' : 'text'} required />
+      </div>
+    );
+  }
 
   return (
-    <form ref={formRef} onSubmit={(event) => void submit(event)} autoComplete="off">
-      <p><strong>Sandbox Asaas.</strong> Use um cartão de teste e dados fictícios. Salvar o cartão não gera cobrança.</p>
-      <button type="button" className="btn-secondary" disabled={saving} onClick={fillTestCard}>
-        Preencher cartão de teste
-      </button>
-      <fieldset disabled={saving}>
-        {fields.map(([name, label, maxLength, numeric]) => (
-          <div className="form-group" key={name}>
-            <label htmlFor={prefix + name}>{label}</label>
-            <input id={prefix + name} name={name} maxLength={maxLength} inputMode={numeric ? 'numeric' : 'text'}
-              type={name === 'ccv' ? 'password' : 'text'} required />
-          </div>
-        ))}
-        <label><input type="checkbox" name="consent" required /> Quero salvar este cartão de teste para compras futuras.</label>
+    <form ref={formRef} className="saved-card-form list-panel card-layout"
+      aria-labelledby={prefix + 'title'} onSubmit={(event) => void submit(event)} autoComplete="off">
+      <header className="saved-card-form-heading">
+        <h3 id={prefix + 'title'}>Adicionar cartão</h3>
+        <div className="saved-card-sandbox">
+          <p><strong>Sandbox Asaas</strong><br />Use dados fictícios. Salvar o cartão não gera cobrança.</p>
+          <button type="button" className="btn-secondary" disabled={saving} onClick={fillTestCard}>
+            Preencher cartão de teste
+          </button>
+        </div>
+      </header>
+
+      <fieldset className="saved-card-fields" disabled={saving}>
+        <legend>Dados do cartão</legend>
+        <div className="saved-card-fields-grid">
+          {renderField('number', 'Número do cartão', 23, 'full', { inputMode: 'numeric', placeholder: '0000 0000 0000 0000' })}
+          {renderField('holderName', 'Nome do titular', 120, 'full')}
+          {renderField('expiryMonth', 'Mês', 2, 'third', { inputMode: 'numeric', placeholder: 'MM' })}
+          {renderField('expiryYear', 'Ano', 4, 'third', { inputMode: 'numeric', placeholder: 'AAAA' })}
+          {renderField('ccv', 'CVV', 4, 'third', { inputMode: 'numeric' })}
+        </div>
       </fieldset>
-      {error && <p className="error-message" role="alert">{error}</p>}
-      <div className="card-actions">
+
+      <fieldset className="saved-card-fields" disabled={saving}>
+        <legend>Dados de cobrança</legend>
+        <div className="saved-card-fields-grid">
+          {renderField('cpfCnpj', 'CPF ou CNPJ', 18, 'contact', { inputMode: 'numeric' })}
+          {renderField('phone', 'Telefone com DDD', 16, 'contact', { inputMode: 'numeric' })}
+          {renderField('postalCode', 'CEP', 9, 'half', { inputMode: 'numeric', placeholder: '00000-000' })}
+          {renderField('addressNumber', 'Número do endereço', 20, 'half')}
+        </div>
+      </fieldset>
+
+      <label className="saved-card-consent">
+        <input type="checkbox" name="consent" required disabled={saving} />
+        <span>Quero salvar este cartão de teste para compras futuras.</span>
+      </label>
+      {error && <p className="saved-card-feedback error-message" role="alert">{error}</p>}
+      <div className="saved-card-form-actions card-footer">
         <button type="button" className="btn-secondary" onClick={onCancel} disabled={saving}>Cancelar</button>
         <button type="submit" className="btn-primary" disabled={saving}>{saving ? 'Salvando…' : 'Salvar cartão'}</button>
       </div>
@@ -121,14 +143,14 @@ export function CustomerSavedCards() {
   }
 
   return (
-    <section aria-labelledby="saved-cards-heading">
+    <section className="saved-card-section" aria-labelledby="saved-cards-heading">
       <h2 id="saved-cards-heading">Meus cartões</h2>
       {error && <p role="alert" className="error-message">{error}</p>}
       {!data && !error && <p role="status">Carregando cartões…</p>}
       {data && !data.enabled && <p>Cadastro de cartões de teste indisponível.</p>}
-      {data?.enabled && <>
-        {data.cards.length ? <ul>{data.cards.map((card) => <li key={card.id}>
-          <span>{cardLabel(card)}</span>{' '}
+      {data?.enabled && <div className="saved-card-section-body">
+        {data.cards.length ? <ul className="saved-card-list list-panel">{data.cards.map((card) => <li key={card.id}>
+          <strong>{cardLabel(card)}</strong>
           <button type="button" className="btn-secondary" disabled={Boolean(removing)}
             aria-label={`Remover ${cardLabel(card)}`} onClick={() => void remove(card.id)}>Remover</button>
         </li>)}</ul> : <p>Nenhum cartão salvo.</p>}
@@ -136,7 +158,7 @@ export function CustomerSavedCards() {
           setData({ ...data, cards: [card, ...data.cards] });
           setAdding(false);
         }} /> : <button type="button" className="btn-primary" onClick={() => setAdding(true)}>Adicionar cartão</button>}
-      </>}
+      </div>}
     </section>
   );
 }

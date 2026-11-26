@@ -468,15 +468,17 @@ export function CartPage() {
                     <>
                       <p>{maxCardInstallments === 1 ? 'Cartão à vista.' : `Até ${maxCardInstallments}× no cartão.`}</p>
                       {cards?.enabled && (
-                        <div className="form-group">
-                          <label htmlFor="checkout-card">Cartão de crédito</label>
-                          <select id="checkout-card" value={selectedCard} disabled={loading || addingCard} onChange={(event) => {
-                            setSelectedCard(event.target.value);
-                            setInstallments(1);
-                          }}>
-                            <option value="hosted">Inserir cartão na página do Asaas</option>
-                            {cards.items.map((saved) => <option key={saved.id} value={saved.id}>{cardLabel(saved)}</option>)}
-                          </select>
+                        <div className="checkout-saved-card">
+                          <div className="form-group">
+                            <label htmlFor="checkout-card">Cartão de crédito</label>
+                            <select id="checkout-card" value={selectedCard} disabled={loading || addingCard} onChange={(event) => {
+                              setSelectedCard(event.target.value);
+                              setInstallments(1);
+                            }}>
+                              <option value="hosted">Inserir cartão na página do Asaas</option>
+                              {cards.items.map((saved) => <option key={saved.id} value={saved.id}>{cardLabel(saved)}</option>)}
+                            </select>
+                          </div>
                           {addingCard ? <SavedCardForm onCancel={() => setAddingCard(false)} onSaved={(saved) => {
                             if (useAuthStore.getState().userId !== userId) return;
                             setCardBook({ ...cards, items: [saved, ...cards.items] });

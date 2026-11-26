@@ -9,6 +9,7 @@
 }
 
 .account-grid {
+  --account-photo-top-gap: 1rem;
   display: grid;
   align-items: start;
   gap: 1rem;
@@ -41,7 +42,7 @@
 }
 
 .account-photo {
-  margin-block: 1rem;
+  margin-block: var(--account-photo-top-gap);
   align-items: flex-start;
 }
 
@@ -98,6 +99,17 @@
 
 @media (min-width: 760px) {
   .account-grid {
+    --account-photo-label-height: 1.25rem;
+    --account-photo-label-gap: 0.5rem;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .account-photo .form-group > label {
+    line-height: var(--account-photo-label-height);
+    margin-block-end: var(--account-photo-label-gap);
+  }
+
+  .account-grid > .saved-card-section {
+    row-gap: calc(var(--account-photo-top-gap) + var(--account-photo-label-height) + var(--account-photo-label-gap));
   }
 }
