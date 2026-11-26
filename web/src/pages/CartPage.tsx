@@ -1,7 +1,9 @@
+import { cardLabel, SavedCardForm } from '../components/CustomerSavedCards';
+import type { SavedCustomerCard } from '../services/api';
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { StorePaymentMethod } from '../context/store';
-import { createOrder, getBusinessPublic, getDeliveryQuote, getSavedDeliveryAddresses } from '../services/api';
+import { createOrder, getBusinessPublic, getCustomerCards, getDeliveryQuote, getSavedDeliveryAddresses } from '../services/api';
 import type { DeliveryQuote, DeliveryQuoteMode, SavedDeliveryAddress } from '../services/api';
 import { DEFAULT_CARD_INSTALLMENTS, useCartStore, useAuthStore } from '../context/store';
 import { CheckoutAddress, emptyDeliveryAddress, isDeliveryAddressComplete } from '../components/CheckoutAddress';
@@ -40,6 +42,10 @@ export function CartPage() {
   const savedAddresses = addressBook?.userId === userId ? addressBook : undefined;
   const activeAddressId = selectedAddressId || savedAddresses?.entries[0]?.id || 'new';
   const activeAddress = activeAddressId === 'new' ? deliveryAddress : savedAddresses?.entries.find((entry) => entry.id === activeAddressId)?.address;
+  const [cardBook, setCardBook] = useState<{ userId: string; enabled: boolean; items: SavedCustomerCard[] }>();
+  const [selectedCard, setSelectedCard] = useState('hosted');
+  const [addingCard, setAddingCard] = useState(false);
+  const [installments, setInstallments] = useState(1);
   const checkoutAttempt = useRef<{ signature: string; id: string } | null>(null);
   const submitting = useRef(false);
 
@@ -52,6 +58,9 @@ export function CartPage() {
   const available = availability?.key === selectedStore ? availability : undefined;
   const maxCardInstallments = available?.maxCardInstallments ?? DEFAULT_CARD_INSTALLMENTS;
   const selectedMethod = available?.methods.find((method) => method === paymentMethod);
+  const cards = cardBook?.userId === userId ? cardBook : undefined;
+  const card = selectedMethod === 'credit_card' ? cards?.items.find(({ id }) => id === selectedCard) : undefined;
+  const chargeInstallments = Math.min(installments, maxCardInstallments);
   const addressComplete = !!savedAddresses && !!activeAddress && isDeliveryAddressComplete(activeAddress);
   const quoteKey = JSON.stringify([selectedStore, activeAddress, userId, deliveryType, deliveryMode, quoteRefresh]);
   const quoteResult = deliveryQuote?.key === quoteKey ? deliveryQuote : undefined;
@@ -63,11 +72,26 @@ export function CartPage() {
     : quote?.slots.includes(selectedDelivery) ? quote.options[0] : undefined;
   const consentKey = selectedQuote && selectedQuote.id + selectedDelivery;
   const feeAccepted = !!consentKey && acceptedFee === consentKey;
+  useEffect(() => {
+    setSelectedCard('hosted');
+    setAddingCard(false);
+    setInstallments(1);
+    if (!token || userType !== 'customer' || !userId) return;
+    const request = new AbortController();
+    void getCustomerCards(request.signal).then((result) => {
+      if (!request.signal.aborted) setCardBook({ userId, enabled: result.enabled, items: result.cards });
+    }).catch(() => {
+      if (!request.signal.aborted) setCardBook({ userId, enabled: false, items: [] });
+    });
+    return () => request.abort();
+  }, [token, userType, userId]);
+
   let checkoutBlocker = '';
   if (cartSyncing > 0) checkoutBlocker = 'Aguarde a atualização do carrinho.';
   else if (!available) checkoutBlocker = 'Aguarde a consulta das formas de pagamento.';
   else if (available.failed) checkoutBlocker = 'Atualize a página para consultar as formas de pagamento novamente.';
   else if (!available.methods.length) checkoutBlocker = 'Esta loja está sem formas de pagamento disponíveis.';
+  else if (selectedMethod === 'credit_card' && addingCard) checkoutBlocker = 'Salve ou cancele o cadastro do cartão.';
   else if (!selectedMethod) checkoutBlocker = 'Selecione uma forma de pagamento.';
   else if (!deliveryType) checkoutBlocker = 'Selecione uma forma de entrega.';
   else if (deliveryType !== 'pickup' && !addressComplete) checkoutBlocker = 'Informe o endereço de entrega completo.';
@@ -169,14 +193,23 @@ export function CartPage() {
         price: item.price,
       }));
 
-      const signature = JSON.stringify([userId, items, paymentMethod, deliveryType, address, couponCode.trim(), dispatch]);
+      const signature = JSON.stringify([userId, items, paymentMethod, deliveryType, address, couponCode.trim(), dispatch, card?.id, chargeInstallments]);
       if (checkoutAttempt.current?.signature !== signature) {
         checkoutAttempt.current = { signature, id: crypto.randomUUID() };
       }
-      const { checkoutUrl } = await createOrder(
-        items, selectedMethod, deliveryType, address, checkoutAttempt.current.id, couponCode.trim(), dispatch
+      const { checkoutUrl, paymentStatus } = await createOrder(
+        items, selectedMethod, deliveryType, address, checkoutAttempt.current.id, couponCode.trim(), dispatch, card ? { savedCardId: card.id, installments: chargeInstallments } : undefined
       );
       if (useAuthStore.getState().userId !== userId) return;
+      if (paymentStatus === 'failed') {
+        checkoutAttempt.current = null;
+        setError('O pagamento foi recusado. Selecione outro cartão ou tente Pix.');
+        if (deliveryType === 'delivery') {
+          setAcceptedFee('');
+          setQuoteRefresh((value) => value + 1);
+        }
+        return;
+      }
       if (checkoutUrl) {
         window.location.assign(checkoutUrl);
         return;
@@ -432,9 +465,40 @@ export function CartPage() {
                     </>
                   )}
                   {selectedMethod === 'credit_card' && (
-                    <p>{maxCardInstallments === 1 ? 'Cartão à vista.' : `Até ${maxCardInstallments}× no cartão.`}</p>
+                    <>
+                      <p>{maxCardInstallments === 1 ? 'Cartão à vista.' : `Até ${maxCardInstallments}× no cartão.`}</p>
+                      {cards?.enabled && (
+                        <div className="form-group">
+                          <label htmlFor="checkout-card">Cartão de crédito</label>
+                          <select id="checkout-card" value={selectedCard} disabled={loading || addingCard} onChange={(event) => {
+                            setSelectedCard(event.target.value);
+                            setInstallments(1);
+                          }}>
+                            <option value="hosted">Inserir cartão na página do Asaas</option>
+                            {cards.items.map((saved) => <option key={saved.id} value={saved.id}>{cardLabel(saved)}</option>)}
+                          </select>
+                          {addingCard ? <SavedCardForm onCancel={() => setAddingCard(false)} onSaved={(saved) => {
+                            if (useAuthStore.getState().userId !== userId) return;
+                            setCardBook({ ...cards, items: [saved, ...cards.items] });
+                            setSelectedCard(saved.id);
+                            setInstallments(1);
+                            setAddingCard(false);
+                          }} /> : <button type="button" className="btn-secondary" disabled={loading}
+                            onClick={() => setAddingCard(true)}>Cadastrar cartão de teste</button>}
+                        </div>
+                      )}
+                      {card && maxCardInstallments > 1 && <div className="form-group">
+                        <label htmlFor="checkout-installments">Parcelas</label>
+                        <select id="checkout-installments" value={chargeInstallments} disabled={loading}
+                          onChange={(event) => setInstallments(Number(event.target.value))}>
+                          {Array.from({ length: maxCardInstallments }, (_, index) => index + 1)
+                            .map((number) => <option key={number} value={number}>{number}×</option>)}
+                        </select>
+                      </div>}
+                    </>
                   )}
-                  <p>Você vai concluir o pagamento na página do Asaas.</p>
+                  <p>{card ? 'O Asaas vai processar o pagamento com o cartão salvo selecionado.' :
+                    'Você vai concluir o pagamento na página do Asaas.'}</p>
                 </div>
               )}
 

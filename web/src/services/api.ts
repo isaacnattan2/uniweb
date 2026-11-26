@@ -540,6 +540,30 @@ export async function getSavedDeliveryAddresses(signal: AbortSignal): Promise<Sa
   return (await api.get('/auth/me/addresses', { signal })).data;
 }
 
+export type SavedCustomerCard = { id: string; brand: string; lastFour: string };
+export type SavedCardInput = {
+  holderName: string; number: string; expiryMonth: string; expiryYear: string; ccv: string;
+  cpfCnpj: string; postalCode: string; addressNumber: string; phone: string; consent: true;
+};
+
+export async function getCustomerCards(signal?: AbortSignal): Promise<{ enabled: boolean; cards: SavedCustomerCard[] }> {
+  return (await api.get('/auth/me/cards', { signal })).data;
+}
+
+export async function saveCustomerCard(card: SavedCardInput): Promise<SavedCustomerCard> {
+  try {
+    return (await api.post('/auth/me/cards', card, { timeout: 125000 })).data;
+  } catch (error) {
+    // Axios retains the request body in its error. Only return the API's sanitized message.
+    const message = axios.isAxiosError(error) ? error.response?.data?.error : undefined;
+    throw new Error(typeof message === 'string' ? message : 'Não foi possível cadastrar o cartão no Sandbox.');
+  }
+}
+
+export async function deleteCustomerCard(id: string) {
+  await api.delete('/auth/me/cards/' + encodeURIComponent(id));
+}
+
 export async function createOrder(
   items: Array<{ productId: string; quantity: number; price: number }>,
   paymentMethod: PaymentMethod,
@@ -548,8 +572,11 @@ export async function createOrder(
   checkoutId: string,
   couponCode?: string,
   delivery?: { deliveryQuoteId: string; scheduledAt: string | null; deliveryFeeAccepted: true },
-): Promise<{ orderIds: string[]; checkoutUrl: string | null }> {
-  const response = await api.post('/orders/checkout', { items, paymentMethod, deliveryType, deliveryAddress, checkoutId, couponCode, ...delivery });
+  card?: { savedCardId: string; installments: number },
+): Promise<{ orderIds: string[]; checkoutUrl: string | null; paymentStatus?: 'paid' | 'pending' | 'failed' }> {
+  const response = await api.post('/orders/checkout',
+    { items, paymentMethod, deliveryType, deliveryAddress, checkoutId, couponCode, ...delivery, ...card },
+    card ? { timeout: 70000 } : undefined);
   return response.data;
 }
 

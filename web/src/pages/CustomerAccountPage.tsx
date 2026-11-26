@@ -1,3 +1,4 @@
+import { CustomerSavedCards } from '../components/CustomerSavedCards';
 import React, { useEffect, useRef, useState } from 'react';
 import { useFeedback } from '../components/Feedback';
 import axios from 'axios';
@@ -160,6 +161,7 @@ function CustomerAccount() {
                 </fieldset>
               </form>
             </section>
+            <CustomerSavedCards />
             <section aria-labelledby="addresses-heading">
               <div className="account-section-heading">
                 <h2 id="addresses-heading">Endereços de entrega</h2>

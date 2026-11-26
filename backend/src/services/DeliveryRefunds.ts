@@ -4,7 +4,8 @@ import { dispatchUuid } from './DeliveryDispatch';
 
 interface AsaasPayment {
   id: string;
-  checkoutSession: string;
+  checkoutSession?: string;
+  externalReference?: string;
   status: string;
   value: number;
   installment?: string | null;
@@ -16,7 +17,7 @@ export async function reconcileDeliveryRefunds() {
   if (!config) return;
   const { rows } = await query(
     `WITH batch AS (
-       SELECT j.order_id, c.provider_id, c.id AS checkout_reference, o.total, o.updated_at
+       SELECT j.order_id, c.provider_id, c.payment_flow, c.id AS checkout_reference, o.total, o.updated_at
        FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id
        JOIN asaas_checkouts c ON c.id = o.asaas_checkout_id
        WHERE (
@@ -28,24 +29,28 @@ export async function reconcileDeliveryRefunds() {
        ORDER BY j.refund_checked_at NULLS FIRST LIMIT 5 FOR UPDATE OF j SKIP LOCKED
      )
      UPDATE delivery_dispatch j SET refund_checked_at = NOW() FROM batch b
-     WHERE j.order_id = b.order_id RETURNING j.order_id, b.provider_id, b.checkout_reference, b.total, b.updated_at, j.refund_state`
+     WHERE j.order_id = b.order_id RETURNING j.order_id, b.provider_id, b.payment_flow, b.checkout_reference, b.total, b.updated_at, j.refund_state`
   );
   const headers = { access_token: config.key, 'User-Agent': 'Uniweb' };
   for (const job of rows) {
     try {
-      if (!dispatchUuid.test(job.provider_id)) continue;
+      const direct = job.payment_flow === 'saved_card';
+      if (direct ? !dispatchUuid.test(job.checkout_reference) : !dispatchUuid.test(job.provider_id)) continue;
       if (!job.refund_state) {
+        if (direct) continue;
         await fetch(config.apiUrl + '/checkouts/' + job.provider_id + '/cancel', {
           method: 'POST', headers, signal: AbortSignal.timeout(8000),
         });
         continue;
       }
-      const params = new URLSearchParams({ checkoutSession: job.provider_id, limit: '100' });
+      const params = new URLSearchParams(direct
+        ? { externalReference: job.checkout_reference, limit: '100' }
+        : { checkoutSession: job.provider_id, limit: '100' });
       const response = await fetch(config.apiUrl + '/payments?' + params, { headers, signal: AbortSignal.timeout(8000) });
       if (!response.ok) continue;
       let result = await response.json() as { data?: AsaasPayment[]; hasMore?: boolean };
-      let payments = result.data?.filter((entry) => entry.checkoutSession === job.provider_id) ?? [];
-      if (!payments.length && dispatchUuid.test(job.checkout_reference)) {
+      let payments = result.data?.filter((entry) => direct ? entry.externalReference === job.checkout_reference : entry.checkoutSession === job.provider_id) ?? [];
+      if (!direct && !payments.length && dispatchUuid.test(job.checkout_reference)) {
         const fallback = new URLSearchParams({ externalReference: job.checkout_reference, limit: '100' });
         const response = await fetch(config.apiUrl + '/payments?' + fallback, { headers, signal: AbortSignal.timeout(8000) });
         if (response.ok) {

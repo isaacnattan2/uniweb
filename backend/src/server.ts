@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import app from './app';
+import { reconcileDirectCardPayments } from './services/AsaasCardPayments';
 import { tickDispatch } from './services/DeliveryDispatch';
 import { reconcileDeliveryRefunds } from './services/DeliveryRefunds';
 
@@ -18,6 +19,7 @@ app.listen(PORT, () => {
 
 let dispatchRunning = false;
 let refundsRunning = false;
+let directPaymentsRunning = false;
 setInterval(async () => {
   if (dispatchRunning) return;
   dispatchRunning = true;
@@ -33,3 +35,11 @@ setInterval(async () => {
   catch (error) { console.error('Falha na conciliação de entregas.', error); }
   finally { refundsRunning = false; }
 }, 15000).unref();
+
+setInterval(async () => {
+  if (directPaymentsRunning) return;
+  directPaymentsRunning = true;
+  try { await reconcileDirectCardPayments(); }
+  catch { console.warn('Não foi possível consultar cobranças com cartão salvo.'); }
+  finally { directPaymentsRunning = false; }
+}, 20000).unref();

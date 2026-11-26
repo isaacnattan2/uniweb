@@ -1,3 +1,4 @@
+import { customerCards } from '../controllers/CustomerCards';
 import { listDriverNotifications, markDriverNotificationRead } from '../controllers/DriverNotifications';
 import { saveDriverLicensePhoto } from '../controllers/DriverLicensePhoto';
 import { Router } from 'express';
@@ -19,6 +20,9 @@ const router = Router();
 router.post('/register', (req, res) => AuthController.register(req, res));
 router.post('/register/driver', (req, res, next) => registerDriver(req, res).catch(next));
 router.post('/login', (req, res) => AuthController.login(req, res));
+router.get('/me/cards', authMiddleware, customerCards);
+router.post('/me/cards', authMiddleware, customerCards);
+router.delete('/me/cards/:id', authMiddleware, customerCards);
 router.get('/me', authMiddleware, (req: AuthRequest, res) => {
   res.json({ id: req.userId, user_type: req.userType });
 });

@@ -1,3 +1,5 @@
+import { AsaasCardError, cardRemoteIp, readCardForCheckout } from '../services/AsaasSavedCards';
+import { submitDirectCardPayment } from '../services/AsaasCardPayments';
 import { calculateCheckoutSplit, resolveCardSplitLimit, type SavedSplitCondition } from '../services/AsaasSplit';
 import { createHash } from 'node:crypto';
 import { notifyOrderEvent } from '../services/OrderPush';
@@ -59,6 +61,14 @@ export class OrderController {
       const { items, paymentMethod, deliveryType, deliveryAddress } = req.body || {};
       const config = startPayment ? getAsaasConfig() : null;
       const checkoutId = req.body?.checkoutId;
+      const savedCardId = req.body?.savedCardId;
+      const installments = req.body?.installments ?? 1;
+      if (savedCardId != null && (!config || paymentMethod !== 'credit_card' || typeof savedCardId !== 'string' ||
+          !checkoutIdPattern.test(savedCardId) || !Number.isInteger(installments) || installments < 1)) {
+        throw new CheckoutError(400, 'Selecione um cartão salvo e um número de parcelas válido.');
+      }
+      const remoteIp = savedCardId ? cardRemoteIp(req.ip) : '';
+
       const quoteId = deliveryType === 'delivery' ? req.body?.deliveryQuoteId : null;
       const scheduledAt = deliveryType === 'delivery' ? req.body?.scheduledAt ?? null : null;
       const slot = typeof scheduledAt === 'string' ? new Date(scheduledAt) : null;
@@ -123,11 +133,12 @@ export class OrderController {
         paymentMethod, deliveryType, address, [...itemById.values()].sort((a, b) => a.productId.localeCompare(b.productId)),
         ...(couponCode ? [couponCode] : []),
         ...(quoteId ? [quoteId, slot?.toISOString() ?? null] : []),
+        ...(savedCardId ? [savedCardId, installments] : []),
       ])).digest('hex');
       if (config) {
         await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))', [checkoutId]);
         const existing = await client.query(
-          `SELECT c.user_id, c.request_hash, c.provider_id, o.id, o.payment_status
+          `SELECT c.user_id, c.request_hash, c.provider_id, c.payment_flow, o.id, o.payment_status
            FROM asaas_checkouts c JOIN orders o ON o.asaas_checkout_id = c.id
            WHERE c.id = $1 ORDER BY o.id`, [checkoutId]
         );
@@ -140,11 +151,20 @@ export class OrderController {
           inTransaction = false;
           return res.json({
             orderIds: existing.rows.map((row) => row.id),
-            checkoutUrl: session.payment_status === 'pending' ? checkoutUrl(session.provider_id) : null,
+            checkoutUrl: session.payment_flow !== 'saved_card' && session.payment_status === 'pending' ? checkoutUrl(session.provider_id) : null,
+            ...(session.payment_flow === 'saved_card' && { paymentStatus: session.payment_status }),
           });
         }
       }
-      if (config) await lockCart(client, req.userId);
+      if (config) {
+        await lockCart(client, req.userId);
+        const cardPending = await client.query(
+          `SELECT 1 FROM asaas_checkouts c JOIN orders o ON o.asaas_checkout_id = c.id
+           WHERE c.user_id = $1 AND c.payment_flow = 'saved_card' AND o.payment_status = 'pending' LIMIT 1`, [req.userId],
+        );
+        if (cardPending.rowCount) throw new CheckoutError(409, 'Há um pagamento com cartão em confirmação. Acompanhe em Meus pedidos.');
+      }
+      const savedCard = savedCardId ? await readCardForCheckout(client, req.userId, savedCardId) : null;
       const result = await client.query<CheckoutProduct>(
         `SELECT p.id, p.business_id, p.name, p.price, p.stock, p.category, b.payment_methods, b.max_card_installments, b.owner_id, b.asaas_pix_split_condition, b.asaas_card_split_condition
          FROM products p
@@ -220,6 +240,10 @@ export class OrderController {
 
       const orderIds: string[] = [];
       const maxCardInstallments = Math.min(...result.rows.map((product) => product.max_card_installments));
+      if (savedCard && installments > maxCardInstallments) {
+        throw new CheckoutError(400, 'O número de parcelas excede o limite da loja.');
+      }
+      let payableCents = 0n;
       const splits: { walletId: string; fixedValue?: number; percentualValue?: number }[] = [];
       const checkoutItems: Array<{ name: string; value: number; quantity: number }> = [];
       for (const [businessId, group] of groups) {
@@ -242,6 +266,7 @@ export class OrderController {
           throw new CouponError('Este cupom zera o pedido. Adicione outros itens ou use outro cupom.');
         }
 
+        payableCents += subtotal - discount + deliveryFee;
         const orderId = uuidv4();
         const amount = formatCents(subtotal);
         await client.query(
@@ -254,7 +279,7 @@ export class OrderController {
         const savedCondition = !config ? null : paymentMethod === 'pix'
           ? store?.asaas_pix_split_condition : store?.asaas_card_split_condition;
         if (savedCondition) {
-          const condition = paymentMethod === 'credit_card' ? resolveCardSplitLimit(savedCondition, maxCardInstallments) : savedCondition;
+          const condition = paymentMethod === 'credit_card' ? resolveCardSplitLimit(savedCondition, savedCard ? installments : maxCardInstallments) : savedCondition;
           if (!condition) throw new CheckoutError(409, 'A condição de repasse do cartão precisa ser atualizada para o limite de parcelas da loja.');
           if (groups.size !== 1) throw new CheckoutError(409, 'Com o split ativo, finalize cada loja em um pedido separado.');
           if (condition.ownerId !== store?.owner_id || (condition.expiresAt && Date.parse(condition.expiresAt) <= Date.now())) {
@@ -304,6 +329,22 @@ export class OrderController {
           'INSERT INTO customer_addresses (user_id, address) VALUES ($1, $2::jsonb) ON CONFLICT (user_id, address) DO NOTHING',
           [req.userId, JSON.stringify(savedAddress)]
         );
+      }
+
+      if (config && savedCard) {
+        await client.query(
+          `INSERT INTO asaas_checkouts (id, user_id, request_hash, provider_id, payment_flow, installment_count)
+           VALUES ($1, $2, $3, $4, 'saved_card', $5)`,
+          [checkoutId, req.userId, requestHash, 'card:' + checkoutId, installments],
+        );
+        await client.query('UPDATE orders SET asaas_checkout_id = $1 WHERE id = ANY($2::uuid[])', [checkoutId, orderIds]);
+        await client.query('COMMIT');
+        inTransaction = false;
+        client.release();
+        client = undefined;
+        const paymentStatus = await submitDirectCardPayment(config, checkoutId, savedCard,
+          Number(formatCents(payableCents)), installments, remoteIp, splits).catch(() => 'pending');
+        return res.status(201).json({ orderId: orderIds[0], orderIds, status: 'pending', paymentStatus, checkoutUrl: null });
       }
 
       let paymentUrl: string | undefined;
@@ -356,6 +397,7 @@ export class OrderController {
           releaseError = rollbackError instanceof Error ? rollbackError : new Error('Falha ao desfazer transação.');
         }
       }
+      if (error instanceof AsaasCardError) return res.status(error.status).json({ error: error.message });
       if (error instanceof CouponError) return res.status(400).json({ error: error.message });
       if (error instanceof CheckoutError) {
         return res.status(error.status).json({ error: error.message });
@@ -413,7 +455,7 @@ export class OrderController {
                     (j.order_id IS NULL AND o.delivery_status = 'in_transit') OR
                     (j.order_id IS NULL AND o.delivery_status = 'processing'))
                   THEN o.delivery_confirmation_code END AS delivery_confirmation_code,
-                c.provider_id, c.installment_count,
+                c.provider_id, c.installment_count, c.payment_flow,
                 COALESCE(json_agg(
                   json_build_object('productId', oi.product_id, 'quantity', oi.quantity, 'unitPrice', oi.product_price, 'productName', oi.product_name)
                 ) FILTER (WHERE oi.id IS NOT NULL), '[]'::json) AS items
@@ -422,7 +464,7 @@ export class OrderController {
          LEFT JOIN asaas_checkouts c ON c.id = o.asaas_checkout_id
          LEFT JOIN delivery_dispatch j ON j.order_id = o.id
          WHERE o.id = $1 AND o.user_id = $2
-         GROUP BY o.id, j.order_id, c.provider_id, c.installment_count`,
+         GROUP BY o.id, j.order_id, c.provider_id, c.installment_count, c.payment_flow`,
         [orderId, req.userId]
       );
 
@@ -430,7 +472,7 @@ export class OrderController {
         return res.status(404).json({ error: 'Order not found' });
       }
 
-      const { provider_id, ...order } = result.rows[0];
+      const { provider_id, payment_flow, ...order } = result.rows[0];
       if (provider_id && order.payment_method === 'credit_card' && order.payment_status === 'paid' &&
           order.installment_count === null) {
         try {
@@ -449,7 +491,7 @@ export class OrderController {
       res.set('Cache-Control', 'no-store');
       res.json({
         ...order,
-        checkoutUrl: provider_id && order.payment_status === 'pending' && order.status === 'pending' ? checkoutUrl(provider_id) : null,
+        checkoutUrl: provider_id && payment_flow !== 'saved_card' && order.payment_status === 'pending' && order.status === 'pending' ? checkoutUrl(provider_id) : null,
       });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
