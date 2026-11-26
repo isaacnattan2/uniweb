@@ -196,7 +196,7 @@ export async function tickDispatch() {
     const { rows: [lock] } = await client.query('SELECT pg_try_advisory_xact_lock(19750214) AS acquired');
     if (!lock.acquired) return { unavailable: [], blockedDrivers: [], events: [], debugEvents: [] };
     const { rows } = await client.query(
-      `SELECT j.*, o.order_status, o.payment_status, s.audit_enabled, s.debug_started_at IS NOT NULL AS debug_enabled, s.subsidy_cents AS current_subsidy_cents FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id
+      `SELECT j.*, o.order_status, o.payment_status, o.delivery_driver_id, s.audit_enabled, s.debug_started_at IS NOT NULL AS debug_enabled, s.subsidy_cents AS current_subsidy_cents FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id
        CROSS JOIN delivery_dispatch_settings s
        WHERE s.id = true AND (j.state IN ('scheduled','searching','offered') OR (j.state = 'assigned' AND j.promised_at <= NOW())) AND
          (j.state <> 'scheduled' OR j.slot_at <= NOW() + INTERVAL '30 minutes')
@@ -231,7 +231,7 @@ export async function tickDispatch() {
       }
       if (job.state === 'assigned') {
         await releaseDispatchAssignment(client, job.order_id, 'choice');
-        trace('dispatch_assignment_expired');
+        trace('dispatch_assignment_expired', { driverId: job.delivery_driver_id });
         unavailable.push(job.order_id);
         continue;
       }
@@ -314,12 +314,17 @@ export async function tickDispatch() {
     void Promise.all(blockedDrivers.map(({ userId, orderId }) => notifyDriverCheckinBlocked(userId, orderId)));
   }
   const { rows } = await query(
-    `SELECT f.id, f.order_id, f.user_id, f.expires_at, f.search_cycle, s.audit_enabled, s.debug_started_at IS NOT NULL AS debug_enabled FROM delivery_dispatch_offers f
+    `SELECT f.id, f.order_id, f.user_id, f.expires_at, f.search_cycle, f.fee_cents,
+       j.distance_meters + COALESCE(f.pickup_distance_meters, 0) AS estimated_distance_meters,
+       s.audit_enabled, s.debug_started_at IS NOT NULL AS debug_enabled
+     FROM delivery_dispatch_offers f
+     JOIN delivery_dispatch j ON j.order_id = f.order_id
      JOIN delivery_dispatch_settings s ON s.id = true AND s.offer_delivery_mode = 'push'
      WHERE f.state = 'pending' AND f.notified_at IS NULL AND f.expires_at > NOW() LIMIT 25`
   );
   await Promise.all(rows.map(async (offer) => {
-    const sent = await notifyDriverOffer(offer.id, offer.order_id, offer.user_id, offer.expires_at);
+    const sent = await notifyDriverOffer(offer.id, offer.order_id, offer.user_id, offer.expires_at,
+      offer.fee_cents, offer.estimated_distance_meters);
     const event = { event: 'dispatch_offer_push', offerId: offer.id, searchCycle: offer.search_cycle,
       orderId: offer.order_id, driverId: offer.user_id, acceptedByProvider: sent };
     if (offer.audit_enabled) {

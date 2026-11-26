@@ -30,14 +30,32 @@ router.put('/delivery-dispatch/settings', (req, res, next) => dispatchSettings(r
 router.get('/delivery-dispatch/debug', async (_req, res, next) => {
   try {
     const { rows } = await query(
-      `SELECT s.debug_started_at IS NOT NULL AS enabled,
-         COALESCE((SELECT jsonb_agg(e ORDER BY e.id DESC) FROM (
-           SELECT id::text AS key, id, details FROM delivery_dispatch_debug_events
-           WHERE created_at >= s.debug_started_at ORDER BY id DESC LIMIT 100
-         ) e), '[]'::jsonb) AS events
-       FROM delivery_dispatch_settings s WHERE s.id = true`,
+      `WITH settings AS (
+         SELECT debug_started_at FROM delivery_dispatch_settings WHERE id = true
+       ), recent_events AS (
+         SELECT id, details FROM delivery_dispatch_debug_events
+         WHERE created_at >= (SELECT debug_started_at FROM settings)
+         ORDER BY id DESC LIMIT 100
+       ), driver_ids AS (
+         SELECT details->>'driverId' AS user_id FROM recent_events
+         UNION
+         SELECT details->>'selectedDriverId' FROM recent_events
+         UNION
+         SELECT candidate->>'driverId' FROM recent_events
+         CROSS JOIN LATERAL jsonb_array_elements(details->'drivers') AS candidates(candidate)
+       ), driver_names AS (
+         SELECT d.user_id, u.full_name FROM driver_ids d JOIN users u ON u.id = d.user_id::uuid
+       )
+       SELECT settings.debug_started_at IS NOT NULL AS enabled,
+         COALESCE((SELECT jsonb_agg(jsonb_build_object(
+           'key', e.id::text, 'details', e.details, 'driverName', d.full_name
+         ) ORDER BY e.id DESC) FROM recent_events e
+         LEFT JOIN driver_names d ON d.user_id = COALESCE(e.details->>'driverId', e.details->>'selectedDriverId')
+         ), '[]'::jsonb) AS events,
+         COALESCE((SELECT jsonb_object_agg(user_id, full_name) FROM driver_names), '{}'::jsonb) AS "driverNames"
+       FROM settings`,
     );
-    res.set('Cache-Control', 'no-store').json(rows[0] ?? { enabled: false, events: [] });
+    res.set('Cache-Control', 'no-store').json(rows[0] ?? { enabled: false, events: [], driverNames: {} });
   } catch (error) {
     next(error);
   }

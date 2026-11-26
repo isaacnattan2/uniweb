@@ -583,7 +583,8 @@ export async function saveDispatchSettings(radiusMeters: number, subsidyCents: n
 
 export interface DispatchDebugEvent {
   key: string;
-  details: {
+  driverName?: string | null;
+  details: Pick<DriverAuditEntry['details'], 'customerFeeCents' | 'subsidyCents' | 'maxFeeCents'> & {
     event: string;
     orderId: string;
     occurredAt: string;
@@ -591,12 +592,17 @@ export interface DispatchDebugEvent {
     driverId?: string;
     selectedDriverId?: string;
     acceptedByProvider?: boolean;
+    state?: string;
+    retryInSeconds?: number;
+    reason?: string;
+    missedAt?: string;
+    blockedUntil?: string;
     drivers?: ({ driverId: string } & NonNullable<DriverAuditEntry['details']['decision']>)[];
   };
 }
 
 export async function getDispatchDebug(signal: AbortSignal) {
-  return (await api.get<{ enabled: boolean; events: DispatchDebugEvent[] }>('/admin/delivery-dispatch/debug', { signal })).data;
+  return (await api.get<{ enabled: boolean; events: DispatchDebugEvent[]; driverNames?: Record<string, string> }>('/admin/delivery-dispatch/debug', { signal })).data;
 }
 
 export interface DispatchIncident {

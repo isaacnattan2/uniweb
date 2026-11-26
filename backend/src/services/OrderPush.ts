@@ -110,14 +110,25 @@ async function sendOrderEvent(event: OrderEvent, orderIds: string[], offeredDriv
   }));
 }
 
-export async function notifyDriverOffer(offerId: string, orderId: string, userId: string, expiresAt: Date) {
+const offerCurrency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+const offerDeadline = new Intl.DateTimeFormat('pt-BR', {
+  timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+});
+
+export async function notifyDriverOffer(offerId: string, orderId: string, userId: string, expiresAt: Date,
+  feeCents: number, distanceMeters: number) {
   const appId = process.env.ONESIGNAL_DRIVER_APP_ID;
   const key = process.env.ONESIGNAL_DRIVER_API_KEY;
   const alias = driverPushAlias(userId);
-  const ttl = Math.floor((expiresAt.getTime() - Date.now()) / 1000);
-  if (!appId || !key || !alias || ttl < 1) return false;
-  return sendPush(appId, key, [alias], 'delivery_offer', `Confira a oferta do pedido #${orderId.slice(0, 8).toUpperCase()}.`,
-    { data: { orderId, section: 'available', offerId }, ttl, priority: 10 }, offerId);
+  const offerExpiresAtMs = expiresAt.getTime();
+  const ttl = Math.floor((offerExpiresAtMs - Date.now()) / 1000);
+  if (!appId || !key || !alias || !Number.isFinite(ttl) || ttl < 1) return false;
+
+  const perKm = distanceMeters > 0 && Number.isFinite(feeCents)
+    ? ` · ${offerCurrency.format((feeCents / 100) / (distanceMeters / 1000))}/km estimado` : '';
+  const body = `Pedido #${orderId.slice(0, 8).toUpperCase()}${perKm}\nAceite até ${offerDeadline.format(expiresAt)} (Brasília).`;
+  return sendPush(appId, key, [alias], 'delivery_offer', body,
+    { data: { orderId, section: 'available', offerId, offerExpiresAtMs }, ttl, priority: 10 }, offerId);
 }
 
 export async function notifyDriverCheckinBlocked(userId: string, orderId: string) {
@@ -131,7 +142,7 @@ export async function notifyDriverCheckinBlocked(userId: string, orderId: string
 }
 
 async function sendPush(appId: string, apiKey: string, recipients: string[], event: PushEvent, body: string,
-  destination: { url: string } | { data: { orderId: string; section: string; offerId?: string; event?: OrderEvent }; ttl?: number; priority?: number },
+  destination: { url: string } | { data: { orderId: string; section: string; offerId?: string; offerExpiresAtMs?: number; event?: OrderEvent }; ttl?: number; priority?: number },
   key: string = randomUUID()) {
   try {
     const response = await fetch('https://api.onesignal.com/notifications', {

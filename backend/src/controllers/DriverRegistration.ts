@@ -85,8 +85,7 @@ export async function registerDriver(req: AuthRequest, res: Response) {
   }
 }
 
-function driverAppDownloadUrl() {
-  const configuredUrl = process.env.DRIVER_APP_DOWNLOAD_URL?.trim();
+function driverAppDownloadUrl(configuredUrl = process.env.DRIVER_APP_DOWNLOAD_URL?.trim()) {
   if (!configuredUrl) return;
 
   try {
@@ -102,12 +101,14 @@ export async function getDriverRegistration(req: AuthRequest, res: Response) {
   res.set('Cache-Control', 'no-store');
   const result = await query(
     `SELECT u.full_name, u.email, u.phone, d.vehicle_type, d.vehicle_manufacturer, d.vehicle_brand, d.vehicle_color, d.vehicle_plate,
-      (SELECT uploaded_at FROM driver_license_photos WHERE driver_user_id = u.id) AS license_photo_uploaded_at
+      (SELECT uploaded_at FROM driver_license_photos WHERE driver_user_id = u.id) AS license_photo_uploaded_at,
+      (SELECT download_url FROM driver_app_release WHERE id = true) AS release_download_url
      FROM drivers d JOIN users u ON u.id = d.user_id WHERE u.id = $1 AND d.deleted_at IS NULL`,
     [req.userId]
   );
   if (!result.rows.length) return res.status(404).json({ error: 'Cadastro de entregador não encontrado.' });
-  return res.json({ ...result.rows[0], app_download_url: driverAppDownloadUrl() });
+  const { release_download_url, ...profile } = result.rows[0];
+  return res.json({ ...profile, app_download_url: driverAppDownloadUrl(release_download_url) ?? driverAppDownloadUrl() });
 }
 
 export async function updateDriverRegistration(req: AuthRequest, res: Response) {
