@@ -30,34 +30,49 @@ const dateTime = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyl
 const money = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const date = (value: string) => dateTime.format(new Date(value));
 
-export function AdminDriverAudit({ driver, onClose }: { driver: AdminDriver; onClose: () => void }) {
+export function AdminDriverAudit({ driver, drivers, onDriverChange }: {
+  driver?: AdminDriver;
+  drivers: AdminDriver[];
+  onDriverChange: (id: string) => void;
+}) {
+  const driverId = driver?.id;
   const [entries, setEntries] = useState<DriverAuditEntry[]>([]);
+  const [pageSize, setPageSize] = useState(50);
+  const [page, setPage] = useState(1);
+  const [hasNext, setHasNext] = useState(false);
+  const [supportsPagination, setSupportsPagination] = useState(true);
   const [start, setStart] = useState('');
   const [end, setEnd] = useState('');
-  const [period, setPeriod] = useState<{ start?: string; end?: string }>({});
+  const [eventType, setEventType] = useState('');
+  const [filters, setFilters] = useState<{ start?: string; end?: string; eventType?: string }>({});
   const [filterError, setFilterError] = useState('');
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
 
   useEffect(() => {
+    if (!driverId) return;
+    setStatus('loading');
     const controller = new AbortController();
-    void getDriverDispatchAudit(driver.id, controller.signal, period)
-      .then((data) => { if (!controller.signal.aborted) { setEntries(data); setStatus('ready'); } })
+    void getDriverDispatchAudit(driverId, controller.signal, { ...filters, page, pageSize })
+      .then((data) => {
+        if (controller.signal.aborted) return;
+        setEntries(data.entries);
+        setHasNext(data.hasNext);
+        setSupportsPagination(data.supportsPagination);
+        if (!data.supportsPagination) {
+          setPage(1);
+          setPageSize(50);
+        }
+        setStatus('ready');
+      })
       .catch(() => { if (!controller.signal.aborted) setStatus('error'); });
     return () => controller.abort();
-  }, [driver.id, period]);
+  }, [driverId, filters, page, pageSize]);
 
   return (
-    <section className="form-box" aria-labelledby="driver-audit-heading">
-      <div className="admin-section-heading">
-        <h3 id="driver-audit-heading">Auditoria de {driver.full_name}</h3>
-        <div className="card-actions">
-          <button className="btn-secondary" type="button" disabled={status === 'loading'}
-            onClick={() => { setStatus('loading'); setPeriod((current) => ({ ...current })); }}>Atualizar</button>
-          <button className="btn-secondary" type="button" onClick={onClose}>Fechar</button>
-        </div>
-      </div>
+    <div className="admin-driver-audit">
       <form onSubmit={(event) => {
         event.preventDefault();
+        if (!driverId) return;
         const startTime = start ? new Date(start).getTime() : undefined;
         const endTime = end ? new Date(end).getTime() : undefined;
         if ((startTime !== undefined && !Number.isFinite(startTime)) ||
@@ -68,43 +83,83 @@ export function AdminDriverAudit({ driver, onClose }: { driver: AdminDriver; onC
         }
         setFilterError('');
         setStatus('loading');
-        setPeriod({
+        setPage(1);
+        setFilters({
           start: startTime === undefined ? undefined : new Date(startTime).toISOString(),
           end: endTime === undefined ? undefined : new Date(endTime + 60_000).toISOString(),
+          eventType: eventType || undefined,
         });
       }}>
         <div className="admin-rate-fields">
           <div className="form-group">
+            <label htmlFor="audit-driver">Entregador</label>
+            <select id="audit-driver" value={driverId ?? ''} onChange={(event) => {
+              setStatus('loading');
+              setPage(1);
+              onDriverChange(event.target.value);
+            }}>
+              <option value="">Selecione um entregador</option>
+              {drivers.map((item) => <option key={item.id} value={item.id}>{item.full_name}</option>)}
+            </select>
+          </div>
+          <div className="form-group">
             <label htmlFor="driver-audit-start">Início</label>
-            <input id="driver-audit-start" type="datetime-local" value={start} onChange={(event) => setStart(event.target.value)} />
+            <input id="driver-audit-start" type="datetime-local" value={start} disabled={!driverId} onChange={(event) => setStart(event.target.value)} />
           </div>
           <div className="form-group">
             <label htmlFor="driver-audit-end">Fim</label>
-            <input id="driver-audit-end" type="datetime-local" value={end} onChange={(event) => setEnd(event.target.value)} />
+            <input id="driver-audit-end" type="datetime-local" value={end} disabled={!driverId} onChange={(event) => setEnd(event.target.value)} />
+          </div>
+          <div className="form-group">
+            <label htmlFor="driver-audit-event-type">Tipo de evento</label>
+            <select id="driver-audit-event-type" value={eventType} disabled={!driverId} onChange={(event) => setEventType(event.target.value)}>
+              <option value="">Todos os tipos</option>
+              {Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </div>
+          <div className="form-group">
+            <label htmlFor="driver-audit-page-size">Registros por página</label>
+            <select id="driver-audit-page-size" value={pageSize} disabled={!supportsPagination} onChange={(event) => {
+              setPageSize(Number(event.target.value));
+              setPage(1);
+              if (driverId) setStatus('loading');
+            }}>
+              {[50, 100, 200, 500].map((size) => <option key={size} value={size}>{size}</option>)}
+            </select>
           </div>
         </div>
-        <div className="card-actions">
-          <button className="btn-primary" type="submit">Filtrar</button>
-          <button className="btn-secondary" type="button" onClick={() => {
+        <div className="card-actions admin-driver-audit-actions">
+          <button className="btn-primary" type="submit" disabled={!driverId}>Filtrar</button>
+          <button className="btn-secondary" type="button" disabled={!driverId} onClick={() => {
             setStart('');
             setEnd('');
+            setEventType('');
             setFilterError('');
             setStatus('loading');
-            setPeriod({});
+            setPage(1);
+            setFilters({});
           }}>Limpar filtro</button>
+          <button className="btn-secondary" type="button" disabled={!driverId || status === 'loading'}
+            onClick={() => { setStatus('loading'); setFilters((current) => ({ ...current })); }}>Atualizar</button>
         </div>
         {filterError && <p role="alert" className="error-message">{filterError}</p>}
       </form>
-      {status === 'ready' && entries.length === 50 && <p>Exibindo os 50 registros mais recentes do período.</p>}
+      {driverId && <>
       {status === 'loading' && <p role="status">Carregando auditoria…</p>}
+      {status === 'ready' && !supportsPagination && <p role="status">
+        Exibindo até 50 registros. Atualize o backend para habilitar a paginação.
+      </p>}
       {status === 'error' && <p role="alert" className="error-message">Não foi possível carregar a auditoria.</p>}
-      {status === 'ready' && !entries.length && <p>Nenhum registro de auditoria para este entregador no período.</p>}
+      {status === 'ready' && !entries.length && <p>{page === 1
+        ? 'Nenhum registro de auditoria para este entregador com os filtros aplicados.'
+        : 'Nenhum registro nesta página.'}</p>}
       {status === 'ready' && entries.length > 0 && (
-        <div className="admin-driver-audit-list" role="region" tabIndex={0} aria-labelledby="driver-audit-heading">
+        <div className="admin-driver-audit-list list-panel list-panel-inset"
+          role="region" aria-label="Registros da auditoria" tabIndex={0}>
           {entries.map(({ id, order_id, search_cycle, created_at, details }) => {
             const { decision } = details;
             return (
-              <details key={id} className="admin-seller-shop">
+              <details key={id}>
                 <summary>{date(created_at)} · Pedido #{formatOrderCode(order_id)} · {labels[details.event] ?? details.event}</summary>
                 <div className="admin-seller-shop-details">
                   {search_cycle !== null && <p>Tentativa {search_cycle + 1}</p>}
@@ -132,6 +187,16 @@ export function AdminDriverAudit({ driver, onClose }: { driver: AdminDriver; onC
           })}
         </div>
       )}
-    </section>
+      {(page > 1 || (status === 'ready' && hasNext)) && (
+        <nav className="card-actions admin-driver-audit-actions" aria-label="Paginação da auditoria">
+          <button className="btn-secondary" type="button" disabled={page === 1 || status === 'loading'}
+            onClick={() => { setStatus('loading'); setPage(page - 1); }}>Anterior</button>
+          <span aria-live="polite">Página {page}</span>
+          <button className="btn-secondary" type="button" disabled={status !== 'ready' || !hasNext}
+            onClick={() => { setStatus('loading'); setPage(page + 1); }}>Próxima</button>
+        </nav>
+      )}
+      </>}
+    </div>
   );
 }

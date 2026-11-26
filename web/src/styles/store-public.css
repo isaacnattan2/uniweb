@@ -394,8 +394,11 @@
 }
 
 .marketplace-comments li {
-  border-top: 1px solid #e5e7eb;
   padding-block: 0.6rem;
+}
+
+.marketplace-comments li + li {
+  border-top: 1px solid #e5e7eb;
 }
 
 .marketplace-comments p {

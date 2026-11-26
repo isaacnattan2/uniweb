@@ -80,7 +80,7 @@ export function StorePaymentSettings({ business, onSave }: { business: Business;
           value={saleAmount} onChange={(event) => setSaleAmount(event.target.value)} />
       </div>
       <form onSubmit={save}>
-        <div className="payment-method-grid card-grid card-grid-6">
+        <div className="payment-method-grid card-grid card-grid-6 list-panel list-panel-inset">
           {paymentOptions.map(({ method, label, instruction, receipt, ...option }) => (
             <article key={method} className="payment-method-card card-layout">
               <h3 className="card-row-1">{label}</h3>

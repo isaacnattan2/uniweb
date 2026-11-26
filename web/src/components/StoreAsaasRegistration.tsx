@@ -1,21 +1,19 @@
 import { useState, type FormEvent } from 'react';
 import axios from 'axios';
 import { createStoreAsaasAccount } from '../services/api';
+import { CheckoutAddress, emptyDeliveryAddress } from './CheckoutAddress';
 import { useFeedback } from './Feedback';
 
 const fields = [
   { name: 'name', label: 'Nome ou razão social' },
   { name: 'email', label: 'E-mail', type: 'email' },
   { name: 'mobilePhone', label: 'Celular com DDD', type: 'tel' },
-  { name: 'postalCode', label: 'CEP' },
-  { name: 'address', label: 'Logradouro' },
-  { name: 'addressNumber', label: 'Número' },
-  { name: 'province', label: 'Bairro' },
-  { name: 'complement', label: 'Complemento (opcional)', optional: true },
+
 ];
 
 export function StoreAsaasRegistration({ businessId, onCreated }: { businessId?: string; onCreated: () => void }) {
   const [organization, setOrganization] = useState(false);
+  const [address, setAddress] = useState(emptyDeliveryAddress);
   const [saving, setSaving] = useState(false);
   const { showToast } = useFeedback();
 
@@ -28,9 +26,9 @@ export function StoreAsaasRegistration({ businessId, onCreated }: { businessId?:
     try {
       await createStoreAsaasAccount(businessId, {
         name: value('name'), email: value('email'), cpfCnpj: value('cpfCnpj'),
-        mobilePhone: value('mobilePhone'), postalCode: value('postalCode'),
-        address: value('address'), addressNumber: value('addressNumber'),
-        province: value('province'), complement: value('complement'),
+        mobilePhone: value('mobilePhone'), postalCode: address.cep,
+        address: address.street.trim(), addressNumber: address.number.trim(),
+        province: address.neighborhood.trim(), complement: address.complement.trim(),
         incomeValue: Number(value('incomeValue')), birthDate: value('birthDate'), companyType: value('companyType'),
       });
       showToast('Subconta de teste criada. Confira a situação cadastral.');
@@ -80,13 +78,15 @@ export function StoreAsaasRegistration({ businessId, onCreated }: { businessId?:
           {organization ? 'Faturamento mensal em reais' : 'Renda mensal em reais'}
           <input name="incomeValue" type="number" min="0.01" step="0.01" required disabled={saving} />
         </label>
-        {fields.map(({ name, label, type, optional }) => (
+        {fields.map(({ name, label, type }) => (
           <label className="form-group" key={name}>
             {label}
-            <input name={name} type={type ?? 'text'} maxLength={name === 'email' ? 255 : 150} required={!optional} disabled={saving} />
+            <input name={name} type={type ?? 'text'} maxLength={name === 'email' ? 255 : 150} required disabled={saving} />
           </label>
         ))}
       </div>
+      <CheckoutAddress address={address} onChange={setAddress} disabled={saving}
+        requiredFields={['cep', 'street', 'number', 'neighborhood']} />
       <button type="submit" className="btn-primary" disabled={saving}>{saving ? 'Criando subconta…' : 'Criar subconta de teste no Asaas'}</button>
     </form>
   );

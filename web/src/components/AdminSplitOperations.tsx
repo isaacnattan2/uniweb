@@ -182,7 +182,7 @@ export function AdminSplitOperations({ draft, requirements, accountCardBands, in
           <>
             <p><strong>Saldo Asaas da plataforma</strong> {payments.balance === null ? 'Indisponível' : currency.format(payments.balance)}</p>
             {payments.orders.length === 0 ? <p>Nenhum pedido gerado com uma condição de split.</p> : (
-              <div className="store-withdrawals-table">
+              <div className="store-withdrawals-table list-panel">
                 <table>
                   <thead><tr><th scope="col">Pedido</th><th scope="col">Pagamento</th><th scope="col">Repasse à loja</th>
                     <th scope="col">Entregador</th><th scope="col">Uniweb após repasse</th><th scope="col">Repasse</th></tr></thead>

@@ -1,11 +1,12 @@
 import 'dotenv/config';
 import readline from 'readline';
+import { validateNewPassword } from '../services/PasswordPolicy';
 import AuthService from '../services/AuthService';
 import pool from '../config/database';
 
-async function readPassword(): Promise<string> {
+async function readPassword(label: string): Promise<string> {
   if (!process.stdin.isTTY) throw new Error('Execute o comando em um terminal interativo');
-  process.stdout.write('Senha (mínimo 8 caracteres): ');
+  process.stdout.write(label);
   readline.emitKeypressEvents(process.stdin);
   process.stdin.setRawMode(true);
   process.stdin.resume();
@@ -41,9 +42,13 @@ async function main() {
   const fullName = (await question('Nome: ')).trim();
   const email = (await question('E-mail: ')).trim().toLowerCase();
   input.close();
-  const password = await readPassword();
-  if (!fullName || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || password.length < 8) {
-    throw new Error('Informe nome, e-mail válido e senha com pelo menos 8 caracteres');
+  const password = await readPassword('Senha: ');
+  const passwordError = validateNewPassword(password);
+  if (passwordError) throw new Error(passwordError);
+  const confirmation = await readPassword('Confirme a senha: ');
+  if (confirmation !== password) throw new Error('As senhas não coincidem.');
+  if (!fullName || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error('Informe nome e e-mail válido.');
   }
   await AuthService.register(email, password, fullName, '', 'admin');
   console.log('Administrador criado com sucesso.');

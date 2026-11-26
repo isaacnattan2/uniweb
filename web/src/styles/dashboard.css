@@ -85,8 +85,6 @@
 
 .admin-menu {
   margin-top: 1rem;
-  padding-bottom: 0.75rem;
-  border-bottom: 1px solid #e5e7eb;
 }
 
 .admin-menu a {
@@ -126,13 +124,25 @@
   gap: 0.5rem;
 }
 
-.admin-delivery-rate-form.form-box {
-  max-width: none;
-  margin: 0 0 1.5rem;
+.admin-settings form > p,
+.admin-platform-balance {
+  gap: 1rem 2rem;
+  border-top: 1px solid #cbd5e1;
+  padding-top: 1.25rem;
 }
 
-.admin-delivery-rate-form h3,
-.admin-delivery-rate-form form > p,
+.admin-platform-balance dt {
+  font-weight: 600;
+}
+
+.admin-platform-balance dd {
+  margin: 0.5rem 0 0;
+}
+
+.admin-platform-balance strong {
+  font-size: clamp(1.5rem, 4vw, 2rem);
+}
+
 .admin-rate-checkbox {
   margin-bottom: 1rem;
 }
@@ -170,8 +180,11 @@
   justify-content: space-between;
   gap: 0.5rem;
   padding: 0.55rem 0.35rem;
-  border-top: 1px solid #e5e7eb;
   overflow-wrap: anywhere;
+}
+
+.admin-category-list li + li {
+  border-top: 1px solid #e5e7eb;
 }
 
 .admin-category-actions {
@@ -180,10 +193,9 @@
   gap: 0.5rem;
 }
 
-.admin-ads.form-box,
-.admin-app-theme.form-box {
-  max-width: none;
-  margin-block: 1.25rem;
+.admin-settings,
+.admin-drivers {
+  margin-block-start: 1.25rem;
 }
 
 .app-theme-actions {
@@ -295,14 +307,65 @@
   flex-wrap: wrap;
 }
 
+.profile-content:has(.admin-driver-audit-page) {
+  display: flex;
+  flex-direction: column;
+  block-size: 100dvh;
+  overflow-y: auto;
+}
+
+.profile-content:has(.admin-driver-audit-page) > .header {
+  flex: none;
+}
+
+.admin-dashboard:has(.admin-driver-audit-page),
+.admin-dashboard:has(.admin-driver-audit-page) > .container,
+.admin-driver-audit-page,
+.admin-driver-audit {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-block-size: 0;
+}
+
+.admin-dashboard:has(.admin-driver-audit-page) > .container {
+  width: 100%;
+}
+
+.admin-driver-audit {
+  gap: 1rem;
+}
+
+.admin-driver-audit > :not(.admin-driver-audit-list) {
+  flex: none;
+}
+
+.admin-driver-audit-actions {
+  flex-wrap: wrap;
+}
+
+.admin-driver-audit > nav {
+  margin-top: 0;
+}
+
 .admin-driver-audit-list {
-  display: grid;
-  align-content: start;
-  gap: 0.5rem;
-  block-size: 22rem;
+  flex: 1;
+  min-block-size: 6rem;
   overflow-y: auto;
   scrollbar-gutter: stable;
-  padding: 0.5rem;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
+  overscroll-behavior-y: contain;
+}
+
+.admin-driver-audit-list > details {
+  padding: 0.75rem 0;
+  overflow-wrap: anywhere;
+}
+
+.admin-driver-audit-list > details + details {
+  border-top: 1px solid #cbd5e1;
+}
+
+.admin-driver-audit-list summary {
+  cursor: pointer;
+  font-weight: 600;
 }

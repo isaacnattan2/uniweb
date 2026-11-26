@@ -31,7 +31,8 @@ function App() {
       <StorePush />
       <Routes>
         <Route path="/" element={<Navigate to="/shop" replace />} />
-        <Route path="/login" element={<LoginPage />} />
+        <Route path="/login" element={<LoginPage key="customer" />} />
+        <Route path="/login/driver" element={<LoginPage key="driver" driver />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/register/driver" element={<DriverRegisterPage />} />
         <Route path="/driver" element={<ProtectedRoute roles={['driver']}><DriverPage /></ProtectedRoute>} />

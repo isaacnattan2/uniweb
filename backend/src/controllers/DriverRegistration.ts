@@ -1,3 +1,4 @@
+import { validateNewPassword } from '../services/PasswordPolicy';
 import bcrypt from 'bcryptjs';
 import { Response } from 'express';
 import { v4 as uuid } from 'uuid';
@@ -50,9 +51,11 @@ export async function registerDriver(req: AuthRequest, res: Response) {
   const password = typeof input.password === 'string' ? input.password : '';
   const cpf = text('cpf').replace(/[.\-]/g, '');
 
-  if (!validContact(profile) || password.length < 8 || Buffer.byteLength(password, 'utf8') > 72) {
-    return res.status(400).json({ error: 'Informe nome, e-mail, telefone com DDD e uma senha de pelo menos 8 caracteres.' });
+  if (!validContact(profile)) {
+    return res.status(400).json({ error: 'Informe nome, e-mail e telefone com DDD válidos.' });
   }
+  const passwordError = validateNewPassword(password);
+  if (passwordError) return res.status(400).json({ error: passwordError });
   if (!isValidCpf(cpf)) return res.status(400).json({ error: 'Informe um CPF válido.' });
   const error = vehicleError(profile);
   if (error) return res.status(400).json({ error });

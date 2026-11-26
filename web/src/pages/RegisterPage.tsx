@@ -1,3 +1,6 @@
+import { PasswordFields } from '../components/PasswordFields';
+import { validatePasswordConfirmation } from '../utils/passwordPolicy';
+import { AuthBrand } from '../components/AuthBrand';
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { registerUser } from '../services/api';
@@ -18,11 +21,14 @@ export function RegisterPage() {
   const [addAddress, setAddAddress] = useState(false);
   const [address, setAddress] = useState(emptyDeliveryAddress);
   const [error, setError] = useState('');
+  const [confirmation, setConfirmation] = useState('');
   const [loading, setLoading] = useState(false);
 
   async function handleRegister(e: React.FormEvent) {
     e.preventDefault();
     setError('');
+    const passwordError = validatePasswordConfirmation(formData.password, confirmation);
+    if (passwordError) { setError(passwordError); return; }
     if (addAddress && !isDeliveryAddressComplete(address)) {
       setError('Informe CEP, logradouro, número, cidade e UF para salvar seu endereço.');
       return;
@@ -48,7 +54,7 @@ export function RegisterPage() {
   return (
     <div className="auth-container">
       <div className="auth-box">
-        <h1>🛍️ Criar conta de cliente</h1>
+        <AuthBrand />
         <p>Cadastre-se para comprar no marketplace</p>
         
         <form onSubmit={handleRegister}>
@@ -92,18 +98,9 @@ export function RegisterPage() {
             />
           </div>
 
-          <div className="form-group">
-            <label htmlFor="password">Senha</label>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              value={formData.password}
-              onChange={handleChange}
-              placeholder="Mínimo 6 caracteres"
-              required
-            />
-          </div>
+          <PasswordFields password={formData.password} confirmation={confirmation} disabled={loading}
+            onPassword={(password) => setFormData((current) => ({ ...current, password }))}
+            onConfirmation={setConfirmation} />
 
           <label className="auth-address-toggle">
             <input type="checkbox" checked={addAddress} disabled={loading} onChange={(event) => setAddAddress(event.target.checked)} />
@@ -116,7 +113,6 @@ export function RegisterPage() {
           </button>
         </form>
 
-        <p className="register-link"><Link to="/register/driver">Cadastrar como entregador</Link></p>
         <p className="register-link">
           Já tem conta? <Link to="/login" state={location.state}>Fazer login</Link>
         </p>

@@ -11,9 +11,10 @@
 
 .checkout-address input,
 .checkout-address select {
+  box-sizing: border-box;
   width: 100%;
   min-width: 0;
-  min-height: 2.5rem;
+  min-height: 44px;
   padding: 0.45rem 0.6rem;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
@@ -39,7 +40,13 @@
   min-width: 4.25rem;
 }
 
-.checkout-cep-row button {
+.checkout-address .checkout-cep-row button,
+.auth-box form .checkout-cep-row button {
+  box-sizing: border-box;
+  width: auto;
+  min-height: 44px;
+  margin: 0;
+  padding: 0.45rem 0.6rem;
   white-space: nowrap;
 }
 

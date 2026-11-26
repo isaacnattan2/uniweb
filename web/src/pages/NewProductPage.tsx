@@ -77,8 +77,8 @@ export function NewProductPage() {
   if (accessError || !businessId) return <div className="container"><p role="alert">{accessError || 'Loja não encontrada.'}</p><button onClick={() => navigate(-1)}>Voltar</button></div>;
 
   return (
-    <div className="product-form-container">
-      <div className="form-box">
+    <div className="container management-form-page">
+      <div className="management-form">
         <h1>Adicionar Novo Produto</h1>
         
         <form onSubmit={handleSubmit}>

@@ -59,8 +59,8 @@ export function AdminDeliveryRates() {
   }
 
   return (
-    <div className="form-box admin-delivery-rate-form">
-      <h3>Taxa de corrida</h3>
+    <section className="admin-settings" aria-labelledby="delivery-rates-heading">
+      <h2 id="delivery-rates-heading">Tarifas de entrega</h2>
       {error && <p className="error-message" role="alert">{error}</p>}
       {!form && !error && <p role="status">Carregando regras da taxa…</p>}
       {form && (
@@ -83,6 +83,6 @@ export function AdminDeliveryRates() {
           <button type="submit" className="btn-primary" disabled={saving}>{saving ? 'Salvando…' : 'Salvar regras da taxa'}</button>
         </form>
       )}
-    </div>
+    </section>
   );
 }

@@ -47,7 +47,8 @@ export function ProfileNavigation({ children }: { children: ReactNode }) {
     return () => request.abort();
   }, [token, userType]);
 
-  if (!token || !userType || userType === 'customer' || ['/login', '/register', '/register/driver'].includes(pathname)) return <><Header />{children}</>;
+  if (/^\/(?:login(?:\/driver)?|register(?:\/driver)?)\/*$/i.test(pathname)) return <>{children}</>;
+  if (!token || !userType || userType === 'customer') return <><Header />{children}</>;
 
   const query = new URLSearchParams(search);
   const section = query.get('aba');
@@ -86,8 +87,8 @@ export function ProfileNavigation({ children }: { children: ReactNode }) {
       { to: '/admin/entregadores/auditoria', label: 'Auditoria de entregas' },
     ] }] },
     { label: 'Financeiro', items: [
-      { to: '/admin/financeiro', label: 'Saldo da plataforma' },
-      { to: '/admin/simulador-split', label: 'Simulador de split' },
+      { to: '/admin/financeiro', label: 'Saldo e Saques' },
+      { to: '/admin/simulador-split', label: 'Pagamentos e repasses' },
     ] },
     { label: 'Aplicativo', items: [{ to: '/admin/cores-do-app', label: 'Cores do app' }] },
   ] : userType === 'business' ? [

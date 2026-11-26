@@ -15,10 +15,8 @@
   grid-template-columns: minmax(0, 1fr);
 }
 
-.account-grid > .form-box {
-  max-width: none;
+.account-grid > section {
   min-width: 0;
-  padding: clamp(1rem, 3vw, 2rem);
 }
 
 .customer-account fieldset {
@@ -83,7 +81,10 @@
 
 .account-address-list li {
   padding-block: 0.75rem;
-  border-bottom: 1px solid #dce2ea;
+}
+
+.account-address-list li + li {
+  border-top: 1px solid #dce2ea;
   overflow-wrap: anywhere;
 }
 

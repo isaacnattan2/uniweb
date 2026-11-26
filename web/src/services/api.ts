@@ -802,6 +802,18 @@ export interface DriverAuditEntry {
   };
 }
 
-export async function getDriverDispatchAudit(id: string, signal: AbortSignal, period: { start?: string; end?: string }) {
-  return (await api.get<DriverAuditEntry[]>('/admin/drivers/' + encodeURIComponent(id) + '/dispatch-audit', { signal, params: period })).data;
+export async function getDriverDispatchAudit(id: string, signal: AbortSignal, params: {
+  start?: string; end?: string; eventType?: string; page: number; pageSize: number;
+}) {
+  const { data } = await api.get<DriverAuditEntry[] | { entries: DriverAuditEntry[]; hasNext: boolean }>(
+    '/admin/drivers/' + encodeURIComponent(id) + '/dispatch-audit', { signal, params },
+  );
+  if (Array.isArray(data)) {
+    const entries = params.eventType ? data.filter(({ details }) => details.event === params.eventType) : data;
+    return { entries, hasNext: false, supportsPagination: false };
+  }
+  if (!Array.isArray(data?.entries) || typeof data.hasNext !== 'boolean') {
+    throw new Error('Resposta inválida da auditoria de entregas.');
+  }
+  return { ...data, supportsPagination: true };
 }

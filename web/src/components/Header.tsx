@@ -16,8 +16,6 @@ export function Header({ compact = false, leading }: { compact?: boolean; leadin
     userType === 'business' ? 'Lojista' :
     userType === 'customer' ? 'Cliente' :
     userType === 'driver' ? 'Entregador' : null;
-  const homePath = token && userType === 'admin' ? '/admin' :
-    token && userType === 'business' ? '/dashboard' : token && userType === 'driver' ? '/driver' : '/shop';
 
   useEffect(() => {
     if (location.pathname === '/shop') {
@@ -38,7 +36,7 @@ export function Header({ compact = false, leading }: { compact?: boolean; leadin
 
   const handleLogout = () => {
     logout();
-    navigate('/login');
+    navigate(userType === 'driver' ? '/login/driver' : '/login');
   };
 
   return (
@@ -47,9 +45,12 @@ export function Header({ compact = false, leading }: { compact?: boolean; leadin
         <div className="header-content">
           {leading}
           <div className="header-brand">
-            {!compact && <Link to={homePath} className="logo">
-              🏪 UniWeb
-            </Link>}
+            {!compact && (
+              <Link to="/shop" className="logo">
+                <img src="/unientregador-icon.png" width="32" height="32" alt="" />
+                <span>UniWeb</span>
+              </Link>
+            )}
             {token && profileLabel && <span className="profile-label">{profileLabel}</span>}
           </div>
 

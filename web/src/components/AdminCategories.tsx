@@ -71,23 +71,25 @@ export function AdminCategories() {
     .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
 
   return (
-    <section className="form-box" aria-labelledby="admin-categories-heading">
+    <section className="admin-settings" aria-labelledby="admin-categories-heading">
       <h2 id="admin-categories-heading">Categorias</h2>
       <form onSubmit={submit}>
-        <div className="form-group">
-          <label htmlFor="category-kind">Tipo de categoria</label>
-          <select id="category-kind" value={kind} disabled={saving} onChange={(event) => {
-            setKind(event.target.value === 'business' ? 'business' : 'product');
-            resetForm();
-          }}>
-            <option value="product">Produtos</option>
-            <option value="business">Lojas</option>
-          </select>
-        </div>
-        <div className="form-group">
-          <label htmlFor="category-label">{editing ? 'Editar nome da categoria' : 'Nome da categoria'}</label>
-          <input id="category-label" value={label} maxLength={100} required disabled={saving}
-            onChange={(event) => setLabel(event.target.value)} />
+        <div className="admin-rate-fields">
+          <div className="form-group">
+            <label htmlFor="category-label">Nome da categoria</label>
+            <input id="category-label" value={label} maxLength={100} required disabled={saving}
+              onChange={(event) => setLabel(event.target.value)} />
+          </div>
+          <div className="form-group">
+            <label htmlFor="category-kind">Tipo de categoria</label>
+            <select id="category-kind" value={kind} disabled={saving} onChange={(event) => {
+              setKind(event.target.value === 'business' ? 'business' : 'product');
+              resetForm();
+            }}>
+              <option value="product">Produtos</option>
+              <option value="business">Lojas</option>
+            </select>
+          </div>
         </div>
         <div className="admin-category-actions">
           <button className="btn-primary" disabled={saving || loading} type="submit">
@@ -100,7 +102,7 @@ export function AdminCategories() {
       {loading && <p role="status">Carregando categorias…</p>}
       {!loading && !visible.length && !error && <p>Nenhuma categoria cadastrada.</p>}
       {!!visible.length && (
-        <ul className="admin-category-list" aria-label="Categorias cadastradas" tabIndex={0}>
+        <ul className="admin-category-list list-panel list-panel-inset" aria-label="Categorias cadastradas" tabIndex={0}>
           {visible.map((category) => (
             <li key={category.value}>
               <span>{category.label}</span>

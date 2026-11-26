@@ -1,3 +1,4 @@
+import { validateNewPassword } from '../services/PasswordPolicy';
 import { downloadDriverLicensePhoto } from '../controllers/DriverLicensePhoto';
 import { getAdminAsaasBalance } from '../controllers/AdminAsaasBalance';
 import { applyCardSplit, applyPixSplit, removeSplitCondition, readSplitPayments, sendDriverSplitPayment } from '../controllers/AdminAsaasSplit';
@@ -44,7 +45,20 @@ router.get('/drivers/:id/license-photo', async (req, res, next) => {
 router.get('/drivers/:id/dispatch-audit', async (req, res, next) => {
   const { id } = req.params;
   if (!uuid.test(id)) return res.sendStatus(400);
-  const { start, end } = req.query;
+  const { start, end, eventType, page, pageSize } = req.query;
+  if (eventType !== undefined && (typeof eventType !== 'string' || !/^dispatch_[a-z_]+$/.test(eventType))) {
+    return res.status(400).json({ error: 'Informe um tipo de evento válido.' });
+  }
+  const paginated = page !== undefined || pageSize !== undefined;
+  if ((pageSize !== undefined && (typeof pageSize !== 'string' || !/^(50|100|200|500)$/.test(pageSize)))
+      || (page !== undefined && (typeof page !== 'string' || !/^[1-9]\d*$/.test(page)))) {
+    return res.status(400).json({ error: 'Informe uma página e uma quantidade de registros válidas.' });
+  }
+  const size = Number(pageSize ?? 50);
+  const offset = (Number(page ?? 1) - 1) * size;
+  if (!Number.isSafeInteger(offset)) {
+    return res.status(400).json({ error: 'Informe uma página válida.' });
+  }
   const validTimestamp = (value: unknown): value is string =>
     typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)
     && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value;
@@ -62,16 +76,18 @@ router.get('/drivers/:id/dispatch-audit', async (req, res, next) => {
        FROM delivery_dispatch_audit a
        WHERE ($2::timestamptz IS NULL OR a.created_at >= $2)
          AND ($3::timestamptz IS NULL OR a.created_at < $3)
+         AND ($6::text IS NULL OR a.details->>'event' = $6)
          AND (a.driver_ids @> ARRAY[$1::uuid]
           OR (a.details->>'event' = 'dispatch_search_expired' AND EXISTS (
             SELECT 1 FROM delivery_dispatch_audit related
             WHERE related.order_id = a.order_id AND related.search_cycle = a.search_cycle
               AND related.driver_ids @> ARRAY[$1::uuid]
           )))
-       ORDER BY a.created_at DESC, a.id DESC LIMIT 50`, [id.toLowerCase(), start ?? null, end ?? null],
+       ORDER BY a.created_at DESC, a.id DESC LIMIT $4 OFFSET $5`,
+      [id.toLowerCase(), start ?? null, end ?? null, paginated ? size + 1 : size, offset, eventType ?? null],
     );
     res.set('Cache-Control', 'no-store');
-    return res.json(rows);
+    return res.json(paginated ? { entries: rows.slice(0, size), hasNext: rows.length > size } : rows);
   } catch (error) {
     next(error);
   }
@@ -262,10 +278,11 @@ router.get('/sellers', async (req, res, next) => {
 router.post('/sellers', async (req, res, next) => {
   const { fullName, email, password } = req.body;
   if (typeof fullName !== 'string' || !fullName.trim() ||
-      typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
-      typeof password !== 'string' || password.length < 8) {
-    return res.status(400).json({ error: 'Informe nome, e-mail válido e senha com pelo menos 8 caracteres' });
+      typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: 'Informe nome e e-mail válido.' });
   }
+  const passwordError = validateNewPassword(password);
+  if (passwordError) return res.status(400).json({ error: passwordError });
   try {
     const { user } = await AuthService.register(email.trim().toLowerCase(), password, fullName.trim(), '', 'business');
     res.status(201).json(user);

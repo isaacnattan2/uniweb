@@ -1,3 +1,9 @@
+:root {
+  --input-surface: #fff;
+  --input-text: #1f2937;
+  --input-border: #d1d5db;
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -69,6 +75,23 @@ button {
   max-width: 1200px;
   margin: 0 auto;
   padding: 20px;
+}
+
+.list-panel {
+  min-inline-size: 0;
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+}
+
+.list-panel:not(.card-grid, .orders-list),
+.list-panel > :is(li, details, .card-layout, .order-card),
+.list-panel tbody tr {
+  background-color: var(--input-surface);
+  color: var(--input-text);
+}
+
+.list-panel.list-panel-inset {
+  padding: 0.75rem;
 }
 
 .card-layout {
@@ -160,11 +183,16 @@ button {
 input, textarea, select {
   font-family: inherit;
   font-size: 14px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--input-border);
   border-radius: 4px;
   padding: 10px 12px;
   width: 100%;
   transition: border-color 0.3s ease;
+}
+
+input:where(:not([type]), [type="text"], [type="email"], [type="search"], [type="tel"], [type="password"], [type="url"]) {
+  background-color: var(--input-surface);
+  color: var(--input-text);
 }
 
 input:focus, textarea:focus, select:focus {

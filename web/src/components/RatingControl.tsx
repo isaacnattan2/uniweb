@@ -116,7 +116,7 @@ export function RatingControl({ kind, id, onRated }: {
       )}
       {error && <p role="alert">{error}</p>}
       {!!comments.length && (
-        <ul className="marketplace-comments">
+        <ul className="marketplace-comments list-panel list-panel-inset">
           {comments.map((item) => (
             <li key={item.id}>
               <strong>{item.author || 'Cliente'}</strong>

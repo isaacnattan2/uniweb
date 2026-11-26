@@ -139,24 +139,17 @@ export function AdminDrivers({ auditOnly = false }: { auditOnly?: boolean }) {
   const asaasDriver = drivers?.find((driver) => driver.id === selectedAsaasDriver);
 
   if (auditOnly) return (
-    <section aria-labelledby="driver-audit-page-heading">
+    <section className="admin-driver-audit-page" aria-labelledby="driver-audit-page-heading">
       <h2 id="driver-audit-page-heading">Auditoria de entregas</h2>
       {loadError && <p role="alert">{loadError}</p>}
       {!drivers && !loadError && <p role="status">Carregando entregadores...</p>}
-      {drivers && <div className="form-group">
-        <label htmlFor="audit-driver">Entregador</label>
-        <select id="audit-driver" value={auditDriver?.id ?? ""} onChange={(event) =>
-          setSearch(event.target.value ? { entregador: event.target.value } : {})}>
-          <option value="">Selecione um entregador</option>
-          {drivers.map((driver) => <option key={driver.id} value={driver.id}>{driver.full_name}</option>)}
-        </select>
-      </div>}
-      {auditDriver && <AdminDriverAudit key={auditDriver.id} driver={auditDriver} onClose={() => setSearch({})} />}
+      {drivers && <AdminDriverAudit driver={auditDriver} drivers={drivers}
+        onDriverChange={(id) => setSearch(id ? { entregador: id } : {})} />}
     </section>
   );
 
   return (
-    <section aria-labelledby="drivers-heading">
+    <section className="admin-drivers" aria-labelledby="drivers-heading">
       <h2 id="drivers-heading">Entregadores</h2>
       {loadError && <p className="error-message" role="alert">{loadError}</p>}
       {asaasDriver && <AdminStoreAsaas key={asaasDriver.id} accountId={asaasDriver.id} driverName={asaasDriver.full_name} />}
@@ -164,7 +157,7 @@ export function AdminDrivers({ auditOnly = false }: { auditOnly?: boolean }) {
       {!drivers && !loadError && <p role="status">Carregando entregadores…</p>}
       {drivers?.length === 0 && <p>Nenhum entregador cadastrado.</p>}
       {!!drivers?.length && (
-        <div className="business-grid card-grid card-grid-5">
+        <div className="business-grid card-grid card-grid-5 list-panel list-panel-inset">
           {drivers.map((driver) => (
             <article key={driver.id} className="business-card card-layout admin-driver-card">
               <h3 className="card-row-1">{driver.full_name}</h3>

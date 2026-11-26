@@ -87,7 +87,7 @@ export function StoreOrders({ businessId }: { businessId: string }) {
       {loading && <p role="status">Carregando pedidos…</p>}
       {!loading && !loadError && page.items.length === 0 && <p>Nenhum pedido nesta página.</p>}
       {!loadError && page.items.length > 0 && (!orderId || page.items[0].id === orderId) && (
-        <ul className="store-order-list">
+        <ul className="store-order-list list-panel list-panel-inset">
           {page.items.map((order) => {
             const canCancel = ['pending', 'confirmed', 'processing'].includes(order.status) && order.delivery_status !== 'delivered' &&
               (!order.dispatch_state || !['in_transit','incident'].includes(order.dispatch_state));

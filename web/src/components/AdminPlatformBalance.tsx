@@ -22,22 +22,32 @@ export function AdminPlatformBalance() {
   }, [revision]);
 
   return (
-    <section className="form-box" aria-labelledby="platform-finance-title">
-      <h2 id="platform-finance-title">Financeiro da plataforma</h2>
-      <div aria-live="polite">
-        <h3>Saldo disponível para saque</h3>
-        {loading ? <p>Consultando saldo…</p> : failed ? <p>O saldo está indisponível. Tente novamente.</p> : result && (
-          <>
-            <p><strong>{currency.format(result.balance)}</strong></p>
-            <p>{result.sandbox ? 'Conta principal do Asaas · Sandbox' : 'Conta principal do Asaas'}</p>
-          </>
-        )}
+    <section aria-labelledby="platform-finance-title">
+      <div className="admin-section-heading">
+        <h2 id="platform-finance-title">Saldo e Saques</h2>
+        <button type="button" className="btn btn-secondary" disabled={loading} onClick={() => {
+          setFailed(false);
+          setLoading(true);
+          setRevision((value) => value + 1);
+        }}>Atualizar saldo</button>
       </div>
-      <button type="button" className="btn btn-secondary" disabled={loading} onClick={() => {
-        setFailed(false);
-        setLoading(true);
-        setRevision((value) => value + 1);
-      }}>Atualizar saldo</button>
+      <div aria-live="polite">
+        <dl className="admin-rate-fields admin-platform-balance">
+          <div>
+            <dt>Saldo disponível para saque</dt>
+            <dd>
+              {loading ? 'Consultando saldo…' : failed ? 'O saldo está indisponível. Tente novamente.' :
+                result && <strong>{currency.format(result.balance)}</strong>}
+            </dd>
+          </div>
+          {!loading && !failed && result && (
+            <div>
+              <dt>Conta vinculada</dt>
+              <dd>{result.sandbox ? 'Conta principal do Asaas · Sandbox' : 'Conta principal do Asaas'}</dd>
+            </div>
+          )}
+        </dl>
+      </div>
     </section>
   );
 }

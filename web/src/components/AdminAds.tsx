@@ -100,7 +100,7 @@ export function AdminAds({ businesses }: { businesses: AdminBusiness[] }) {
   ].sort((a, b) => a.position - b.position) : sorted;
 
   return (
-    <section className="form-box admin-ads" aria-labelledby="ads-title">
+    <section className="admin-settings admin-ads" aria-labelledby="ads-title">
       <h2 id="ads-title">Publicidades da vitrine</h2>
       <form onSubmit={save}>
         <fieldset disabled={busy || loading}>
@@ -144,7 +144,7 @@ export function AdminAds({ businesses }: { businesses: AdminBusiness[] }) {
       <p>A prévia inclui rascunhos. A vitrine exibe as publicidades publicadas de lojas ativas.</p>
       {previewAds.length ? <ShopCarousel key={draftImage ? draftImage : 'saved'} ads={previewAds} preview initialId={draftImage ? editing || 'draft' : undefined} />
         : <p>{loading ? 'Carregando publicidades…' : 'Adicione uma imagem para visualizar o carrossel.'}</p>}
-      {!!sorted.length && <ul className="admin-category-list" aria-label="Publicidades cadastradas">
+      {!!sorted.length && <ul className="admin-category-list list-panel list-panel-inset" aria-label="Publicidades cadastradas" tabIndex={0}>
         {sorted.map((ad) => (
           <li key={ad.id}>
             <span><strong>{ad.title}</strong> · {businesses.find((b) => b.id === ad.business_id)?.name || 'Loja'} · {ad.published ? 'Publicada' : 'Rascunho'} · Ordem {ad.position}</span>

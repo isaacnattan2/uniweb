@@ -1,3 +1,6 @@
+import { PasswordFields } from '../components/PasswordFields';
+import { validatePasswordConfirmation } from '../utils/passwordPolicy';
+import { AuthBrand } from '../components/AuthBrand';
 import { StoreWithdrawals } from '../components/StoreWithdrawals';
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
@@ -28,19 +31,21 @@ const fields = [
   { name: 'email', label: 'E-mail', type: 'email', maxLength: 255, autoComplete: 'email' },
   { name: 'phone', label: 'Telefone com DDD', type: 'tel', maxLength: 20, autoComplete: 'tel' },
   { name: 'cpf', label: 'CPF', maxLength: 14, inputMode: 'numeric' },
-  { name: 'password', label: 'Senha', type: 'password', minLength: 8, maxLength: 72, autoComplete: 'new-password' },
 ] as const;
 
 export function DriverRegisterPage() {
   const navigate = useNavigate();
   const login = useAuthStore((state) => state.login);
   const [form, setForm] = useState(emptyForm);
+  const [confirmation, setConfirmation] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (loading) return;
+    const passwordError = validatePasswordConfirmation(form.password, confirmation);
+    if (passwordError) { setError(passwordError); return; }
     setLoading(true);
     setError('');
     try {
@@ -62,7 +67,8 @@ export function DriverRegisterPage() {
   return (
     <main className="auth-container">
       <div className="auth-box driver-register">
-        <h1>Cadastro de entregador</h1>
+        <AuthBrand />
+        <p>Cadastro de entregador</p>
         <form onSubmit={submit}>
           <fieldset disabled={loading}>
             <legend>Dados pessoais</legend>
@@ -74,6 +80,8 @@ export function DriverRegisterPage() {
                     onChange={(event) => change(name, event.target.value)} />
                 </div>
               ))}
+              <PasswordFields password={form.password} confirmation={confirmation}
+                onPassword={(value) => change('password', value)} onConfirmation={setConfirmation} />
             </div>
           </fieldset>
           <fieldset disabled={loading}>
@@ -102,7 +110,7 @@ export function DriverRegisterPage() {
           {error && <p className="error-message" role="alert">{error}</p>}
           <button type="submit" className="btn-primary" disabled={loading}>{loading ? 'Cadastrando…' : 'Criar conta de entregador'}</button>
         </form>
-        <p className="register-link">Já tem conta? <Link to="/login">Fazer login</Link></p>
+        <p className="register-link">Já tem conta? <Link to="/login/driver">Fazer login</Link></p>
       </div>
     </main>
   );
@@ -131,7 +139,7 @@ export function DriverPage() {
         {error ? <p role="alert">{error}</p> : !data ? <p role="status">Carregando cadastro…</p> : (
           <>
             {section !== 'saques' && <div className="driver-fields">
-              <section className="driver-card">
+              <section className="driver-profile-details">
                 <h2>Dados pessoais</h2>
                 <dl>
                   <dt>Nome</dt><dd>{data.full_name}</dd>
@@ -139,7 +147,7 @@ export function DriverPage() {
                   <dt>Telefone</dt><dd>{data.phone}</dd>
                 </dl>
               </section>
-              <section className="driver-card">
+              <section className="driver-profile-details">
                 <h2>Veículo</h2>
                 <dl>
                   <dt>Tipo</dt><dd>{vehicles[data.vehicle_type] || data.vehicle_type}</dd>

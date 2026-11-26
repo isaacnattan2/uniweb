@@ -1,3 +1,4 @@
+import { validateNewPassword } from '../services/PasswordPolicy';
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { normalizeDeliveryAddress } from '../services/DeliveryAddress';
@@ -15,6 +16,8 @@ export class AuthController {
       if (userType && userType !== 'customer') {
         return res.status(403).json({ error: 'Somente clientes podem se cadastrar nesta página' });
       }
+      const passwordError = validateNewPassword(password);
+      if (passwordError) return res.status(400).json({ error: passwordError });
       const address = deliveryAddress == null ? undefined : normalizeDeliveryAddress(deliveryAddress);
       if (address === null) return res.status(400).json({ error: 'Complete os dados do endereço para continuar.' });
       const { user, token } = await AuthService.register(email, password, fullName, phone || '', 'customer', address);

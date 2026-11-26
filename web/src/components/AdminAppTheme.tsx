@@ -35,7 +35,7 @@ export function AdminAppTheme() {
   }
 
   return (
-    <section className="form-box admin-app-theme" aria-labelledby="driver-app-theme-title">
+    <section className="admin-settings" aria-labelledby="driver-app-theme-title">
       <h2 id="driver-app-theme-title">Cores do UniEntregador</h2>
       {error && <p role="alert">{error}</p>}
       {!theme && !error && <p role="status">Carregando cores…</p>}
@@ -43,7 +43,7 @@ export function AdminAppTheme() {
         event.preventDefault();
         void applyTheme('save');
       }}>
-        <div className="form-row">
+        <div className="admin-rate-fields">
           {(['primary', 'secondary'] as const).map((key) => (
             <div className="form-group" key={key}>
               <label htmlFor={`driver-app-${key}`}>{key === 'primary' ? 'Cor primária' : 'Cor secundária'}</label>

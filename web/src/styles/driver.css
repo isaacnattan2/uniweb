@@ -42,20 +42,16 @@
   gap: 1rem;
 }
 
-.driver-card {
+.driver-profile-details {
   min-width: 0;
-  padding: 1.25rem;
-  border: 1px solid #dce2ea;
-  border-radius: 12px;
-  background: white;
 }
 
-.driver-card dt {
+.driver-profile-details dt {
   margin-top: 0.6rem;
   font-weight: 600;
 }
 
-.driver-card dd {
+.driver-profile-details dd {
   margin: 0;
   overflow-wrap: anywhere;
 }

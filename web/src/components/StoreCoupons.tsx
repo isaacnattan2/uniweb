@@ -153,7 +153,7 @@ export function StoreCoupons({ businessId, products }: { businessId: string; pro
       {error && <p className="error-message" role="alert">{error}</p>}
       {loading && <p role="status">Carregando cupons…</p>}
       {!loading && !coupons.length && !error && <p>Nenhum cupom cadastrado.</p>}
-      {!!coupons.length && <ul className="store-coupon-list">
+      {!!coupons.length && <ul className="store-coupon-list list-panel list-panel-inset">
         {[...coupons].sort((a, b) => a.code.localeCompare(b.code)).map((coupon) => (
           <li key={coupon.id}>
             <div>

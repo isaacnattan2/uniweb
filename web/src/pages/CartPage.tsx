@@ -225,7 +225,7 @@ export function CartPage() {
         {(error || cartError) && <div className="error-message" role="alert">{error || cartError}</div>}
 
         <div className="cart-content">
-          <div className="cart-items">
+          <div className="cart-items list-panel list-panel-inset">
             <table>
               <thead>
                 <tr>

@@ -163,7 +163,7 @@ export function AdminSplitSimulator() {
 
   return (
     <section className="split-simulator" aria-labelledby="split-heading">
-      <h2 id="split-heading">Simulador de split</h2>
+      <h2 id="split-heading">Pagamentos e repasses</h2>
       <p>A simulação usa as tarifas da conta Asaas e as regras comerciais que você informar. Alterar os campos apenas recalcula a simulação.</p>
       <div className="split-inputs">
         <fieldset>

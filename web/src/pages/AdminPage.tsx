@@ -22,8 +22,8 @@ export const adminSections = [
   { path: 'entregadores/auditoria', label: 'Auditoria de entregas' },
   { path: 'categorias', label: 'Categorias' },
   { path: 'anuncios', label: 'Anúncios' },
-  { path: 'financeiro', label: 'Financeiro' },
-  { path: 'simulador-split', label: 'Simulador de split' },
+  { path: 'financeiro', label: 'Saldo e Saques' },
+  { path: 'simulador-split', label: 'Pagamentos e repasses' },
   { path: 'cores-do-app', label: 'Cores do app' },
 ] as const;
 
@@ -181,7 +181,7 @@ function AdminManagementSection({ section }: { section: 'lojistas' | 'anuncios' 
           <Link to="novo" className="btn-primary">Adicionar lojista</Link>
         </div>
         {loading ? <p>Carregando...</p> : sellers.length === 0 ? <p>Nenhum lojista cadastrado.</p> : (
-          <div className="business-grid card-grid card-grid-6">
+          <div className="business-grid card-grid card-grid-6 list-panel list-panel-inset">
             {sellers.map((seller) => (
               <article key={seller.id} className="business-card card-layout">
                 <h3 className="card-row-1">{seller.full_name}</h3>

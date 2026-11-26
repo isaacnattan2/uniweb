@@ -31,7 +31,7 @@ export function StoreAsaasApprovalDetails({ approval, admin = false }: { approva
     <div>
       <h3>Situação cadastral no Asaas</h3>
       {admin && approval.id && <p>ID da subconta <code>{approval.id}</code></p>}
-      <dl className="asaas-status-list">
+      <dl className="asaas-status-list list-panel list-panel-inset">
         <div><dt>Aprovação geral</dt><dd><ApprovalStatus code={approval.general} technical={admin} /></dd></div>
         <div><dt>Dados comerciais</dt><dd><ApprovalStatus code={approval.commercialInfo} technical={admin} /></dd></div>
         <div><dt>Dados bancários</dt><dd><ApprovalStatus code={approval.bankAccountInfo} technical={admin} /></dd></div>

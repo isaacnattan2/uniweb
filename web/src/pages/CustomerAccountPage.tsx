@@ -119,7 +119,7 @@ function CustomerAccount() {
         {error && <p className="error-message" role="alert">{error}</p>}
         {profile && (
           <div className="account-grid">
-            <section className="form-box" aria-labelledby="profile-heading">
+            <section aria-labelledby="profile-heading">
               <h2 id="profile-heading">Dados pessoais</h2>
               <form onSubmit={uploadPhoto} className="account-photo">
                 {profile.avatar_url
@@ -160,13 +160,13 @@ function CustomerAccount() {
                 </fieldset>
               </form>
             </section>
-            <section className="form-box" aria-labelledby="addresses-heading">
+            <section aria-labelledby="addresses-heading">
               <div className="account-section-heading">
                 <h2 id="addresses-heading">Endereços de entrega</h2>
                 {!editor && <button type="button" className="btn-secondary" disabled={saving} onClick={() => openAddress()}>Adicionar endereço</button>}
               </div>
               {!!addresses.length && (
-                <ul className="account-address-list">
+                <ul className="account-address-list list-panel list-panel-inset">
                   {addresses.map((entry, index) => {
                     const item = entry.address;
                     return (

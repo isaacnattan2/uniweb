@@ -224,12 +224,12 @@ export function BusinessPage() {
               </div>
             </form>
           ) : (
-            <>
-              <p><strong>Categoria:</strong> {currentBusiness.category || 'N/A'}</p>
-              <p><strong>Descrição:</strong> {currentBusiness.description || 'Não informada'}</p>
-              <p><strong>Endereço:</strong> {currentBusiness.address || 'Não informado'}</p>
-              <p><strong>Status:</strong> {currentBusiness.status}</p>
-            </>
+            <dl className="business-edit-grid business-details">
+              <div><dt>Categoria</dt><dd>{currentBusiness.category || 'N/A'}</dd></div>
+              <div><dt>Status</dt><dd>{currentBusiness.status}</dd></div>
+              <div><dt>Descrição</dt><dd>{currentBusiness.description || 'Não informada'}</dd></div>
+              <div><dt>Endereço</dt><dd>{currentBusiness.address || 'Não informado'}</dd></div>
+            </dl>
           )}
         </div>}
 
@@ -275,7 +275,7 @@ export function BusinessPage() {
               </button>
             </div>
           ) : (
-            <div className="products-table">
+            <div className="products-table list-panel">
               <table>
                 <thead>
                   <tr>

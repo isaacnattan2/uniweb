@@ -129,7 +129,7 @@ export function OrdersPage() {
             </button>
           </div>
         ) : (
-          <div className="orders-list">
+          <div className="orders-list list-panel list-panel-inset">
             {orders.map((order) => (
               <div key={order.id} className="order-card">
                 <div className="order-header">

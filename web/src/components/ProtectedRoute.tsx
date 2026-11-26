@@ -13,7 +13,7 @@ export function ProtectedRoute({ children, roles }: ProtectedRouteProps) {
   
   if (!token) {
     const from = /^\/(?:business|order)\//.test(pathname) ? pathname + search : undefined;
-    return <Navigate to="/login" state={from ? { from } : undefined} replace />;
+    return <Navigate to={roles?.length === 1 && roles[0] === 'driver' ? '/login/driver' : '/login'} state={from ? { from } : undefined} replace />;
   }
   if (roles && (!userType || !roles.includes(userType))) {
     return <Navigate to={userType === 'admin' ? '/admin' : userType === 'business' ? '/dashboard' : userType === 'driver' ? '/driver' : '/shop'} replace />;

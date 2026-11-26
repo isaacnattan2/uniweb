@@ -46,8 +46,8 @@ export function AdminDeliveryDispatch({ section }: { section: 'settings' | 'inci
   }
 
   return (
-    <div className="form-box admin-delivery-rate-form">
-      <h3>{section === 'settings' ? 'Regras de alocação' : 'Ocorrências e estornos'}</h3>
+    <section className="admin-settings" aria-labelledby="delivery-dispatch-heading">
+      <h2 id="delivery-dispatch-heading">{section === 'settings' ? 'Regras de alocação' : 'Ocorrências e estornos'}</h2>
       {error && <p className="error-message" role="alert">{error}</p>}
       {section === 'settings' && !settings && !error && <p role="status">Carregando configuração…</p>}
       {section === 'settings' && settings && <form onSubmit={(event) => void apply(event, () =>
@@ -64,20 +64,20 @@ export function AdminDeliveryDispatch({ section }: { section: 'settings' | 'inci
             <input id="dispatch-subsidy" type="number" min="0" max="10000" step="0.01" required disabled={saving} value={settings.subsidy}
               onChange={(event) => setSettings({ ...settings, subsidy: event.target.value })} />
           </div>
-        </div>
-        <div className="form-group">
-          <label htmlFor="dispatch-offer-mode">Recebimento de ofertas no UniEntregador</label>
-          <select id="dispatch-offer-mode" value={settings.offerMode} disabled={saving} onChange={(event) =>
-            setSettings({ ...settings, offerMode: event.target.value === 'polling' ? 'polling' : 'push' })}>
-            <option value="push">Notificação OneSignal (padrão)</option>
-            <option value="polling">Consulta periódica com o app aberto</option>
-          </select>
-        </div>
-        <div className="form-group">
-          <label htmlFor="dispatch-block-duration">Bloqueio após 3 pedidos sem resposta (minutos)</label>
-          <input id="dispatch-block-duration" type="number" min={1} max={10080} step={1} required
-            disabled={saving} value={settings.blockMinutes}
-            onChange={(event) => setSettings({ ...settings, blockMinutes: event.target.value })} />
+          <div className="form-group">
+            <label htmlFor="dispatch-offer-mode">Recebimento de ofertas no UniEntregador</label>
+            <select id="dispatch-offer-mode" value={settings.offerMode} disabled={saving} onChange={(event) =>
+              setSettings({ ...settings, offerMode: event.target.value === 'polling' ? 'polling' : 'push' })}>
+              <option value="push">Notificação OneSignal (padrão)</option>
+              <option value="polling">Consulta periódica com o app aberto</option>
+            </select>
+          </div>
+          <div className="form-group">
+            <label htmlFor="dispatch-block-duration">Bloqueio após 3 pedidos sem resposta (minutos)</label>
+            <input id="dispatch-block-duration" type="number" min={1} max={10080} step={1} required
+              disabled={saving} value={settings.blockMinutes}
+              onChange={(event) => setSettings({ ...settings, blockMinutes: event.target.value })} />
+          </div>
         </div>
         <label className="admin-rate-checkbox" htmlFor="dispatch-enforce-deadline">
           <input id="dispatch-enforce-deadline" type="checkbox" checked={settings.enforceDeadline} disabled={saving}
@@ -98,8 +98,8 @@ export function AdminDeliveryDispatch({ section }: { section: 'settings' | 'inci
       </form>}
       {section === 'incidents' && <>
       {incidents?.length === 0 && <p>Nenhuma ocorrência ou estorno pendente.</p>}
-      <ul className="admin-category-list">
-        {incidents?.map((item) => <li key={item.order_id}>
+      {!!incidents?.length && <ul className="admin-category-list list-panel list-panel-inset" aria-label="Ocorrências e estornos" tabIndex={0}>
+        {incidents.map((item) => <li key={item.order_id}>
           <div>
             <strong>Pedido #{formatOrderCode(item.order_id)} · {item.store_name}</strong>
             {item.incident_reason && <p>{item.incident_reason}</p>}
@@ -109,7 +109,7 @@ export function AdminDeliveryDispatch({ section }: { section: 'settings' | 'inci
             setIncidentId(item.order_id); setAction(''); setReason('');
           }}>Resolver ocorrência</button>}
         </li>)}
-      </ul>
+      </ul>}
       {incidentId && <form onSubmit={(event) => void apply(event, async () => {
         await resolveDispatchIncident(incidentId, action, reason);
         setIncidentId('');
@@ -130,6 +130,6 @@ export function AdminDeliveryDispatch({ section }: { section: 'settings' | 'inci
         <button type="submit" className="btn-primary" disabled={saving}>Confirmar resolução</button>
       </form>}
       </>}
-    </div>
+    </section>
   );
 }

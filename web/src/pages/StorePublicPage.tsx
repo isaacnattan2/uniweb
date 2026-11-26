@@ -121,7 +121,7 @@ export function StorePublicPage() {
         <div className="products-section">
           <h2>Produtos ({products.length})</h2>
           {products.length === 0 ? <div className="empty-state"><p>Nenhum produto disponível</p></div> :
-            <div className="products-grid card-grid card-grid-7">
+            <div className="products-grid card-grid card-grid-7 list-panel list-panel-inset">
               {products.map((product) => (
                 <article key={product.id} className="product-card card-layout">
                   <Link className="product-image card-row-1" to={`?product=${encodeURIComponent(product.id)}`} aria-label={`Ver detalhes de ${product.name}`}>

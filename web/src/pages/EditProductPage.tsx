@@ -111,8 +111,8 @@ export function EditProductPage() {
   }
 
   return (
-    <div className="product-form-container">
-      <div className="form-box">
+    <div className="container management-form-page">
+      <div className="management-form">
         <h1>Editar Produto</h1>
         
         <form onSubmit={handleSubmit}>

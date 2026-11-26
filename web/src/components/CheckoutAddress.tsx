@@ -14,12 +14,13 @@ export function isDeliveryAddressComplete(address: DeliveryAddress) {
     address.city.trim() && states.includes(address.state);
 }
 
-export function CheckoutAddress({ address, onChange, disabled, title = 'Dados do endere?o', description }: {
+export function CheckoutAddress({ address, onChange, disabled, title = 'Dados do endereço', description, requiredFields = [] }: {
   address: DeliveryAddress;
   onChange: React.Dispatch<React.SetStateAction<DeliveryAddress>>;
   disabled: boolean;
   title?: string;
   description?: string;
+  requiredFields?: readonly (keyof DeliveryAddress)[];
 }) {
   const id = useId();
   const [pending, setPending] = useState(false);
@@ -84,10 +85,11 @@ export function CheckoutAddress({ address, onChange, disabled, title = 'Dados do
   const lockFields = disabled || pending;
   return (
     <fieldset className="checkout-address" disabled={disabled}>
-      <legend>Dados do endereço</legend>
+      <legend>{title}</legend>
+      {description && <p>{description}</p>}
       <label htmlFor={id + '-cep'}>CEP</label>
       <div className="checkout-cep-row">
-        <input id={id + '-cep'} autoComplete="shipping postal-code" inputMode="numeric" placeholder="00000-000"
+        <input id={id + '-cep'} autoComplete="shipping postal-code" inputMode="numeric" placeholder="00000-000" required={requiredFields.includes('cep')} pattern="[0-9]{5}-[0-9]{3}"
           value={address.cep} onChange={(event) => changeCep(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter') {
@@ -102,12 +104,12 @@ export function CheckoutAddress({ address, onChange, disabled, title = 'Dados do
       {notice && <p role="status">{notice}</p>}
       <label htmlFor={id + '-street'}>Logradouro</label>
       <input id={id + '-street'} ref={streetInput} autoComplete="shipping address-line1" maxLength={160}
-        disabled={lockFields} value={address.street} onChange={(event) => setField('street', event.target.value)} />
+        disabled={lockFields} required={requiredFields.includes('street')} value={address.street} onChange={(event) => setField('street', event.target.value)} />
       <div className="checkout-address-pair">
         <div>
           <label htmlFor={id + '-number'}>Número</label>
           <input id={id + '-number'} ref={numberInput} maxLength={30} placeholder="Ex.: 120 ou S/N"
-            disabled={lockFields} value={address.number} onChange={(event) => setField('number', event.target.value)} />
+            disabled={lockFields} required={requiredFields.includes('number')} value={address.number} onChange={(event) => setField('number', event.target.value)} />
         </div>
         <div>
           <label htmlFor={id + '-complement'}>Complemento</label>
@@ -117,7 +119,7 @@ export function CheckoutAddress({ address, onChange, disabled, title = 'Dados do
       </div>
       <label htmlFor={id + '-neighborhood'}>Bairro</label>
       <input id={id + '-neighborhood'} autoComplete="shipping address-level3" maxLength={100}
-        disabled={lockFields} value={address.neighborhood} onChange={(event) => setField('neighborhood', event.target.value)} />
+        disabled={lockFields} required={requiredFields.includes('neighborhood')} value={address.neighborhood} onChange={(event) => setField('neighborhood', event.target.value)} />
       <div className="checkout-address-city">
         <div>
           <label htmlFor={id + '-city'}>Cidade</label>

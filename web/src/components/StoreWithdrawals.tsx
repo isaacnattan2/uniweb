@@ -67,7 +67,7 @@ export function StoreWithdrawals({ businessId }: { businessId?: string }) {
           <p><strong>Saldo disponível na conta Asaas</strong> {currency.format(data.availableBalance)}</p>
           <h3>Histórico de transferências</h3>
           {data.transfers.length === 0 ? <p>Nenhuma transferência nesta página.</p> : (
-            <div className="store-withdrawals-table">
+            <div className="store-withdrawals-table list-panel">
               <table>
                 <thead>
                   <tr>

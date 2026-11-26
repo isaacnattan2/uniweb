@@ -45,8 +45,8 @@ export function NewBusinessPage() {
   }
 
   return (
-    <div className="product-form-container">
-      <div className="form-box">
+    <div className="container management-form-page">
+      <div className="management-form">
         <h1>Criar Nova Loja</h1>
         
         <form onSubmit={handleSubmit}>
