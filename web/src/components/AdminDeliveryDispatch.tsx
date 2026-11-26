@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { AdminDispatchDebug } from './AdminDispatchDebug';
 import { useFeedback } from './Feedback';
 import { formatOrderCode, getDispatchIncidents, getDispatchSettings, resolveDispatchIncident, saveDispatchSettings } from '../services/api';
 import type { DispatchIncident } from '../services/api';
@@ -12,7 +13,8 @@ const actions = [
 const refunds: Record<string, string> = { pending: 'Estorno solicitado', processing: 'Estorno em processamento', review: 'Estorno requer conferência no Asaas' };
 
 export function AdminDeliveryDispatch({ section }: { section: 'settings' | 'incidents' }) {
-  const [settings, setSettings] = useState<{ radius: string; subsidy: string; blockMinutes: string; enforceDeadline: boolean; auditEnabled: boolean; allowLowerOffer: boolean; offerMode: 'push' | 'polling' }>();
+  const [settings, setSettings] = useState<{ radius: string; subsidy: string; blockMinutes: string; enforceDeadline: boolean; auditEnabled: boolean; debugEnabled: boolean; allowLowerOffer: boolean; offerMode: 'push' | 'polling' }>();
+  const [debugActive, setDebugActive] = useState(false);
   const [incidents, setIncidents] = useState<DispatchIncident[]>();
   const [incidentId, setIncidentId] = useState('');
   const [action, setAction] = useState('');
@@ -24,13 +26,20 @@ export function AdminDeliveryDispatch({ section }: { section: 'settings' | 'inci
   useEffect(() => {
     let active = true;
     if (section === 'settings') void getDispatchSettings().then((data) => {
-      if (active) setSettings({ radius: String(data.radius_meters / 1000), subsidy: (data.subsidy_cents / 100).toFixed(2),
-        blockMinutes: String(data.missed_offer_block_minutes ?? 60), enforceDeadline: data.enforce_delivery_deadline === true, auditEnabled: data.audit_enabled !== false, allowLowerOffer: data.allow_lower_offer === true, offerMode: data.offer_delivery_mode === 'polling' ? 'polling' : 'push' });
+      if (!active) return;
+      setDebugActive(data.debug_enabled === true);
+      setSettings({ radius: String(data.radius_meters / 1000), subsidy: (data.subsidy_cents / 100).toFixed(2),
+        blockMinutes: String(data.missed_offer_block_minutes ?? 60), enforceDeadline: data.enforce_delivery_deadline === true, auditEnabled: data.audit_enabled !== false, debugEnabled: data.debug_enabled === true, allowLowerOffer: data.allow_lower_offer === true, offerMode: data.offer_delivery_mode === 'polling' ? 'polling' : 'push' });
     }).catch(() => { if (active) setError('Não foi possível carregar as regras de alocação.'); });
     if (section === 'incidents') void getDispatchIncidents().then((data) => { if (active) setIncidents(data); })
       .catch(() => { if (active) setError('Não foi possível carregar as ocorrências.'); });
     return () => { active = false; };
   }, [section]);
+
+  const handleDebugDisabled = useCallback(() => {
+    setDebugActive(false);
+    setSettings((current) => current && { ...current, debugEnabled: false });
+  }, []);
 
   async function apply(event: React.FormEvent, operation: () => Promise<void>, message: string) {
     event.preventDefault();
@@ -50,10 +59,12 @@ export function AdminDeliveryDispatch({ section }: { section: 'settings' | 'inci
       <h2 id="delivery-dispatch-heading">{section === 'settings' ? 'Regras de alocação' : 'Ocorrências e estornos'}</h2>
       {error && <p className="error-message" role="alert">{error}</p>}
       {section === 'settings' && !settings && !error && <p role="status">Carregando configuração…</p>}
-      {section === 'settings' && settings && <form onSubmit={(event) => void apply(event, () =>
-        saveDispatchSettings(Math.round(Number(settings.radius) * 1000), Math.round(Number(settings.subsidy) * 100), settings.offerMode, Number(settings.blockMinutes), settings.enforceDeadline, settings.auditEnabled, settings.allowLowerOffer),
+      {section === 'settings' && settings && <form onSubmit={(event) => void apply(event, async () => {
+        await saveDispatchSettings(Math.round(Number(settings.radius) * 1000), Math.round(Number(settings.subsidy) * 100), settings.offerMode, Number(settings.blockMinutes), settings.enforceDeadline, settings.auditEnabled, settings.allowLowerOffer, settings.debugEnabled);
+        setDebugActive(settings.debugEnabled);
+      },
         'Regras de alocação salvas.')}>
-        <div className="admin-rate-fields">
+        <div className="admin-rate-fields admin-dispatch-fields">
           <div className="form-group">
             <label htmlFor="dispatch-radius">Raio da loja (km em linha reta)</label>
             <input id="dispatch-radius" type="number" min="0.1" max="100" step="0.1" required disabled={saving} value={settings.radius}
@@ -94,8 +105,14 @@ export function AdminDeliveryDispatch({ section }: { section: 'settings' | 'inci
             onChange={(event) => setSettings({ ...settings, allowLowerOffer: event.target.checked })} />
           Permitir ofertas abaixo da tarifa do entregador, limitadas ao frete mais subsídio
         </label>
+        <label className="admin-rate-checkbox" htmlFor="dispatch-debug-enabled">
+          <input id="dispatch-debug-enabled" type="checkbox" checked={settings.debugEnabled} disabled={saving}
+            onChange={(event) => setSettings({ ...settings, debugEnabled: event.target.checked })} />
+          Ativar depurador da busca de entregadores
+        </label>
         <button type="submit" className="btn-primary" disabled={saving}>Salvar regras de alocação</button>
       </form>}
+      {section === 'settings' && debugActive && <AdminDispatchDebug onDisabled={handleDebugDisabled} />}
       {section === 'incidents' && <>
       {incidents?.length === 0 && <p>Nenhuma ocorrência ou estorno pendente.</p>}
       {!!incidents?.length && <ul className="admin-category-list list-panel list-panel-inset" aria-label="Ocorrências e estornos" tabIndex={0}>

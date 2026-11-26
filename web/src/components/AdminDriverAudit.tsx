@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getDriverDispatchAudit, formatOrderCode, type AdminDriver, type DriverAuditEntry } from '../services/api';
 
-const labels: Record<string, string> = {
+export const dispatchAuditLabels: Record<string, string> = {
   dispatch_candidates_evaluated: 'Elegibilidade avaliada',
   dispatch_offer_created: 'Oferta criada',
   dispatch_offer_conflict: 'Oferta não criada por conflito',
@@ -10,7 +10,7 @@ const labels: Record<string, string> = {
   dispatch_offer_push: 'Envio ao OneSignal',
 };
 
-const reasons: Record<string, string> = {
+export const dispatchExclusionReasons: Record<string, string> = {
   financial_account_missing: 'Cadastro financeiro ausente',
   financial_approval_unavailable: 'Aprovação financeira pendente ou indisponível',
   checkin_blocked: 'Check-in bloqueado',
@@ -114,7 +114,7 @@ export function AdminDriverAudit({ driver, drivers, onDriverChange }: {
             <label htmlFor="driver-audit-event-type">Tipo de evento</label>
             <select id="driver-audit-event-type" value={eventType} disabled={!driverId} onChange={(event) => setEventType(event.target.value)}>
               <option value="">Todos os tipos</option>
-              {Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              {Object.entries(dispatchAuditLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
           </div>
           <div className="form-group">
@@ -160,10 +160,10 @@ export function AdminDriverAudit({ driver, drivers, onDriverChange }: {
             const { decision } = details;
             return (
               <details key={id}>
-                <summary>{date(created_at)} · Pedido #{formatOrderCode(order_id)} · {labels[details.event] ?? details.event}</summary>
+                <summary>{date(created_at)} · Pedido #{formatOrderCode(order_id)} · {dispatchAuditLabels[details.event] ?? details.event}</summary>
                 <div className="admin-seller-shop-details">
                   {search_cycle !== null && <p>Tentativa {search_cycle + 1}</p>}
-                  {decision && <p>{decision.reasons.length ? decision.reasons.map((reason) => reasons[reason] ?? reason).join(' · ')
+                  {decision && <p>{decision.reasons.length ? decision.reasons.map((reason) => dispatchExclusionReasons[reason] ?? reason).join(' · ')
                     : details.selected ? 'Entregador selecionado' : 'Entregador elegível. Outra pessoa ficou em primeiro lugar.'}</p>}
                   {decision?.locationAt && <p>Localização atualizada em {date(decision.locationAt)}</p>}
                   {decision?.pickupMeters != null && <p>Distância para coleta {(decision.pickupMeters / 1000).toLocaleString('pt-BR')} km</p>}

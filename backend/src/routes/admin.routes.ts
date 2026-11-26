@@ -27,6 +27,21 @@ router.get('/businesses/:id/asaas-account', (req, res, next) => adminAsaasApprov
 router.post('/businesses/:id/asaas-account/sandbox-approve', (req, res, next) => adminAsaasApproval(req, res).catch(next));
 router.get('/delivery-dispatch/settings', (req, res, next) => dispatchSettings(req, res).catch(next));
 router.put('/delivery-dispatch/settings', (req, res, next) => dispatchSettings(req, res).catch(next));
+router.get('/delivery-dispatch/debug', async (_req, res, next) => {
+  try {
+    const { rows } = await query(
+      `SELECT s.debug_started_at IS NOT NULL AS enabled,
+         COALESCE((SELECT jsonb_agg(e ORDER BY e.id DESC) FROM (
+           SELECT id::text AS key, id, details FROM delivery_dispatch_debug_events
+           WHERE created_at >= s.debug_started_at ORDER BY id DESC LIMIT 100
+         ) e), '[]'::jsonb) AS events
+       FROM delivery_dispatch_settings s WHERE s.id = true`,
+    );
+    res.set('Cache-Control', 'no-store').json(rows[0] ?? { enabled: false, events: [] });
+  } catch (error) {
+    next(error);
+  }
+});
 router.get('/delivery-dispatch/incidents', (req, res, next) => listDispatchIncidents(req, res).catch(next));
 router.put('/delivery-dispatch/incidents/:orderId', (req, res, next) => resolveDispatchIncident(req, res).catch(next));
 router.put('/app/theme', (req, res, next) => updateDriverAppTheme(req, res).catch(next));

@@ -145,6 +145,10 @@ async function sendPush(appId: string, apiKey: string, recipients: string[], eve
         idempotency_key: key,
         headings: { en: event === 'driver_presence' ? 'Presença de entregadores' : titles[event] },
         contents: { en: body },
+        ...(event === 'delivery_offer' && {
+          ios_sound: 'uni_delivery_offer.wav',
+          existing_android_channel_id: 'uni_delivery_offers_v1',
+        }),
         ...destination,
       }),
     });

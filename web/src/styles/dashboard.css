@@ -153,6 +153,41 @@
   gap: 0 1rem;
 }
 
+.admin-dispatch-fields {
+  align-items: end;
+}
+
+.admin-dispatch-fields .form-group {
+  min-inline-size: 0;
+}
+
+.admin-dispatch-fields :is(input, select) {
+  display: block;
+  box-sizing: border-box;
+  inline-size: 100%;
+  block-size: 2.75rem;
+}
+
+.admin-dispatch-debug {
+  margin-block-start: 1.5rem;
+}
+
+.admin-dispatch-events {
+  max-block-size: 26rem;
+  overflow: auto;
+  list-style: none;
+  padding-inline: 0;
+}
+
+.admin-dispatch-events > li {
+  padding: 0.6rem;
+  overflow-wrap: anywhere;
+}
+
+.admin-dispatch-events pre {
+  white-space: pre-wrap;
+}
+
 .admin-rate-checkbox {
   display: flex;
   align-items: center;
@@ -345,6 +380,7 @@
 }
 
 .admin-driver-audit > nav {
+  align-items: center;
   margin-top: 0;
 }
 

@@ -1,4 +1,4 @@
-import { recordDispatchAudit, type DispatchAuditEvent } from './DeliveryDispatchAudit';
+import { recordDispatchAudit, recordDispatchDebug, type DispatchAuditEvent } from './DeliveryDispatchAudit';
 import { randomInt, randomUUID } from 'node:crypto';
 import type { PoolClient, QueryResult } from 'pg';
 import { getClient, query } from '../config/database';
@@ -192,11 +192,11 @@ export async function dispatchTransaction<T>(operation: (client: PoolClient) => 
 }
 
 export async function tickDispatch() {
-  const { unavailable, blockedDrivers, events } = await dispatchTransaction(async (client) => {
+  const { unavailable, blockedDrivers, events, debugEvents } = await dispatchTransaction(async (client) => {
     const { rows: [lock] } = await client.query('SELECT pg_try_advisory_xact_lock(19750214) AS acquired');
-    if (!lock.acquired) return { unavailable: [], blockedDrivers: [], events: [] };
+    if (!lock.acquired) return { unavailable: [], blockedDrivers: [], events: [], debugEvents: [] };
     const { rows } = await client.query(
-      `SELECT j.*, o.order_status, o.payment_status, s.audit_enabled, s.subsidy_cents AS current_subsidy_cents FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id
+      `SELECT j.*, o.order_status, o.payment_status, s.audit_enabled, s.debug_started_at IS NOT NULL AS debug_enabled, s.subsidy_cents AS current_subsidy_cents FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id
        CROSS JOIN delivery_dispatch_settings s
        WHERE s.id = true AND (j.state IN ('scheduled','searching','offered') OR (j.state = 'assigned' AND j.promised_at <= NOW())) AND
          (j.state <> 'scheduled' OR j.slot_at <= NOW() + INTERVAL '30 minutes')
@@ -206,15 +206,24 @@ export async function tickDispatch() {
        ORDER BY j.promised_at LIMIT 25 FOR UPDATE OF o, j SKIP LOCKED`
     );
     const events: DispatchAuditEvent[] = [];
+    const debugEvents: DispatchAuditEvent[] = [];
     const unavailable: string[] = [];
     const blockedDrivers: { userId: string; orderId: string }[] = [];
     for (const job of rows) {
       const record = (event: DispatchAuditEvent) => {
-        if (job.audit_enabled) events.push({ ...event, occurredAt: new Date().toISOString() });
+        const entry = { ...event, occurredAt: new Date().toISOString() };
+        if (job.audit_enabled) events.push(entry);
+        if (job.debug_enabled) debugEvents.push(entry);
       };
+      const trace = (event: string, details: Record<string, unknown> = {}) => {
+        if (job.debug_enabled) debugEvents.push({ ...details, event, orderId: job.order_id,
+          searchCycle: job.search_cycle, occurredAt: new Date().toISOString() });
+      };
+      trace('dispatch_attempt_started', { state: job.state, searchUntil: job.search_until });
       if (job.payment_status !== 'paid' || job.order_status === 'cancelled') {
         await client.query("UPDATE delivery_dispatch_offers SET state = 'withdrawn' WHERE order_id = $1 AND state = 'pending'", [job.order_id]);
         await client.query("UPDATE delivery_dispatch SET state = 'cancelled' WHERE order_id = $1", [job.order_id]);
+        trace('dispatch_search_cancelled', { paymentStatus: job.payment_status, orderStatus: job.order_status });
         continue;
       }
       if (job.state === 'scheduled') {
@@ -222,6 +231,7 @@ export async function tickDispatch() {
       }
       if (job.state === 'assigned') {
         await releaseDispatchAssignment(client, job.order_id, 'choice');
+        trace('dispatch_assignment_expired');
         unavailable.push(job.order_id);
         continue;
       }
@@ -229,7 +239,10 @@ export async function tickDispatch() {
         "SELECT *, expires_at <= clock_timestamp() AS expired FROM delivery_dispatch_offers WHERE order_id = $1 AND state = 'pending' FOR UPDATE",
         [job.order_id]
       );
-      if (offer && !offer.expired) continue;
+      if (offer && !offer.expired) {
+        trace('dispatch_waiting_for_response', { offerId: offer.id, driverId: offer.user_id, expiresAt: offer.expires_at });
+        continue;
+      }
       if (offer) {
         const { rows: [presence] } = await client.query(
           `WITH counted AS (
@@ -268,11 +281,12 @@ export async function tickDispatch() {
         continue;
       }
       const route = { ...job, subsidy_cents: job.current_subsidy_cents };
-      const candidates = await findDispatchCandidates(client, route, job.slot_at, job.order_id, job.promised_at, null, false, job.audit_enabled ? {
+      const candidates = await findDispatchCandidates(client, route, job.slot_at, job.order_id, job.promised_at, null, false, (job.audit_enabled || job.debug_enabled) ? {
         searchCycle: job.search_cycle, searchUntil: job.search_until, record,
       } : undefined);
       if (!candidates.length) {
         await client.query("UPDATE delivery_dispatch SET state = 'searching', next_attempt_at = NOW() + INTERVAL '10 seconds' WHERE order_id = $1", [job.order_id]);
+        trace('dispatch_retry_scheduled', { retryInSeconds: 10 });
         continue;
       }
       const candidate = candidates[0];
@@ -289,17 +303,18 @@ export async function tickDispatch() {
         orderId: job.order_id, searchCycle: job.search_cycle, offerId, driverId: candidate.user_id });
     }
     await client.query("DELETE FROM delivery_quotes WHERE expires_at < NOW() - INTERVAL '1 hour'");
-    return { unavailable, blockedDrivers, events };
+    return { unavailable, blockedDrivers, events, debugEvents };
   });
   for (const event of events) console.info(JSON.stringify(event));
   void recordDispatchAudit(events);
+  await recordDispatchDebug(debugEvents);
   notifyOrderEvent('delivery_unavailable', unavailable);
   if (blockedDrivers.length) {
     notifyAdminDriverPresence();
     void Promise.all(blockedDrivers.map(({ userId, orderId }) => notifyDriverCheckinBlocked(userId, orderId)));
   }
   const { rows } = await query(
-    `SELECT f.id, f.order_id, f.user_id, f.expires_at, f.search_cycle, s.audit_enabled FROM delivery_dispatch_offers f
+    `SELECT f.id, f.order_id, f.user_id, f.expires_at, f.search_cycle, s.audit_enabled, s.debug_started_at IS NOT NULL AS debug_enabled FROM delivery_dispatch_offers f
      JOIN delivery_dispatch_settings s ON s.id = true AND s.offer_delivery_mode = 'push'
      WHERE f.state = 'pending' AND f.notified_at IS NULL AND f.expires_at > NOW() LIMIT 25`
   );
@@ -311,6 +326,7 @@ export async function tickDispatch() {
       console.info(JSON.stringify(event));
       void recordDispatchAudit([event]);
     }
+    if (offer.debug_enabled) await recordDispatchDebug([{ ...event, occurredAt: new Date().toISOString() }]);
     if (sent) {
       await query('UPDATE delivery_dispatch_offers SET notified_at = NOW() WHERE id = $1', [offer.id]);
     }
@@ -318,13 +334,19 @@ export async function tickDispatch() {
 }
 
 export async function respondToDispatchOffer(userId: string, orderId: string, offerId: string, accept: boolean) {
-  return dispatchTransaction(async (client) => {
+  const debugEvents: DispatchAuditEvent[] = [];
+  const result = await dispatchTransaction(async (client) => {
     const { rows: [job] } = await client.query(
-      `SELECT j.*, o.delivery_driver_id, o.delivery_address, o.payment_status, o.order_status
+      `SELECT j.*, o.delivery_driver_id, o.delivery_address, o.payment_status, o.order_status,
+              (SELECT debug_started_at IS NOT NULL FROM delivery_dispatch_settings WHERE id = true) AS debug_enabled
        FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id
        WHERE j.order_id = $1 FOR UPDATE OF o, j`, [orderId]
     );
     if (!job) return false;
+    const trace = (event: string, reason?: string) => {
+      if (job.debug_enabled) debugEvents.push({ event, orderId, offerId, driverId: userId,
+        searchCycle: job.search_cycle, reason, occurredAt: new Date().toISOString() });
+    };
     const { rows: [offer] } = await client.query(
       `SELECT *, expires_at > clock_timestamp() AS live FROM delivery_dispatch_offers
        WHERE id = $1 AND order_id = $2 AND user_id = $3 FOR UPDATE`, [offerId, orderId, userId]
@@ -337,11 +359,15 @@ export async function respondToDispatchOffer(userId: string, orderId: string, of
       await client.query("UPDATE delivery_dispatch_offers SET state = 'declined' WHERE id = $1", [offerId]);
       await client.query("UPDATE delivery_dispatch SET state = 'searching' WHERE order_id = $1", [orderId]);
       await client.query('UPDATE driver_dispatch_presence SET ignored_offers = 0 WHERE user_id = $1', [userId]);
+      trace('dispatch_offer_declined');
       return true;
     }
     await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1::text, 1))', [userId]);
     const available = await findDispatchCandidates(client, job, job.slot_at, orderId, job.promised_at, userId);
-    if (!available.length) return false;
+    if (!available.length) {
+      trace('dispatch_acceptance_failed', 'eligibility_changed');
+      return false;
+    }
     const { rows: [driver] } = await client.query(
       `SELECT d.id FROM drivers d JOIN users u ON u.id = d.user_id AND u.status = 'active'
        WHERE d.user_id = $1 AND d.deleted_at IS NULL AND NOT EXISTS (
@@ -352,7 +378,10 @@ export async function respondToDispatchOffer(userId: string, orderId: string, of
              AND j.slot_at + make_interval(mins => j.duration_minutes + (j.radius_meters + 299) / 300 + 15) > COALESCE($2, NOW()))
        )`, [userId, job.slot_at, job.duration_minutes + Math.ceil(job.radius_meters / 300)]
     );
-    if (!driver) return false;
+    if (!driver) {
+      trace('dispatch_acceptance_failed', 'driver_unavailable');
+      return false;
+    }
     await client.query(
       `UPDATE orders SET delivery_driver_id = $2, delivery_status = 'processing', order_status = 'processing',
        delivery_confirmation_code = $3, delivery_confirmation_attempts = 0, delivery_confirmation_retry_at = NULL WHERE id = $1`,
@@ -370,8 +399,11 @@ export async function respondToDispatchOffer(userId: string, orderId: string, of
     await client.query("UPDATE delivery_dispatch_offers SET state = 'accepted' WHERE id = $1", [offerId]);
     await client.query("UPDATE delivery_dispatch SET state = 'assigned', capacity_driver_id = NULL WHERE order_id = $1", [orderId]);
     await client.query('UPDATE driver_dispatch_presence SET ignored_offers = 0 WHERE user_id = $1', [userId]);
+    trace('dispatch_offer_accepted');
     return true;
   });
+  void recordDispatchDebug(debugEvents);
+  return result;
 }
 
 export async function releaseDispatchAssignment(client: PoolClient, orderId: string, action: 'retry' | 'choice') {

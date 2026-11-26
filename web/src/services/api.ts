@@ -574,11 +574,29 @@ export async function scheduleDeliveryAlternative(orderId: string, scheduledAt: 
 }
 
 export async function getDispatchSettings() {
-  return (await api.get<{ radius_meters: number; subsidy_cents: number; missed_offer_block_minutes: number; enforce_delivery_deadline: boolean; audit_enabled: boolean; allow_lower_offer: boolean; offer_delivery_mode: 'push' | 'polling' }>('/admin/delivery-dispatch/settings')).data;
+  return (await api.get<{ radius_meters: number; subsidy_cents: number; missed_offer_block_minutes: number; enforce_delivery_deadline: boolean; audit_enabled: boolean; debug_enabled: boolean; allow_lower_offer: boolean; offer_delivery_mode: 'push' | 'polling' }>('/admin/delivery-dispatch/settings')).data;
 }
 
-export async function saveDispatchSettings(radiusMeters: number, subsidyCents: number, offerDeliveryMode: 'push' | 'polling', missedOfferBlockMinutes: number, enforceDeliveryDeadline: boolean, auditEnabled: boolean, allowLowerOffer: boolean) {
-  await api.put('/admin/delivery-dispatch/settings', { radiusMeters, subsidyCents, offerDeliveryMode, missedOfferBlockMinutes, enforceDeliveryDeadline, auditEnabled, allowLowerOffer });
+export async function saveDispatchSettings(radiusMeters: number, subsidyCents: number, offerDeliveryMode: 'push' | 'polling', missedOfferBlockMinutes: number, enforceDeliveryDeadline: boolean, auditEnabled: boolean, allowLowerOffer: boolean, debugEnabled?: boolean) {
+  await api.put('/admin/delivery-dispatch/settings', { radiusMeters, subsidyCents, offerDeliveryMode, missedOfferBlockMinutes, enforceDeliveryDeadline, auditEnabled, allowLowerOffer, debugEnabled });
+}
+
+export interface DispatchDebugEvent {
+  key: string;
+  details: {
+    event: string;
+    orderId: string;
+    occurredAt: string;
+    searchCycle?: number;
+    driverId?: string;
+    selectedDriverId?: string;
+    acceptedByProvider?: boolean;
+    drivers?: ({ driverId: string } & NonNullable<DriverAuditEntry['details']['decision']>)[];
+  };
+}
+
+export async function getDispatchDebug(signal: AbortSignal) {
+  return (await api.get<{ enabled: boolean; events: DispatchDebugEvent[] }>('/admin/delivery-dispatch/debug', { signal })).data;
 }
 
 export interface DispatchIncident {

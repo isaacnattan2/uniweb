@@ -324,10 +324,10 @@ export async function markDeliveryPickedUp(req: AuthRequest, res: Response) {
 
 export async function dispatchSettings(req: Request, res: Response) {
   if (req.method === 'GET') {
-    const { rows } = await query('SELECT radius_meters, subsidy_cents, offer_delivery_mode, missed_offer_block_minutes, enforce_delivery_deadline, audit_enabled, allow_lower_offer, allow_lower_offer FROM delivery_dispatch_settings WHERE id = true');
+    const { rows } = await query('SELECT radius_meters, subsidy_cents, offer_delivery_mode, missed_offer_block_minutes, enforce_delivery_deadline, audit_enabled, allow_lower_offer, debug_started_at IS NOT NULL AS debug_enabled FROM delivery_dispatch_settings WHERE id = true');
     return res.json(rows[0]);
   }
-  const { radiusMeters, subsidyCents, offerDeliveryMode, missedOfferBlockMinutes, enforceDeliveryDeadline, auditEnabled, allowLowerOffer } = req.body ?? {};
+  const { radiusMeters, subsidyCents, offerDeliveryMode, missedOfferBlockMinutes, enforceDeliveryDeadline, auditEnabled, allowLowerOffer, debugEnabled } = req.body ?? {};
   if (!Number.isInteger(radiusMeters) || radiusMeters < 100 || radiusMeters > 100000 ||
       !Number.isInteger(subsidyCents) || subsidyCents < 0 || subsidyCents > 1000000 ||
       (offerDeliveryMode !== undefined && !['push', 'polling'].includes(offerDeliveryMode))) {
@@ -345,15 +345,20 @@ export async function dispatchSettings(req: Request, res: Response) {
   if (allowLowerOffer !== undefined && typeof allowLowerOffer !== 'boolean') {
     return res.status(400).json({ error: 'Configuração de ofertas abaixo da tarifa inválida.' });
   }
+  if (debugEnabled !== undefined && typeof debugEnabled !== 'boolean') {
+    return res.status(400).json({ error: 'Configuração do depurador inválida.' });
+  }
   const { rows } = await query(
     `UPDATE delivery_dispatch_settings SET radius_meters = $1, subsidy_cents = $2,
      offer_delivery_mode = COALESCE($3, offer_delivery_mode),
      missed_offer_block_minutes = COALESCE($4, missed_offer_block_minutes),
      enforce_delivery_deadline = COALESCE($5, enforce_delivery_deadline),
      audit_enabled = COALESCE($6, audit_enabled),
-     allow_lower_offer = COALESCE($7, allow_lower_offer) WHERE id = true
-     RETURNING radius_meters, subsidy_cents, offer_delivery_mode, missed_offer_block_minutes, enforce_delivery_deadline, audit_enabled, allow_lower_offer`,
-    [radiusMeters, subsidyCents, offerDeliveryMode, missedOfferBlockMinutes, enforceDeliveryDeadline, auditEnabled, allowLowerOffer]
+     allow_lower_offer = COALESCE($7, allow_lower_offer),
+     debug_started_at = CASE WHEN $8::boolean THEN COALESCE(debug_started_at, clock_timestamp())
+       WHEN $8::boolean = false THEN NULL ELSE debug_started_at END WHERE id = true
+     RETURNING radius_meters, subsidy_cents, offer_delivery_mode, missed_offer_block_minutes, enforce_delivery_deadline, audit_enabled, allow_lower_offer, debug_started_at IS NOT NULL AS debug_enabled`,
+    [radiusMeters, subsidyCents, offerDeliveryMode, missedOfferBlockMinutes, enforceDeliveryDeadline, auditEnabled, allowLowerOffer, debugEnabled]
   );
   return res.json(rows[0]);
 }
