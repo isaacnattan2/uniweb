@@ -99,30 +99,33 @@ export async function findDispatchCandidates(
 ) {
   const { rows } = await db.query(
     `WITH eligible AS (${eligibleDrivers(Boolean(audit))}), priced AS (
-      SELECT *, ROUND(rate_cents::numeric * $3::int / 1000)::int AS fee_cents,
+      SELECT *, ROUND(rate_cents::numeric * ($3::int + COALESCE(ROUND(pickup_meters), 0)) / 1000)::int AS fee_cents,
         CEIL(COALESCE(pickup_meters, $7::int) / 300)::int AS pickup_minutes
       FROM eligible
+      CROSS JOIN (SELECT allow_lower_offer FROM delivery_dispatch_settings WHERE id = true) policy
     ), evaluated AS (
       SELECT *, exclusion_reasons || array_remove(ARRAY[
         CASE WHEN pickup_meters IS NULL THEN CASE WHEN $8::timestamptz IS NULL
           THEN 'location_missing_or_stale' ELSE 'shift_unavailable' END
           WHEN pickup_meters > $7::int THEN 'outside_radius' END,
-        CASE WHEN NOT ($12::boolean OR $11::uuid IS NOT NULL OR fee_cents <= $6::int) THEN 'fee_over_limit' END,
+        CASE WHEN NOT ($12::boolean OR $11::uuid IS NOT NULL OR fee_cents <= $6::int OR allow_lower_offer) THEN 'fee_over_limit' END,
         CASE WHEN COALESCE((SELECT enforce_delivery_deadline FROM delivery_dispatch_settings WHERE id = true), false)
           AND pickup_meters IS NOT NULL AND $10::timestamptz IS NOT NULL
           AND GREATEST(NOW(), COALESCE($8, NOW())) + make_interval(mins => pickup_minutes + $4::int) > $10
           THEN 'cannot_arrive_in_time' END
       ], NULL) AS reasons FROM priced
     )
-    SELECT user_id, rate_cents, fee_cents, pickup_minutes, latitude, longitude,
-      pickup_meters, location_at, blocked_until, reasons FROM evaluated
+    SELECT user_id, rate_cents, fee_cents,
+      CASE WHEN $12::boolean THEN fee_cents ELSE LEAST(fee_cents, $6::int) END AS offer_fee_cents,
+      pickup_minutes, latitude, longitude, ROUND(pickup_meters)::int AS pickup_meters, location_at, blocked_until, reasons FROM evaluated
     ${audit ? '' : 'WHERE cardinality(reasons) = 0'}
     ORDER BY pickup_minutes, fee_cents, user_id`,
     [route.pickup_latitude, route.pickup_longitude, route.distance_meters, route.duration_minutes,
       route.rate_cents, route.fee_cents + route.subsidy_cents, route.radius_meters, slot, orderId, promisedAt, reservedUserId, allRates],
   );
   const candidates = rows.filter((row) => row.reasons.length === 0) as {
-    user_id: string; rate_cents: number; fee_cents: number; pickup_minutes: number; latitude: number; longitude: number;
+    user_id: string; rate_cents: number; fee_cents: number; offer_fee_cents: number; pickup_meters: number;
+    pickup_minutes: number; latitude: number; longitude: number;
   }[];
   if (reservedUserId) return candidates.length && await driverCanReceivePayout(reservedUserId, db) ? candidates : [];
   const eligible = await filterDriversEligibleForPayout(candidates, (candidate) => candidate.user_id, db);
@@ -130,12 +133,13 @@ export async function findDispatchCandidates(
     const approved = new Set(eligible.map((driver) => driver.user_id));
     audit.record({
       event: 'dispatch_candidates_evaluated', orderId, searchCycle: audit.searchCycle, searchUntil: audit.searchUntil, slot, promisedAt,
-      radiusMeters: route.radius_meters, maxFeeCents: route.fee_cents + route.subsidy_cents,
+      radiusMeters: route.radius_meters, customerFeeCents: route.fee_cents, subsidyCents: route.subsidy_cents,
+      maxFeeCents: route.fee_cents + route.subsidy_cents,
       selectedDriverId: eligible[0]?.user_id ?? null,
       drivers: rows.map((row) => ({
         driverId: row.user_id, locationAt: row.location_at, blockedUntil: row.blocked_until,
         pickupMeters: row.pickup_meters === null ? null : Math.round(row.pickup_meters),
-        feeCents: row.fee_cents, estimatedMinutes: row.pickup_meters === null ? null : row.pickup_minutes + route.duration_minutes,
+        feeCents: row.fee_cents, offeredFeeCents: approved.has(row.user_id) ? row.offer_fee_cents : null, estimatedMinutes: row.pickup_meters === null ? null : row.pickup_minutes + route.duration_minutes,
         reasons: row.reasons.length || approved.has(row.user_id) ? row.reasons : ['financial_approval_unavailable'],
       })),
     });
@@ -143,7 +147,7 @@ export async function findDispatchCandidates(
   return allRates ? eligible : eligible.slice(0, 10);
 }
 
-export async function findDispatchSlots(route: DispatchRoute, db: DispatchDatabase = { query }) {
+export async function findDispatchSlotOptions(route: DispatchRoute, db: DispatchDatabase = { query }, quote = false) {
   const { rows } = await db.query(
     `SELECT DISTINCT date_bin('30 minutes', GREATEST(starts_at, NOW() + INTERVAL '45 minutes'), TIMESTAMPTZ '2000-01-01')
       + step * INTERVAL '30 minutes' AS slot
@@ -158,14 +162,19 @@ export async function findDispatchSlots(route: DispatchRoute, db: DispatchDataba
          + step * INTERVAL '30 minutes' <= NOW() + INTERVAL '7 days'
      ORDER BY slot LIMIT 48`, [route.duration_minutes + Math.ceil(route.radius_meters / 300)]
   );
-  const available: Date[] = [];
+  const available: { slot: Date; feeCents: number }[] = [];
   for (let index = 0; index < rows.length && available.length < 12; index += 8) {
-    const batch = await Promise.all(rows.slice(index, index + 8).map(async ({ slot }) =>
-      (await findDispatchCandidates(db, route, slot)).length ? slot : null
-    ));
-    available.push(...batch.filter((slot): slot is Date => slot !== null));
+    const batch = await Promise.all(rows.slice(index, index + 8).map(async ({ slot }) => {
+      const candidates = await findDispatchCandidates(db, route, slot, null, null, null, quote);
+      return candidates.length ? { slot, feeCents: Math.min(...candidates.map((candidate) => candidate.fee_cents)) } : null;
+    }));
+    available.push(...batch.filter((option): option is { slot: Date; feeCents: number } => option !== null));
   }
   return available.slice(0, 12);
+}
+
+export async function findDispatchSlots(route: DispatchRoute) {
+  return (await findDispatchSlotOptions(route)).map(({ slot }) => slot);
 }
 
 export async function dispatchTransaction<T>(operation: (client: PoolClient) => Promise<T>) {
@@ -187,7 +196,7 @@ export async function tickDispatch() {
     const { rows: [lock] } = await client.query('SELECT pg_try_advisory_xact_lock(19750214) AS acquired');
     if (!lock.acquired) return { unavailable: [], blockedDrivers: [], events: [] };
     const { rows } = await client.query(
-      `SELECT j.*, o.order_status, o.payment_status, s.audit_enabled FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id
+      `SELECT j.*, o.order_status, o.payment_status, s.audit_enabled, s.subsidy_cents AS current_subsidy_cents FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id
        CROSS JOIN delivery_dispatch_settings s
        WHERE s.id = true AND (j.state IN ('scheduled','searching','offered') OR (j.state = 'assigned' AND j.promised_at <= NOW())) AND
          (j.state <> 'scheduled' OR j.slot_at <= NOW() + INTERVAL '30 minutes')
@@ -258,7 +267,8 @@ export async function tickDispatch() {
           searchCycle: job.search_cycle, searchUntil: job.search_until });
         continue;
       }
-      const candidates = await findDispatchCandidates(client, job, job.slot_at, job.order_id, job.promised_at, null, false, job.audit_enabled ? {
+      const route = { ...job, subsidy_cents: job.current_subsidy_cents };
+      const candidates = await findDispatchCandidates(client, route, job.slot_at, job.order_id, job.promised_at, null, false, job.audit_enabled ? {
         searchCycle: job.search_cycle, searchUntil: job.search_until, record,
       } : undefined);
       if (!candidates.length) {
@@ -268,11 +278,11 @@ export async function tickDispatch() {
       const candidate = candidates[0];
       const offerId = randomUUID();
       const { rowCount } = await client.query(
-        `INSERT INTO delivery_dispatch_offers (id, order_id, user_id, state, rate_cents, fee_cents, expires_at, search_cycle, offered_at)
+        `INSERT INTO delivery_dispatch_offers (id, order_id, user_id, state, rate_cents, fee_cents, expires_at, search_cycle, offered_at, pickup_distance_meters)
          VALUES ($1, $2, $3, 'pending', $4, $5,
-           LEAST($6::timestamptz, NOW() + CASE WHEN $7::timestamptz IS NULL THEN INTERVAL '60 seconds' ELSE INTERVAL '5 minutes' END), $8, clock_timestamp())
+           LEAST($6::timestamptz, NOW() + CASE WHEN $7::timestamptz IS NULL THEN INTERVAL '60 seconds' ELSE INTERVAL '5 minutes' END), $8, clock_timestamp(), $9)
          ON CONFLICT DO NOTHING`,
-        [offerId, job.order_id, candidate.user_id, candidate.rate_cents, candidate.fee_cents, job.search_until, job.slot_at, job.search_cycle]
+        [offerId, job.order_id, candidate.user_id, candidate.rate_cents, candidate.offer_fee_cents, job.search_until, job.slot_at, job.search_cycle, candidate.pickup_meters]
       );
       if (rowCount) await client.query("UPDATE delivery_dispatch SET state = 'offered' WHERE order_id = $1", [job.order_id]);
       record({ event: rowCount ? 'dispatch_offer_created' : 'dispatch_offer_conflict',

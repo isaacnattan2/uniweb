@@ -1,3 +1,4 @@
+import { saveDriverLicensePhoto } from '../controllers/DriverLicensePhoto';
 import { Router } from 'express';
 import { driverPushAlias, signStorePushIdentity } from '../services/OrderPush';
 import { upload } from '../services/UploadService';
@@ -48,6 +49,13 @@ router.put('/me/addresses/:id', authMiddleware, requireCustomer, (req, res, next
 
 router.get('/me/driver', authMiddleware, (req, res, next) => getDriverRegistration(req, res).catch(next));
 router.put('/me/driver', authMiddleware, (req, res, next) => updateDriverRegistration(req, res).catch(next));
+router.put('/me/driver/license-photo', authMiddleware, (req: AuthRequest, res, next) => {
+  if (req.userType !== 'driver' || !req.userId) return res.sendStatus(403);
+  upload.single('image')(req, res, (error) => {
+    if (error) return res.status(400).json({ error: 'Envie uma foto JPEG, PNG ou WebP de até 5 MB.' });
+    return saveDriverLicensePhoto(req, res).catch(next);
+  });
+});
 router.get('/me/driver/withdrawals', authMiddleware, (req, res, next) => getDriverWithdrawals(req, res).catch(next));
 router.post('/me/driver/asaas-account', authMiddleware, (req, res, next) => createDriverAsaasAccount(req, res).catch(next));
 router.get('/me/driver/delivery-rate', authMiddleware, (req, res, next) => readMyDeliveryRate(req, res).catch(next));

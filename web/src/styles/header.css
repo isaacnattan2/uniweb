@@ -109,6 +109,10 @@
   align-items: center;
 }
 
+.header-profile-actions {
+  margin-inline-start: auto;
+}
+
 .btn-login,
 .btn-register {
   padding: 10px 20px;

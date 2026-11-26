@@ -27,6 +27,7 @@ export interface AdminBusiness {
 }
 
 export interface AdminDriver {
+  has_license_photo?: boolean;
   missed_offer_block_minutes: number | null;
   id: string;
   full_name: string;
@@ -361,6 +362,10 @@ export async function saveAdminDeliveryRatePolicy(policy: DeliveryRatePolicy) {
   return (await api.put<DeliveryRatePolicy>('/admin/drivers/delivery-rate', policy)).data;
 }
 
+export async function getDriverLicensePhoto(id: string): Promise<Blob> {
+  return (await api.get('/admin/drivers/' + encodeURIComponent(id) + '/license-photo', { responseType: 'blob' })).data;
+}
+
 export async function setDriverMissedOfferBlock(id: string, minutes: number | null) {
   return (await api.put<{ minutes: number | null }>('/admin/drivers/' + encodeURIComponent(id) + '/missed-offer-block', { minutes })).data;
 }
@@ -378,8 +383,8 @@ export async function createSeller(fullName: string, email: string, password: st
   return response.data;
 }
 
-export async function getAdminBusinesses(): Promise<AdminBusiness[]> {
-  const response = await api.get('/admin/businesses');
+export async function getAdminBusinesses(signal?: AbortSignal): Promise<AdminBusiness[]> {
+  const response = await api.get('/admin/businesses', { signal });
   return response.data;
 }
 
@@ -394,8 +399,8 @@ export async function createBusiness(name: string, description: string, category
   return response.data;
 }
 
-export async function getMyBusinesses() {
-  const response = await api.get('/businesses/my-businesses');
+export async function getMyBusinesses(signal?: AbortSignal): Promise<Business[]> {
+  const response = await api.get('/businesses/my-businesses', { signal });
   return response.data;
 }
 
@@ -569,11 +574,11 @@ export async function scheduleDeliveryAlternative(orderId: string, scheduledAt: 
 }
 
 export async function getDispatchSettings() {
-  return (await api.get<{ radius_meters: number; subsidy_cents: number; missed_offer_block_minutes: number; enforce_delivery_deadline: boolean; audit_enabled: boolean; offer_delivery_mode: 'push' | 'polling' }>('/admin/delivery-dispatch/settings')).data;
+  return (await api.get<{ radius_meters: number; subsidy_cents: number; missed_offer_block_minutes: number; enforce_delivery_deadline: boolean; audit_enabled: boolean; allow_lower_offer: boolean; offer_delivery_mode: 'push' | 'polling' }>('/admin/delivery-dispatch/settings')).data;
 }
 
-export async function saveDispatchSettings(radiusMeters: number, subsidyCents: number, offerDeliveryMode: 'push' | 'polling', missedOfferBlockMinutes: number, enforceDeliveryDeadline: boolean, auditEnabled: boolean) {
-  await api.put('/admin/delivery-dispatch/settings', { radiusMeters, subsidyCents, offerDeliveryMode, missedOfferBlockMinutes, enforceDeliveryDeadline, auditEnabled });
+export async function saveDispatchSettings(radiusMeters: number, subsidyCents: number, offerDeliveryMode: 'push' | 'polling', missedOfferBlockMinutes: number, enforceDeliveryDeadline: boolean, auditEnabled: boolean, allowLowerOffer: boolean) {
+  await api.put('/admin/delivery-dispatch/settings', { radiusMeters, subsidyCents, offerDeliveryMode, missedOfferBlockMinutes, enforceDeliveryDeadline, auditEnabled, allowLowerOffer });
 }
 
 export interface DispatchIncident {
@@ -788,10 +793,12 @@ export interface DriverAuditEntry {
     blockedUntil?: string;
     expiresAt?: string;
     notifiedAt?: string;
+    customerFeeCents?: number;
+    subsidyCents?: number;
     maxFeeCents?: number;
     radiusMeters?: number;
     promisedAt?: string;
-    decision?: { reasons: string[]; locationAt?: string; blockedUntil?: string; pickupMeters?: number; estimatedMinutes?: number; feeCents?: number };
+    decision?: { reasons: string[]; locationAt?: string; blockedUntil?: string; pickupMeters?: number; estimatedMinutes?: number; feeCents?: number; offeredFeeCents?: number | null };
   };
 }
 

@@ -170,13 +170,16 @@ export function BusinessPage() {
         <div className="page-heading">
           <h1>{currentBusiness.name}</h1>
         </div>
-        <nav className="admin-menu" aria-label="Gerenciamento da loja">
-          {businessSections.map(({ id, label }) => (
-            <Link key={id} to={'?aba=' + id} aria-current={activeSection === id ? 'page' : undefined}>
-              {id === 'asaas' && userType === 'admin' ? 'Cadastro Asaas' : label}
-            </Link>
-          ))}
-        </nav>
+
+        {userType === 'admin' && (
+          <nav className="admin-menu" aria-label="Gerenciamento da loja">
+            {businessSections.map(({ id, label }) => (
+              <Link key={id} to={'?aba=' + id} aria-current={activeSection === id ? 'page' : undefined}>
+                {id === 'asaas' ? 'Cadastro Asaas' : label}
+              </Link>
+            ))}
+          </nav>
+        )}
 
         {activeSection === 'dados' && <div className="business-info">
           <div className="business-info-heading">

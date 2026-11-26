@@ -36,7 +36,6 @@ type PushSDK = {
 
 const appId = import.meta.env.VITE_ONESIGNAL_APP_ID;
 export const driverPresenceEvent = 'uniweb:driver-presence';
-const preferenceKey = 'uniweb:push-preference-seen';
 let sdk: Promise<PushSDK> | undefined;
 let sessionUpdate = Promise.resolve();
 
@@ -75,7 +74,6 @@ export function StorePush() {
   const [notice, setNotice] = useState('');
   const [orders, setOrders] = useState<OrderNotice[]>([]);
   const [enabled, setEnabled] = useState(false);
-  const [preferenceSeen, setPreferenceSeen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [changing, setChanging] = useState(false);
   const gear = useRef<HTMLButtonElement>(null);
@@ -112,12 +110,6 @@ export function StorePush() {
     function sync() {
       setEnabled(subscription.optedIn);
       if (!subscription.optedIn) setOrders([]);
-      if (subscription.optedIn || Notification.permission !== 'default') setPreferenceSeen(true);
-    }
-    try {
-      if (localStorage.getItem(preferenceKey)) setPreferenceSeen(true);
-    } catch {
-      // Browser storage may be disabled.
     }
     sync();
     subscription.addEventListener('change', sync);
@@ -169,8 +161,6 @@ export function StorePush() {
       else await subscription.optOut();
       if (useAuthStore.getState().token !== token) return;
       setEnabled(subscription.optedIn);
-      setPreferenceSeen(true);
-      try { localStorage.setItem(preferenceKey, '1'); } catch { /* Storage is optional. */ }
       if (!next) setOrders([]);
       if (next && !ready.Notifications.permission) {
         setSettingsOpen(true);
@@ -186,13 +176,9 @@ export function StorePush() {
     }
   }
 
-  const showGear = ready && (enabled || preferenceSeen || Notification.permission !== 'default');
-  const header = showGear ? document.getElementById('header-push-settings') : null;
+  const header = document.getElementById('header-push-settings');
   return subscribedRole && appId && (ready || notice) ? (
-    <div className="container">
-      {ready && !showGear && (
-        <button type="button" className="btn-secondary" disabled={changing} onClick={() => void changeSubscription(true)}>Ativar notificações</button>
-      )}
+    <>
       {header && createPortal(
         <div className="push-settings" onKeyDown={(event) => { if (event.key === 'Escape' && settingsOpen) closeSettings(); }}>
           <button ref={gear} type="button" className="push-settings-trigger" aria-label="Configurar notificações"
@@ -204,15 +190,14 @@ export function StorePush() {
               <p>{enabled ? 'Ativadas neste navegador' : 'Desativadas neste navegador'}</p>
               {Notification.permission === 'denied' && <p>Para ativar, permita notificações nas configurações do navegador.</p>}
               {notice && <p role="status">{notice}</p>}
-              <button type="button" className="btn-secondary" disabled={changing || (!enabled && Notification.permission === 'denied')}
+              <button type="button" className="btn-secondary" disabled={!ready || changing || (!enabled && Notification.permission === 'denied')}
                 onClick={() => void changeSubscription(!enabled)}>{enabled ? 'Desativar notificações' : 'Ativar notificações'}</button>
             </div>
           )}
         </div>,
         header
       )}
-      {notice && !showGear && <span role="status"> {notice}</span>}
-      <section className="store-push-stack" aria-label="Notificações de pedidos" aria-live="polite">
+      {orders.length > 0 && <section className="store-push-stack" aria-label="Notificações de pedidos" aria-live="polite">
         {orders.map((order) => (
           <article className="store-push-card" key={order.id}>
             <Link className="store-push-link" to={order.path} onClick={() => dismissOrder(order.id)}>
@@ -224,7 +209,7 @@ export function StorePush() {
               onClick={() => dismissOrder(order.id)}>×</button>
           </article>
         ))}
-      </section>
-    </div>
+      </section>}
+    </>
   ) : null;
 }

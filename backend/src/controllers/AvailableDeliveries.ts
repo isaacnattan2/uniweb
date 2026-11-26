@@ -61,7 +61,8 @@ async function listDeliveries(req: AuthRequest, res: Response, next: NextFunctio
                 ELSE COALESCE(NULLIF(d.delivery_fee, 0), NULLIF(o.delivery_fee, 0)) END AS delivery_fee,
               d.driver_rate_cents, d.driver_distance_meters, j.order_id IS NOT NULL AS managed_delivery,
               j.slot_at, j.state AS dispatch_state, j.distance_meters AS offer_distance,
-              f.id AS offer_id, f.fee_cents AS offer_fee_cents, f.rate_cents AS offer_rate_cents, f.expires_at AS offer_expires_at
+              f.id AS offer_id, f.fee_cents AS offer_fee_cents, f.rate_cents AS offer_rate_cents, f.expires_at AS offer_expires_at,
+              CASE WHEN ${accepted} THEN accepted_offer.pickup_distance_meters ELSE f.pickup_distance_meters END AS pickup_distance_meters
               ${accepted ? ', h.missed_offer_id, h.missed_at' : ''}
        FROM orders o
        ${accepted ? 'JOIN history h ON h.order_id = o.id' : ''}
@@ -69,6 +70,11 @@ async function listDeliveries(req: AuthRequest, res: Response, next: NextFunctio
        LEFT JOIN deliveries d ON d.order_id = o.id AND d.deleted_at IS NULL
        LEFT JOIN delivery_dispatch j ON j.order_id = o.id
        LEFT JOIN delivery_dispatch_offers f ON f.order_id = o.id AND f.user_id = $3 AND f.state = 'pending' AND f.expires_at > NOW()
+       LEFT JOIN LATERAL (
+         SELECT a.pickup_distance_meters FROM delivery_dispatch_offers a
+         WHERE a.order_id = o.id AND a.user_id = $3 AND a.search_cycle = j.search_cycle AND a.state = 'accepted'
+         LIMIT 1
+       ) accepted_offer ON ${accepted}
        WHERE ${accepted
          ? 'o.deleted_at IS NULL'
          : `(${availableOrder}) AND NOT EXISTS (SELECT 1 FROM driver_dispatch_presence p WHERE p.user_id = $3 AND p.blocked_until > NOW()) AND (j.order_id IS NULL OR (j.state = 'offered' AND f.id IS NOT NULL))`}
@@ -109,6 +115,7 @@ async function listDeliveries(req: AuthRequest, res: Response, next: NextFunctio
           deliveryFee: row.offer_id && !accepted ? row.offer_fee_cents / 100 :
             rate === null ? row.delivery_fee : distance === null ? null : calculateDeliveryFee(rate, distance),
           distanceMeters: accepted ? row.driver_distance_meters : row.offer_id ? row.offer_distance : distance,
+          pickupDistanceMeters: row.pickup_distance_meters,
           rateCents: accepted ? row.driver_rate_cents : row.offer_id ? row.offer_rate_cents : rate,
           managed: row.managed_delivery, scheduledAt: row.slot_at, dispatchState: row.dispatch_state,
           ...(row.offer_id && !accepted && { offerId: row.offer_id, offerExpiresAt: row.offer_expires_at }),

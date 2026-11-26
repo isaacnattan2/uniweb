@@ -1,6 +1,6 @@
 import { StoreWithdrawals } from '../components/StoreWithdrawals';
 import React, { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { getDriverRegistration, registerDriver } from '../services/api';
 import type { DriverRegistration, DriverRegistrationInput } from '../services/api';
@@ -109,6 +109,8 @@ export function DriverRegisterPage() {
 }
 
 export function DriverPage() {
+  const [search] = useSearchParams();
+  const section = search.get('aba');
   const [data, setData] = useState<DriverRegistration>();
   const [error, setError] = useState('');
   useEffect(() => {
@@ -128,15 +130,7 @@ export function DriverPage() {
         <h1>Meu cadastro de entregador</h1>
         {error ? <p role="alert">{error}</p> : !data ? <p role="status">Carregando cadastro…</p> : (
           <>
-            <section className="driver-card driver-download">
-              <h2>UniEntregador para Android</h2>
-              {data.app_download_url ? (
-                <a className="btn-primary driver-download-button" href={data.app_download_url} referrerPolicy="no-referrer">Baixar APK</a>
-              ) : (
-                <p>Download indisponível no momento.</p>
-              )}
-            </section>
-            <div className="driver-fields">
+            {section !== 'saques' && <div className="driver-fields">
               <section className="driver-card">
                 <h2>Dados pessoais</h2>
                 <dl>
@@ -155,10 +149,10 @@ export function DriverPage() {
                   {data.vehicle_plate && <><dt>Placa</dt><dd>{data.vehicle_plate}</dd></>}
                 </dl>
               </section>
-            </div>
+            </div>}
           </>
         )}
-        {data && <StoreWithdrawals />}
+        {data && section === 'saques' && <StoreWithdrawals />}
       </div>
     </main>
   );

@@ -1,11 +1,10 @@
 import { AdminDriverAudit } from './AdminDriverAudit';
 import { AdminStoreAsaas } from './AdminStoreAsaas';
+import { Link, useSearchParams } from 'react-router-dom';
 import React, { useEffect, useState } from 'react';
 import { useFeedback } from './Feedback';
-import { getAdminDrivers, setAdminBlock, setDriverDeliveryRateLock, setDriverMissedOfferBlock } from '../services/api';
+import { getDriverLicensePhoto, getAdminDrivers, setAdminBlock, setDriverDeliveryRateLock, setDriverMissedOfferBlock } from '../services/api';
 import type { AdminDriver } from '../services/api';
-import { AdminDeliveryRates } from './AdminDeliveryRates';
-import { AdminDeliveryDispatch } from './AdminDeliveryDispatch';
 import { driverPresenceEvent } from './StorePush';
 
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -19,8 +18,9 @@ const vehicleLabels: Record<string, string> = {
   truck: 'Caminhão',
 };
 
-export function AdminDrivers() {
-  const [selectedAuditDriver, setSelectedAuditDriver] = useState<string>();
+export function AdminDrivers({ auditOnly = false }: { auditOnly?: boolean }) {
+  const [search, setSearch] = useSearchParams();
+  const selectedAuditDriver = auditOnly ? search.get('entregador') : null;
   const [selectedAsaasDriver, setSelectedAsaasDriver] = useState<string>();
   const [drivers, setDrivers] = useState<AdminDriver[]>();
   const [savingId, setSavingId] = useState<string>();
@@ -122,15 +122,43 @@ export function AdminDrivers() {
   }
 
   const auditDriver = drivers?.find((driver) => driver.id === selectedAuditDriver);
+  async function downloadLicense(driver: AdminDriver) {
+    try {
+      const file = await getDriverLicensePhoto(driver.id);
+      const url = URL.createObjectURL(file);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'cnh.' + (file.type.split('/')[1] || 'jpg');
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch {
+      setError('Não foi possível baixar a foto da CNH.');
+    }
+  }
+
   const asaasDriver = drivers?.find((driver) => driver.id === selectedAsaasDriver);
+
+  if (auditOnly) return (
+    <section aria-labelledby="driver-audit-page-heading">
+      <h2 id="driver-audit-page-heading">Auditoria de entregas</h2>
+      {loadError && <p role="alert">{loadError}</p>}
+      {!drivers && !loadError && <p role="status">Carregando entregadores...</p>}
+      {drivers && <div className="form-group">
+        <label htmlFor="audit-driver">Entregador</label>
+        <select id="audit-driver" value={auditDriver?.id ?? ""} onChange={(event) =>
+          setSearch(event.target.value ? { entregador: event.target.value } : {})}>
+          <option value="">Selecione um entregador</option>
+          {drivers.map((driver) => <option key={driver.id} value={driver.id}>{driver.full_name}</option>)}
+        </select>
+      </div>}
+      {auditDriver && <AdminDriverAudit key={auditDriver.id} driver={auditDriver} onClose={() => setSearch({})} />}
+    </section>
+  );
 
   return (
     <section aria-labelledby="drivers-heading">
       <h2 id="drivers-heading">Entregadores</h2>
       {loadError && <p className="error-message" role="alert">{loadError}</p>}
-      <AdminDeliveryRates />
-      <AdminDeliveryDispatch />
-      {auditDriver && <AdminDriverAudit key={auditDriver.id} driver={auditDriver} onClose={() => setSelectedAuditDriver(undefined)} />}
       {asaasDriver && <AdminStoreAsaas key={asaasDriver.id} accountId={asaasDriver.id} driverName={asaasDriver.full_name} />}
       {error && <p className="error-message" role="alert">{error}</p>}
       {!drivers && !loadError && <p role="status">Carregando entregadores…</p>}
@@ -184,10 +212,12 @@ export function AdminDrivers() {
                 <button type="button" className="btn-secondary" aria-expanded={selectedAsaasDriver === driver.id} onClick={() => setSelectedAsaasDriver((selected) => selected === driver.id ? undefined : driver.id)}>
                   {selectedAsaasDriver === driver.id ? 'Fechar cadastro Asaas' : 'Cadastro Asaas'}
                 </button>
-                <button type="button" className="btn-secondary" aria-expanded={selectedAuditDriver === driver.id}
-                  onClick={() => setSelectedAuditDriver((selected) => selected === driver.id ? undefined : driver.id)}>
-                  {selectedAuditDriver === driver.id ? 'Fechar auditoria' : 'Auditoria de entregas'}
-                </button>
+                <Link className="btn-secondary" to={"/admin/entregadores/auditoria?entregador=" + driver.id}>
+                  Auditoria de entregas
+                </Link>
+                {driver.has_license_photo && (
+                  <button type="button" className="btn-secondary" onClick={() => void downloadLicense(driver)}>Baixar foto da CNH</button>
+                )}
                 {driver.status !== 'inactive' && (
                   <button type="button" className={driver.status === 'suspended' ? 'btn-primary' : 'btn-secondary'}
                     disabled={!!savingId} onClick={() => void changeAccess(driver)}>

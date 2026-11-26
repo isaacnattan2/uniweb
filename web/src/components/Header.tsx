@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore, useCartStore } from '../context/store';
 import '../styles/header.css';
 
-export function Header() {
+export function Header({ compact = false, leading }: { compact?: boolean; leading?: React.ReactNode }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { token, userType, logout } = useAuthStore();
@@ -45,10 +45,11 @@ export function Header() {
     <header className="header">
       <div className="container">
         <div className="header-content">
+          {leading}
           <div className="header-brand">
-            <Link to={homePath} className="logo">
+            {!compact && <Link to={homePath} className="logo">
               🏪 UniWeb
-            </Link>
+            </Link>}
             {token && profileLabel && <span className="profile-label">{profileLabel}</span>}
           </div>
 
@@ -59,34 +60,18 @@ export function Header() {
             </form>
           )}
 
-          {!isAuthPage && <nav className="nav" aria-label="Navegação principal">
-            {isShopper && (
-              <Link to="/shop" className="nav-link">
-                Loja
-              </Link>
-            )}
-
-            {isShopper && (
+          {!isAuthPage && isShopper && <nav className="nav" aria-label="Navegação principal">
+            <Link to="/shop" className="nav-link">Loja</Link>
+            <Link to="/cart" className="nav-link">🛒 Carrinho ({cartItems.length})</Link>
+            {token && (
               <>
-                <Link to="/cart" className="nav-link">
-                  🛒 Carrinho ({cartItems.length})
-                </Link>
-                {token && (
-                  <>
-                    <Link to="/orders" className="nav-link">Pedidos</Link>
-                    <Link to="/account" className="nav-link">Minha conta</Link>
-                  </>
-                )}
+                <Link to="/orders" className="nav-link">Pedidos</Link>
+                <Link to="/account" className="nav-link">Minha conta</Link>
               </>
             )}
-            {token && userType === 'admin' && (
-              <Link to="/admin" className="nav-link">Administração</Link>
-            )}
-            {token && userType === 'driver' && <Link to="/driver" className="nav-link">Meu cadastro</Link>}
-            {token && userType === 'business' && <Link to="/dashboard" className="nav-link">Minhas Lojas</Link>}
           </nav>}
 
-          {!isAuthPage && <div className="header-actions">
+          {!isAuthPage && <div className={compact ? "header-actions header-profile-actions" : "header-actions"}>
             {token && <div id="header-push-settings" />}
             {token ? (
               <button onClick={handleLogout} className="btn-logout">

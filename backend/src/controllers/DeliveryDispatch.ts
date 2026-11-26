@@ -6,7 +6,7 @@ import { storeCanReceivePayout } from '../services/AsaasStoreApproval';
 import { formatDeliveryAddress, normalizeDeliveryAddress } from '../services/DeliveryAddress';
 import { DeliveryProviderHttpError, locateDeliveryAddress, routeDelivery, validCoordinate } from '../services/DeliveryRouting';
 import { ratePickupAddress } from '../services/OrderDeliveryDistance';
-import { dispatchTransaction, dispatchUuid, dispatchWindowMinutes, findDispatchCandidates, findDispatchSlots, recordDispatchEarnings, releaseDispatchAssignment, respondToDispatchOffer } from '../services/DeliveryDispatch';
+import { dispatchTransaction, dispatchUuid, dispatchWindowMinutes, findDispatchCandidates, findDispatchSlotOptions, findDispatchSlots, recordDispatchEarnings, releaseDispatchAssignment, respondToDispatchOffer } from '../services/DeliveryDispatch';
 import type { DispatchRoute } from '../services/DeliveryDispatch';
 import { notifyAdminDriverPresence, notifyOrderEvent } from '../services/OrderPush';
 
@@ -64,7 +64,8 @@ export async function quoteDelivery(req: AuthRequest, res: Response) {
     });
     return res.status(503).json({ error: 'Não foi possível cotar a entrega agora. Tente novamente.' });
   }
-  const slots = mode === 'scheduled' ? await findDispatchSlots(route) : [];
+  const slotOptions = mode === 'scheduled' ? await findDispatchSlotOptions(route, { query }, true) : [];
+  const slots = slotOptions.map(({ slot }) => slot);
   const options: { id: string; feeCents: number; estimatedMinutes: number | null }[] = [];
   if (mode === 'immediate') {
     const candidates = await findDispatchCandidates({ query }, route, null, null, null, null, true);
@@ -323,10 +324,10 @@ export async function markDeliveryPickedUp(req: AuthRequest, res: Response) {
 
 export async function dispatchSettings(req: Request, res: Response) {
   if (req.method === 'GET') {
-    const { rows } = await query('SELECT radius_meters, subsidy_cents, offer_delivery_mode, missed_offer_block_minutes, enforce_delivery_deadline, audit_enabled FROM delivery_dispatch_settings WHERE id = true');
+    const { rows } = await query('SELECT radius_meters, subsidy_cents, offer_delivery_mode, missed_offer_block_minutes, enforce_delivery_deadline, audit_enabled, allow_lower_offer, allow_lower_offer FROM delivery_dispatch_settings WHERE id = true');
     return res.json(rows[0]);
   }
-  const { radiusMeters, subsidyCents, offerDeliveryMode, missedOfferBlockMinutes, enforceDeliveryDeadline, auditEnabled } = req.body ?? {};
+  const { radiusMeters, subsidyCents, offerDeliveryMode, missedOfferBlockMinutes, enforceDeliveryDeadline, auditEnabled, allowLowerOffer } = req.body ?? {};
   if (!Number.isInteger(radiusMeters) || radiusMeters < 100 || radiusMeters > 100000 ||
       !Number.isInteger(subsidyCents) || subsidyCents < 0 || subsidyCents > 1000000 ||
       (offerDeliveryMode !== undefined && !['push', 'polling'].includes(offerDeliveryMode))) {
@@ -341,14 +342,18 @@ export async function dispatchSettings(req: Request, res: Response) {
   if (auditEnabled !== undefined && typeof auditEnabled !== 'boolean') {
     return res.status(400).json({ error: 'Informe se a auditoria deve ficar habilitada.' });
   }
+  if (allowLowerOffer !== undefined && typeof allowLowerOffer !== 'boolean') {
+    return res.status(400).json({ error: 'Configuração de ofertas abaixo da tarifa inválida.' });
+  }
   const { rows } = await query(
     `UPDATE delivery_dispatch_settings SET radius_meters = $1, subsidy_cents = $2,
      offer_delivery_mode = COALESCE($3, offer_delivery_mode),
      missed_offer_block_minutes = COALESCE($4, missed_offer_block_minutes),
      enforce_delivery_deadline = COALESCE($5, enforce_delivery_deadline),
-     audit_enabled = COALESCE($6, audit_enabled) WHERE id = true
-     RETURNING radius_meters, subsidy_cents, offer_delivery_mode, missed_offer_block_minutes, enforce_delivery_deadline, audit_enabled`,
-    [radiusMeters, subsidyCents, offerDeliveryMode, missedOfferBlockMinutes, enforceDeliveryDeadline, auditEnabled]
+     audit_enabled = COALESCE($6, audit_enabled),
+     allow_lower_offer = COALESCE($7, allow_lower_offer) WHERE id = true
+     RETURNING radius_meters, subsidy_cents, offer_delivery_mode, missed_offer_block_minutes, enforce_delivery_deadline, audit_enabled, allow_lower_offer`,
+    [radiusMeters, subsidyCents, offerDeliveryMode, missedOfferBlockMinutes, enforceDeliveryDeadline, auditEnabled, allowLowerOffer]
   );
   return res.json(rows[0]);
 }
@@ -358,7 +363,7 @@ export async function getCurrentDispatchOffer(req: AuthRequest, res: Response) {
   const { rows: [row] } = await query(
     `SELECT s.offer_delivery_mode, clock_timestamp() AS server_now, pending.*
      FROM delivery_dispatch_settings s LEFT JOIN LATERAL (
-       SELECT f.id AS offer_id, f.order_id, f.expires_at, f.fee_cents, f.rate_cents, o.order_number,
+       SELECT f.id AS offer_id, f.order_id, f.expires_at, f.fee_cents, f.rate_cents, f.pickup_distance_meters, o.order_number,
               o.created_at, o.delivery_address, j.pickup_address, j.distance_meters, j.slot_at,
               b.id AS store_id, b.name AS store_name
        FROM delivery_dispatch_offers f
@@ -378,7 +383,7 @@ export async function getCurrentDispatchOffer(req: AuthRequest, res: Response) {
     offer: row.offer_id ? {
       managed: true, orderId: row.order_id, orderNumber: row.order_number, createdAt: row.created_at,
       offerId: row.offer_id, offerExpiresAt: row.expires_at, deliveryFee: row.fee_cents / 100,
-      rateCents: row.rate_cents, distanceMeters: row.distance_meters, scheduledAt: row.slot_at,
+      rateCents: row.rate_cents, distanceMeters: row.distance_meters, pickupDistanceMeters: row.pickup_distance_meters, scheduledAt: row.slot_at,
       pickup: { storeId: row.store_id, storeName: row.store_name, address: row.pickup_address },
       destinationArea: null, destinationAddress: row.delivery_address,
     } : null,
@@ -389,12 +394,14 @@ export async function listDeliveryAlternatives(req: AuthRequest, res: Response) 
   if (req.userType !== 'customer' || !req.userId) return res.sendStatus(403);
   if (!dispatchUuid.test(req.params.orderId)) return res.sendStatus(400);
   const { rows: [job] } = await query(
-    `SELECT j.* FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id
+    `SELECT j.*, s.subsidy_cents AS current_subsidy_cents FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id
+     JOIN delivery_dispatch_settings s ON s.id = true
      WHERE j.order_id = $1 AND o.user_id = $2 AND j.state = 'needs_choice' AND o.payment_status = 'paid'`,
     [req.params.orderId, req.userId]
   );
   if (!job) return res.sendStatus(404);
-  const [immediate, slots] = await Promise.all([findDispatchCandidates({ query }, job, null), findDispatchSlots(job)]);
+  const route = { ...job, subsidy_cents: job.current_subsidy_cents };
+  const [immediate, slots] = await Promise.all([findDispatchCandidates({ query }, route, null), findDispatchSlots(route)]);
   res.set('Cache-Control', 'no-store');
   return res.json({ immediate: immediate.length > 0, slots, windowMinutes: dispatchWindowMinutes(job) });
 }
@@ -410,13 +417,14 @@ export async function rescheduleDelivery(req: AuthRequest, res: Response) {
   }
   const changed = await dispatchTransaction(async (client) => {
     const { rows: [job] } = await client.query(
-      `SELECT j.* FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id
+      `SELECT j.*, s.subsidy_cents AS current_subsidy_cents FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id
+       JOIN delivery_dispatch_settings s ON s.id = true
        WHERE j.order_id = $1 AND o.user_id = $2 AND j.state = 'needs_choice'
          AND o.order_status = 'confirmed' AND o.payment_status = 'paid' FOR UPDATE OF o, j`, [orderId, req.userId]
     );
     if (!job) return false;
     if (slot) await client.query('SELECT pg_advisory_xact_lock(19750215)');
-    const candidates = await findDispatchCandidates(client, job, slot);
+    const candidates = await findDispatchCandidates(client, { ...job, subsidy_cents: job.current_subsidy_cents }, slot);
     if (!candidates.length) return false;
     const promise = new Date((slot?.getTime() ?? Date.now()) +
       (slot ? dispatchWindowMinutes(job) : candidates[0].pickup_minutes + job.duration_minutes + 15) * 60000);

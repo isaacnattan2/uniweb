@@ -98,7 +98,8 @@ export async function getDriverRegistration(req: AuthRequest, res: Response) {
   if (req.userType !== 'driver' || !req.userId) return res.sendStatus(403);
   res.set('Cache-Control', 'no-store');
   const result = await query(
-    `SELECT u.full_name, u.email, u.phone, d.vehicle_type, d.vehicle_manufacturer, d.vehicle_brand, d.vehicle_color, d.vehicle_plate
+    `SELECT u.full_name, u.email, u.phone, d.vehicle_type, d.vehicle_manufacturer, d.vehicle_brand, d.vehicle_color, d.vehicle_plate,
+      (SELECT uploaded_at FROM driver_license_photos WHERE driver_user_id = u.id) AS license_photo_uploaded_at
      FROM drivers d JOIN users u ON u.id = d.user_id WHERE u.id = $1 AND d.deleted_at IS NULL`,
     [req.userId]
   );
@@ -127,7 +128,8 @@ export async function updateDriverRegistration(req: AuthRequest, res: Response) 
        UPDATE users u SET full_name = $2, email = $3, phone = $4, updated_at = NOW()
        FROM vehicle v WHERE u.id = v.user_id
        RETURNING u.full_name, u.email, u.phone, v.vehicle_type, v.vehicle_manufacturer,
-         v.vehicle_brand, v.vehicle_color, v.vehicle_plate`,
+         v.vehicle_brand, v.vehicle_color, v.vehicle_plate,
+         (SELECT uploaded_at FROM driver_license_photos WHERE driver_user_id = u.id) AS license_photo_uploaded_at`,
       [req.userId, fullName, email, phone, type, manufacturer, brand, color, plate || null]
     );
     if (!updated) return res.status(404).json({ error: 'Cadastro de entregador não encontrado.' });

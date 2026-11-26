@@ -2,11 +2,13 @@ import { AdminPlatformBalance } from '../components/AdminPlatformBalance';
 import { AdminSplitSimulator } from '../components/AdminSplitSimulator';
 import React, { useEffect, useState } from 'react';
 import { useFeedback } from '../components/Feedback';
-import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Link, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { AdminBusiness, Seller, getAdminBusinesses, getSellers, setAdminBlock, transferBusiness, updateSeller } from '../services/api';
 import { AdminAds } from '../components/AdminAds';
 import { AdminAppTheme } from '../components/AdminAppTheme';
 import { AdminCategories } from '../components/AdminCategories';
+import { AdminDeliveryRates } from '../components/AdminDeliveryRates';
+import { AdminDeliveryDispatch } from '../components/AdminDeliveryDispatch';
 import { AdminDrivers } from '../components/AdminDrivers';
 import '../styles/dashboard.css';
 import '../styles/product-form.css';
@@ -14,6 +16,10 @@ import '../styles/product-form.css';
 export const adminSections = [
   { path: 'lojistas', label: 'Lojistas' },
   { path: 'entregadores', label: 'Entregadores' },
+  { path: 'entregadores/tarifas', label: 'Tarifas de entrega' },
+  { path: 'entregadores/alocacao', label: 'Regras de alocação' },
+  { path: 'entregadores/ocorrencias', label: 'Ocorrências e estornos' },
+  { path: 'entregadores/auditoria', label: 'Auditoria de entregas' },
   { path: 'categorias', label: 'Categorias' },
   { path: 'anuncios', label: 'Anúncios' },
   { path: 'financeiro', label: 'Financeiro' },
@@ -33,11 +39,6 @@ export function AdminPage() {
     <main className="dashboard admin-dashboard">
       <div className="container">
         <h1>Administração do marketplace</h1>
-        <nav className="admin-menu" aria-label="Menu administrativo">
-          {adminSections.map(({ path, label }) => (
-            <NavLink key={path} to={path}>{label}</NavLink>
-          ))}
-        </nav>
         <Outlet />
       </div>
     </main>
@@ -46,6 +47,10 @@ export function AdminPage() {
 
 export function AdminSection({ section }: { section: AdminSectionPath }) {
   if (section === 'entregadores') return <AdminDrivers />;
+  if (section === 'entregadores/tarifas') return <AdminDeliveryRates />;
+  if (section === 'entregadores/alocacao') return <AdminDeliveryDispatch section="settings" />;
+  if (section === 'entregadores/ocorrencias') return <AdminDeliveryDispatch section="incidents" />;
+  if (section === 'entregadores/auditoria') return <AdminDrivers auditOnly />;
   if (section === 'categorias') return <AdminCategories />;
   if (section === 'financeiro') return <AdminPlatformBalance />;
   if (section === 'simulador-split') return <AdminSplitSimulator />;
@@ -53,7 +58,7 @@ export function AdminSection({ section }: { section: AdminSectionPath }) {
   return <AdminManagementSection section={section} />;
 }
 
-function AdminManagementSection({ section }: { section: Exclude<AdminSectionPath, 'entregadores' | 'categorias' | 'cores-do-app' | 'simulador-split' | 'financeiro'> }) {
+function AdminManagementSection({ section }: { section: 'lojistas' | 'anuncios' }) {
   const navigate = useNavigate();
   const [businesses, setBusinesses] = useState<AdminBusiness[]>([]);
   const [sellers, setSellers] = useState<Seller[]>([]);

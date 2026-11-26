@@ -1,7 +1,7 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ProtectedRoute } from './components/ProtectedRoute';
-import { Header } from './components/Header';
+import { ProfileNavigation } from './components/ProfileNavigation';
 import { SessionGate } from './components/SessionGate';
 import { StorePush } from './components/StorePush';
 import { FeedbackProvider } from './components/Feedback';
@@ -27,7 +27,7 @@ function App() {
     <SessionGate>
     <Router>
       <FeedbackProvider>
-      <Header />
+      <ProfileNavigation>
       <StorePush />
       <Routes>
         <Route path="/" element={<Navigate to="/shop" replace />} />
@@ -113,6 +113,7 @@ function App() {
           }
         />
       </Routes>
+      </ProfileNavigation>
       </FeedbackProvider>
     </Router>
     </SessionGate>

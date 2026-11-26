@@ -11,8 +11,8 @@ const actions = [
 ];
 const refunds: Record<string, string> = { pending: 'Estorno solicitado', processing: 'Estorno em processamento', review: 'Estorno requer conferência no Asaas' };
 
-export function AdminDeliveryDispatch() {
-  const [settings, setSettings] = useState<{ radius: string; subsidy: string; blockMinutes: string; enforceDeadline: boolean; auditEnabled: boolean; offerMode: 'push' | 'polling' }>();
+export function AdminDeliveryDispatch({ section }: { section: 'settings' | 'incidents' }) {
+  const [settings, setSettings] = useState<{ radius: string; subsidy: string; blockMinutes: string; enforceDeadline: boolean; auditEnabled: boolean; allowLowerOffer: boolean; offerMode: 'push' | 'polling' }>();
   const [incidents, setIncidents] = useState<DispatchIncident[]>();
   const [incidentId, setIncidentId] = useState('');
   const [action, setAction] = useState('');
@@ -23,14 +23,14 @@ export function AdminDeliveryDispatch() {
 
   useEffect(() => {
     let active = true;
-    void getDispatchSettings().then((data) => {
+    if (section === 'settings') void getDispatchSettings().then((data) => {
       if (active) setSettings({ radius: String(data.radius_meters / 1000), subsidy: (data.subsidy_cents / 100).toFixed(2),
-        blockMinutes: String(data.missed_offer_block_minutes ?? 60), enforceDeadline: data.enforce_delivery_deadline === true, auditEnabled: data.audit_enabled !== false, offerMode: data.offer_delivery_mode === 'polling' ? 'polling' : 'push' });
+        blockMinutes: String(data.missed_offer_block_minutes ?? 60), enforceDeadline: data.enforce_delivery_deadline === true, auditEnabled: data.audit_enabled !== false, allowLowerOffer: data.allow_lower_offer === true, offerMode: data.offer_delivery_mode === 'polling' ? 'polling' : 'push' });
     }).catch(() => { if (active) setError('Não foi possível carregar as regras de alocação.'); });
-    void getDispatchIncidents().then((data) => { if (active) setIncidents(data); })
+    if (section === 'incidents') void getDispatchIncidents().then((data) => { if (active) setIncidents(data); })
       .catch(() => { if (active) setError('Não foi possível carregar as ocorrências.'); });
     return () => { active = false; };
-  }, []);
+  }, [section]);
 
   async function apply(event: React.FormEvent, operation: () => Promise<void>, message: string) {
     event.preventDefault();
@@ -47,11 +47,11 @@ export function AdminDeliveryDispatch() {
 
   return (
     <div className="form-box admin-delivery-rate-form">
-      <h3>Alocação e ocorrências de entrega</h3>
+      <h3>{section === 'settings' ? 'Regras de alocação' : 'Ocorrências e estornos'}</h3>
       {error && <p className="error-message" role="alert">{error}</p>}
-      {!settings && !error && <p role="status">Carregando configuração…</p>}
-      {settings && <form onSubmit={(event) => void apply(event, () =>
-        saveDispatchSettings(Math.round(Number(settings.radius) * 1000), Math.round(Number(settings.subsidy) * 100), settings.offerMode, Number(settings.blockMinutes), settings.enforceDeadline, settings.auditEnabled),
+      {section === 'settings' && !settings && !error && <p role="status">Carregando configuração…</p>}
+      {section === 'settings' && settings && <form onSubmit={(event) => void apply(event, () =>
+        saveDispatchSettings(Math.round(Number(settings.radius) * 1000), Math.round(Number(settings.subsidy) * 100), settings.offerMode, Number(settings.blockMinutes), settings.enforceDeadline, settings.auditEnabled, settings.allowLowerOffer),
         'Regras de alocação salvas.')}>
         <div className="admin-rate-fields">
           <div className="form-group">
@@ -89,9 +89,14 @@ export function AdminDeliveryDispatch() {
             onChange={(event) => setSettings({ ...settings, auditEnabled: event.target.checked })} />
           Registrar auditoria de entregas
         </label>
+        <label className="admin-rate-checkbox" htmlFor="dispatch-allow-lower-offer">
+          <input id="dispatch-allow-lower-offer" type="checkbox" checked={settings.allowLowerOffer} disabled={saving}
+            onChange={(event) => setSettings({ ...settings, allowLowerOffer: event.target.checked })} />
+          Permitir ofertas abaixo da tarifa do entregador, limitadas ao frete mais subsídio
+        </label>
         <button type="submit" className="btn-primary" disabled={saving}>Salvar regras de alocação</button>
       </form>}
-      <h4>Ocorrências e estornos</h4>
+      {section === 'incidents' && <>
       {incidents?.length === 0 && <p>Nenhuma ocorrência ou estorno pendente.</p>}
       <ul className="admin-category-list">
         {incidents?.map((item) => <li key={item.order_id}>
@@ -124,6 +129,7 @@ export function AdminDeliveryDispatch() {
         </div>
         <button type="submit" className="btn-primary" disabled={saving}>Confirmar resolução</button>
       </form>}
+      </>}
     </div>
   );
 }

@@ -114,7 +114,12 @@ export function AdminDriverAudit({ driver, onClose }: { driver: AdminDriver; onC
                   {decision?.pickupMeters != null && <p>Distância para coleta {(decision.pickupMeters / 1000).toLocaleString('pt-BR')} km</p>}
                   {decision?.estimatedMinutes != null && <p>Tempo estimado {decision.estimatedMinutes} min</p>}
                   {details.promisedAt && <p>Prazo da entrega {date(details.promisedAt)}</p>}
+                  {details.customerFeeCents != null && details.subsidyCents != null && <p>
+                    Frete pago pelo cliente {money.format(details.customerFeeCents / 100)} · Teto de subsídio {money.format(details.subsidyCents / 100)}
+                  </p>}
                   {decision?.feeCents != null && details.maxFeeCents != null && <p>Frete {money.format(decision.feeCents / 100)} · Limite {money.format(details.maxFeeCents / 100)}</p>}
+                  {details.selected && decision?.offeredFeeCents != null && decision.offeredFeeCents !== decision.feeCents &&
+                    <p>Valor oferecido {money.format(decision.offeredFeeCents / 100)}</p>}
                   {details.acceptedByProvider != null && <p>{details.acceptedByProvider ? 'Envio aceito pelo OneSignal' : 'Envio sem confirmação do OneSignal'}</p>}
                   {details.notifiedAt && <p>Envio registrado em {date(details.notifiedAt)}</p>}
                   {details.expiresAt && <p>Oferta expirou em {date(details.expiresAt)}</p>}

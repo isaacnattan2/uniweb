@@ -1,3 +1,4 @@
+import { downloadDriverLicensePhoto } from '../controllers/DriverLicensePhoto';
 import { getAdminAsaasBalance } from '../controllers/AdminAsaasBalance';
 import { applyCardSplit, applyPixSplit, removeSplitCondition, readSplitPayments, sendDriverSplitPayment } from '../controllers/AdminAsaasSplit';
 import { getAdminAsaasFees } from '../controllers/AdminAsaasFees';
@@ -30,6 +31,15 @@ router.put('/delivery-dispatch/incidents/:orderId', (req, res, next) => resolveD
 router.put('/app/theme', (req, res, next) => updateDriverAppTheme(req, res).catch(next));
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+router.get('/drivers/:id/license-photo', async (req, res, next) => {
+  if (!uuid.test(req.params.id)) return res.sendStatus(400);
+  try {
+    return await downloadDriverLicensePhoto(req.params.id, res);
+  } catch (error) {
+    next(error);
+  }
+});
 
 router.get('/drivers/:id/dispatch-audit', async (req, res, next) => {
   const { id } = req.params;
@@ -78,6 +88,7 @@ router.get('/drivers', async (_req, res, next) => {
       `SELECT u.id, u.full_name, u.email, u.phone, u.status, d.vehicle_type,
               d.vehicle_manufacturer, d.vehicle_brand, d.vehicle_color, d.vehicle_plate,
               d.delivery_rate_cents, d.delivery_rate_locked, d.missed_offer_block_minutes,
+              EXISTS (SELECT 1 FROM driver_license_photos WHERE driver_user_id = u.id) AS has_license_photo,
               (u.status = 'active' AND d.user_id IS NOT NULL AND COALESCE(p.online, false)) AS checked_in
        FROM users u
        LEFT JOIN drivers d ON d.user_id = u.id AND d.deleted_at IS NULL
