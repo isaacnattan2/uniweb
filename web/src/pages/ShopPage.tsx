@@ -116,7 +116,7 @@ export function ShopPage() {
                 {query && <Link to="/shop">Voltar ao marketplace</Link>}
               </div>
             ) : (
-              <div className="products-grid card-grid card-grid-7 list-panel list-panel-inset">
+              <div className="products-grid card-grid card-grid-7">
                 {products.map((product) => {
                   const productUrl = `/store/${product.business_id}?product=${encodeURIComponent(product.id)}`;
                   return (
@@ -142,7 +142,7 @@ export function ShopPage() {
           {!query && <section>
             <h2>Lojas em destaque</h2>
             {storesError ? <div className="empty-state" role="alert"><p>Não foi possível carregar as lojas.</p></div> : businesses.length === 0 ? <div className="empty-state"><p>Nenhuma loja disponível no momento.</p></div> :
-              <div className="businesses-grid card-grid card-grid-6 list-panel list-panel-inset">
+              <div className="businesses-grid card-grid card-grid-6">
                 {businesses.map((business) => (
                   <article key={business.id} className="business-card card-layout">
                     <Link to={`/store/${business.id}`} className="business-logo card-row-1" aria-label={`Visitar ${business.name}`}>🏬</Link>
