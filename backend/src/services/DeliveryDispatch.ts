@@ -113,7 +113,7 @@ export async function findDispatchCandidates(
         CASE WHEN pickup_meters IS NULL THEN CASE WHEN $8::timestamptz IS NULL
           THEN 'location_missing_or_stale' ELSE 'shift_unavailable' END
           WHEN pickup_meters > $7::int THEN 'outside_radius' END,
-        CASE WHEN NOT ($12::boolean OR fee_cents <= $6::int OR NOT $13::boolean AND ($11::uuid IS NOT NULL OR allow_lower_offer))
+        CASE WHEN NOT ($12::boolean OR fee_cents <= $6::int OR $11::uuid IS NOT NULL OR allow_lower_offer)
           THEN 'fee_over_limit' END,
         CASE WHEN COALESCE((SELECT enforce_delivery_deadline FROM delivery_dispatch_settings WHERE id = true), false)
           AND pickup_meters IS NOT NULL AND $10::timestamptz IS NOT NULL
@@ -121,7 +121,7 @@ export async function findDispatchCandidates(
           THEN 'cannot_arrive_in_time' END
       ], NULL) AS reasons FROM priced
     )
-    SELECT user_id, rate_cents, fee_cents,
+    SELECT user_id, rate_cents, fee_cents, allow_lower_offer,
       CASE WHEN $12::boolean THEN fee_cents ELSE LEAST(fee_cents, $6::int) END AS offer_fee_cents,
       pickup_minutes, latitude, longitude, ROUND(pickup_meters)::int AS pickup_meters, location_at, blocked_until, reasons,
       (SELECT enforce_delivery_deadline FROM delivery_dispatch_settings WHERE id = true) AS enforce_deadline FROM evaluated
@@ -154,8 +154,11 @@ export async function findDispatchCandidates(
         row.pickup_meters = Math.round(approach.distance);
         row.pickup_minutes = Math.ceil(approach.duration / 60);
         row.fee_cents = Math.round(row.rate_cents * (route.distance_meters + row.pickup_meters) / 1000);
-        row.offer_fee_cents = row.fee_cents;
-        if (!allRates && row.fee_cents > route.fee_cents + route.subsidy_cents) row.reasons.push('fee_over_limit');
+        const maxFeeCents = route.fee_cents + route.subsidy_cents;
+        row.offer_fee_cents = allRates ? row.fee_cents : Math.min(row.fee_cents, maxFeeCents);
+        if (!allRates && !reservedUserId && !row.allow_lower_offer && row.fee_cents > maxFeeCents) {
+          row.reasons.push('fee_over_limit');
+        }
         if (row.enforce_deadline && promisedAt &&
           Math.max(Date.now(), slot?.getTime() ?? 0) + (row.pickup_minutes + route.duration_minutes) * 60000 > promisedAt.getTime()) {
           row.reasons.push('cannot_arrive_in_time');

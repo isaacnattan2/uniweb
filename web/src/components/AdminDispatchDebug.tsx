@@ -117,7 +117,9 @@ export function AdminDispatchDebug({ onDisabled }: { onDisabled: () => void }) {
                     {details.drivers.map((driver) => <li key={driver.driverId}>
                       {displayName(driver.driverId)} · {driver.reasons.length
                         ? driver.reasons.map((reason) => describeExclusion(reason, driver.feeCents, details)).join(' · ')
-                        : 'Elegível'}
+                        : driver.offeredFeeCents != null && driver.feeCents != null && driver.offeredFeeCents < driver.feeCents
+                          ? `Elegível com oferta limitada a ${money.format(driver.offeredFeeCents / 100)} (tarifa de ${money.format(driver.feeCents / 100)})`
+                          : 'Elegível'}
                     </li>)}
                   </ul>
                 </>}

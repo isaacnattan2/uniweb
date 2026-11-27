@@ -13,9 +13,11 @@ test('calcula a corrida com a distância de aproximação pela via e todas as co
   });
   t.mock.method(approval, 'filterDriversEligibleForPayout', async (drivers) => drivers);
   t.mock.method(routing, 'routeDelivery', async () => ({ distance: 2500, duration: 360 }));
+  let allowLowerOffer = false;
   const db = {
     query: async () => ({ rows: [{
       user_id: 'driver', rate_cents: 250, fee_cents: 2250, offer_fee_cents: 2250,
+      allow_lower_offer: allowLowerOffer,
       latitude: -10.1, longitude: -37, pickup_meters: 1000, pickup_minutes: 4, reasons: [],
     }] }),
   };
@@ -29,4 +31,10 @@ test('calcula a corrida com a distância de aproximação pela via e todas as co
   assert.equal(offer.pickup_minutes, 6);
   assert.equal(offer.offer_fee_cents, 2625);
   assert.deepEqual(await findDispatchCandidates(db, { ...route, subsidy_cents: 0 }, null), []);
+  allowLowerOffer = true;
+  const [limitedOffer] = await findDispatchCandidates(db, { ...route, subsidy_cents: 0 }, null);
+  assert.equal(limitedOffer.fee_cents, 2625);
+  assert.equal(limitedOffer.offer_fee_cents, 2500);
+  const [quote] = await findDispatchCandidates(db, { ...route, subsidy_cents: 0 }, null, null, null, null, true);
+  assert.equal(quote.offer_fee_cents, 2625);
 });
