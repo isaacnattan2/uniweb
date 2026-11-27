@@ -103,6 +103,10 @@ export async function reversePassengerAddress(req: AuthRequest, res: Response) {
 export async function quotePassengerRide(req: AuthRequest, res: Response) {
   res.set('Cache-Control', 'no-store');
   if (req.userType !== 'customer' || !req.userId) return res.sendStatus(403);
+  const vehicleType = req.body?.vehicleType ?? 'car';
+  if (vehicleType !== 'car' && vehicleType !== 'motorcycle') {
+    return res.status(400).json({ error: 'Selecione carro ou moto.' });
+  }
   const destinationChoice = selectedAddress(req.body?.destinationToken, req.userId);
   const originChoice = selectedAddress(req.body?.originToken, req.userId);
   const target = destinationChoice?.label ?? address(req.body?.destination);
@@ -132,13 +136,14 @@ export async function quotePassengerRide(req: AuthRequest, res: Response) {
   const dropoff = destinationChoice ?? coordinates.shift();
   const pickup = originChoice ?? (origin ? coordinates.shift() : gps);
   if (!pickup || !dropoff) return res.status(422).json({ error: 'Confira o número, bairro, cidade e CEP dos endereços.' });
-  const trip = await routeDeliveryStops(router, [pickup, dropoff], AbortSignal.timeout(8000), 'auto').catch(() => null);
+  const trip = await routeDeliveryStops(router, [pickup, dropoff], AbortSignal.timeout(8000),
+    vehicleType === 'car' ? 'auto' : 'motorcycle').catch(() => null);
   if (!trip || !Number.isFinite(trip.distance) || trip.distance <= 0 || trip.distance > 1000000 ||
       !Number.isFinite(trip.duration) || trip.duration <= 0) {
     return res.status(422).json({ error: 'Não foi possível traçar uma rota entre os pontos informados.' });
   }
   const route = {
-    passenger_ride: true, pickup_latitude: pickup.lat, pickup_longitude: pickup.lon, distance_meters: Math.round(trip.distance),
+    passenger_ride: true, passenger_vehicle_type: vehicleType, pickup_latitude: pickup.lat, pickup_longitude: pickup.lon, distance_meters: Math.round(trip.distance),
     duration_minutes: Math.ceil(trip.duration / 60), rate_cents: settings.default_cents,
     fee_cents: 0, subsidy_cents: settings.subsidy_cents, radius_meters: settings.radius_meters,
   };
@@ -151,16 +156,17 @@ export async function quotePassengerRide(req: AuthRequest, res: Response) {
     origin: { latitude: pickup.lat, longitude: pickup.lon }, destination: { latitude: dropoff.lat, longitude: dropoff.lon },
     points, distanceMeters: route.distance_meters, estimatedMinutes: route.duration_minutes,
   };
-  if (!candidate) return res.json({ ...preview, quoteId: null, fareCents: null, unavailable: 'Nenhum motorista disponível para esse embarque agora.' });
+  if (!candidate) return res.json({ ...preview, quoteId: null, fareCents: null,
+    unavailable: `Nenhum motorista com ${vehicleType === 'car' ? 'carro' : 'moto'} está disponível neste embarque.` });
   const quoteId = randomUUID();
   const pickupAddress = origin ?? `${pickup.lat.toFixed(6)}, ${pickup.lon.toFixed(6)}`;
   const estimatedMinutes = candidate.pickup_minutes + route.duration_minutes + 10;
   await query(
     `INSERT INTO delivery_quotes (id, user_id, destination, pickup_address, pickup_latitude, pickup_longitude,
-       distance_meters, duration_minutes, rate_cents, fee_cents, subsidy_cents, radius_meters, immediate_minutes, expires_at, passenger_ride)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW() + INTERVAL '5 minutes',true)`,
+       distance_meters, duration_minutes, rate_cents, fee_cents, subsidy_cents, radius_meters, immediate_minutes, expires_at, passenger_ride, passenger_vehicle_type)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW() + INTERVAL '5 minutes',true,$14)`,
     [quoteId, req.userId, target, pickupAddress, pickup.lat, pickup.lon, route.distance_meters,
-      route.duration_minutes, route.rate_cents, candidate.fee_cents, route.subsidy_cents, route.radius_meters, estimatedMinutes]);
+      route.duration_minutes, route.rate_cents, candidate.fee_cents, route.subsidy_cents, route.radius_meters, estimatedMinutes, vehicleType]);
   return res.json({ ...preview, quoteId, fareCents: candidate.fee_cents, estimatedMinutes });
 }
 
@@ -215,12 +221,12 @@ export async function createPassengerRide(req: AuthRequest, res: Response) {
          VALUES ($1,$2,$3,$4,$5,$6)`, [checkoutId, userId, requestHash, providerId, card ? 'saved_card' : 'hosted', card ? 1 : null]);
       await client.query(
         `INSERT INTO orders (id, user_id, order_number, subtotal, total, delivery_fee, payment_method, delivery_type,
-          delivery_address, asaas_checkout_id, passenger_ride, asaas_split_snapshot)
-         VALUES ($1::uuid,$2,$1::uuid::text,0,$3,$3,$4,'delivery',$5,$6,true,$7::jsonb)`,
+          delivery_address, asaas_checkout_id, passenger_ride, asaas_split_snapshot, passenger_vehicle_type)
+         VALUES ($1::uuid,$2,$1::uuid::text,0,$3,$3,$4,'delivery',$5,$6,true,$7::jsonb,$8)`,
         [orderId, userId, fare, method, quote.destination, checkoutId, JSON.stringify({
           gross: quote.fee_cents, fee: 0, net: quote.fee_cents, storeEstimate: 0, split: {},
           maxDriver: quote.fee_cents + quote.subsidy_cents, condition: { maxInstallments: 1, mode: 'fixed', version: 'unicorrida' },
-        })]);
+        }), quote.passenger_vehicle_type ?? 'car']);
       await client.query(
         `INSERT INTO delivery_dispatch (order_id,state,promised_at,pickup_address,pickup_latitude,pickup_longitude,
           distance_meters,duration_minutes,rate_cents,fee_cents,subsidy_cents,radius_meters)
@@ -245,7 +251,7 @@ export async function listPassengerRides(req: AuthRequest, res: Response) {
   const { rows } = await query(
     `SELECT o.id, o.created_at AS "createdAt", o.order_status AS status, o.payment_status AS "paymentStatus",
        o.payment_method AS "paymentMethod", o.delivery_address AS destination, j.pickup_address AS origin, j.state AS "dispatchState",
-       (o.total * 100)::int AS "fareCents", driver.full_name AS "driverName", c.provider_id,
+       (o.total * 100)::int AS "fareCents", COALESCE(o.passenger_vehicle_type, 'car') AS "vehicleType", driver.full_name AS "driverName", c.provider_id,
        CASE WHEN j.state = 'in_transit' AND o.payment_status = 'paid' THEN o.delivery_confirmation_code END AS "confirmationCode"
      FROM orders o JOIN delivery_dispatch j ON j.order_id = o.id
      LEFT JOIN asaas_checkouts c ON c.id = o.asaas_checkout_id AND c.payment_flow = 'hosted'

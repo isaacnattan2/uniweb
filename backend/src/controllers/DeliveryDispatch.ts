@@ -469,7 +469,7 @@ export async function listDeliveryAlternatives(req: AuthRequest, res: Response) 
   if (req.userType !== 'customer' || !req.userId) return res.sendStatus(403);
   if (!dispatchUuid.test(req.params.orderId)) return res.sendStatus(400);
   const { rows: [job] } = await query(
-    `SELECT j.*, o.passenger_ride, s.subsidy_cents AS current_subsidy_cents,
+    `SELECT j.*, o.passenger_ride, o.passenger_vehicle_type, s.subsidy_cents AS current_subsidy_cents,
        EXISTS (SELECT 1 FROM delivery_route_stops stop WHERE stop.route_order_id = j.order_id) AS "multiPickup"
      FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id
      JOIN delivery_dispatch_settings s ON s.id = true
@@ -494,7 +494,7 @@ export async function rescheduleDelivery(req: AuthRequest, res: Response) {
   }
   const changed = await dispatchTransaction(async (client) => {
     const { rows: [job] } = await client.query(
-      `SELECT j.*, o.passenger_ride, s.subsidy_cents AS current_subsidy_cents,
+      `SELECT j.*, o.passenger_ride, o.passenger_vehicle_type, s.subsidy_cents AS current_subsidy_cents,
          EXISTS (SELECT 1 FROM delivery_route_stops stop WHERE stop.route_order_id = j.order_id) AS "multiPickup"
        FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id
        JOIN delivery_dispatch_settings s ON s.id = true

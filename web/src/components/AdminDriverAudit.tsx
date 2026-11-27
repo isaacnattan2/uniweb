@@ -24,7 +24,7 @@ export const dispatchExclusionReasons: Record<string, string> = {
   outside_radius: 'Fora do raio da loja',
   fee_over_limit: 'Frete acima do limite',
   app_update_required: 'App sem suporte a múltiplas coletas',
-  passenger_vehicle_required: 'Veículo diferente de carro para corrida de passageiro',
+  passenger_vehicle_required: 'Veículo diferente do selecionado para a corrida',
   route_unavailable: 'Rota até a primeira coleta indisponível',
   cannot_arrive_in_time: 'Tempo estimado excede o prazo',
 };

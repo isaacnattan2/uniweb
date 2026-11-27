@@ -85,7 +85,7 @@ export async function getDeliveryRoute(req: AuthRequest, res: Response) {
        AND ${activeOrder} AND ${assignedDelivery}
        AND d.tracking_updated_at > NOW() - INTERVAL '45 seconds'
        AND (d.tracking_route_requested_at IS NULL OR d.tracking_route_requested_at <= NOW() - INTERVAL '30 seconds')
-     RETURNING d.tracking_latitude, d.tracking_longitude, o.delivery_address, o.passenger_ride,
+     RETURNING d.tracking_latitude, d.tracking_longitude, o.delivery_address, o.passenger_ride, o.passenger_vehicle_type,
        (SELECT parallel_geocoding FROM delivery_dispatch_settings WHERE id = true) AS parallel_geocoding`,
     [req.params.orderId, req.userId]
   );
@@ -104,7 +104,7 @@ export async function getDeliveryRoute(req: AuthRequest, res: Response) {
 
     const route = await routeDeliveryStops(routeUrl,
       [{ lat: delivery.tracking_latitude, lon: delivery.tracking_longitude }, destination], signal,
-      delivery.passenger_ride ? 'auto' : 'motorcycle');
+      delivery.passenger_ride && delivery.passenger_vehicle_type !== 'motorcycle' ? 'auto' : 'motorcycle');
     const points = route?.geometry?.coordinates;
     if (!route || !Number.isFinite(route.distance) || !Number.isFinite(route.duration) ||
         !Array.isArray(points) || points.length < 2 ||
