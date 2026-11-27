@@ -4,7 +4,7 @@ import { query } from '../config/database';
 import type { AuthRequest } from '../middleware/auth';
 import { storeCanReceivePayout } from '../services/AsaasStoreApproval';
 import { formatDeliveryAddress, normalizeDeliveryAddress } from '../services/DeliveryAddress';
-import { DeliveryProviderHttpError, geocodingIntervalMs, locateDeliveryAddress, routeDeliveryStops, validCoordinate } from '../services/DeliveryRouting';
+import { DeliveryProviderHttpError, geocodingIntervalMs, locateDeliveryAddresses, routeDeliveryStops, validCoordinate } from '../services/DeliveryRouting';
 import { ratePickupAddress } from '../services/OrderDeliveryDistance';
 import { dispatchTransaction, dispatchUuid, dispatchWindowMinutes, findDispatchCandidates, findDispatchSlotOptions, findDispatchSlots, recordDispatchEarnings, releaseDispatchAssignment, respondToDispatchOffer } from '../services/DeliveryDispatch';
 import type { DispatchRoute } from '../services/DeliveryDispatch';
@@ -25,7 +25,7 @@ export async function quoteDelivery(req: AuthRequest, res: Response) {
   }
   const ids = [...new Set<string>(requested.map((id: string) => id.toLowerCase()))];
   const { rows: stores } = await query(
-    `SELECT b.id, ${ratePickupAddress} AS pickup_address, b.owner_id, p.default_cents, s.radius_meters, s.subsidy_cents
+    `SELECT b.id, ${ratePickupAddress} AS pickup_address, b.owner_id, p.default_cents, s.radius_meters, s.subsidy_cents, s.parallel_geocoding
      FROM businesses b JOIN users u ON u.id = b.owner_id AND u.status = 'active'
      CROSS JOIN delivery_dispatch_settings s CROSS JOIN driver_delivery_rate_policy p
      WHERE b.id = ANY($1::uuid[]) AND b.status = 'active' AND b.deleted_at IS NULL ORDER BY b.id`, [ids]
@@ -43,13 +43,11 @@ export async function quoteDelivery(req: AuthRequest, res: Response) {
   let route: DispatchRoute;
   let stops: { businessId: string; address: string }[];
   let provider = 'nominatim';
-  let signal = AbortSignal.timeout(8000 + stores.length * geocodingIntervalMs);
+  const parallelGeocoding = stores[0].parallel_geocoding === true;
+  let signal = AbortSignal.timeout(8000 + (parallelGeocoding ? 0 : stores.length * geocodingIntervalMs));
   try {
-    const dropoff = await locateDeliveryAddress(geocoder, destination, signal);
-    const pickups: Awaited<ReturnType<typeof locateDeliveryAddress>>[] = [];
-    for (const store of stores) {
-      pickups.push(await locateDeliveryAddress(geocoder, store.pickup_address, signal));
-    }
+    const [dropoff, ...pickups] = await locateDeliveryAddresses(geocoder,
+      [destination, ...stores.map((store) => store.pickup_address)], signal, parallelGeocoding);
     if (!dropoff || pickups.some((point) => !point)) {
       return res.status(422).json({ error: 'Não foi possível localizar todos os pontos de coleta e entrega.' });
     }
@@ -386,10 +384,10 @@ export async function markDeliveryPickedUp(req: AuthRequest, res: Response) {
 
 export async function dispatchSettings(req: Request, res: Response) {
   if (req.method === 'GET') {
-    const { rows } = await query('SELECT radius_meters, subsidy_cents, offer_delivery_mode, missed_offer_block_minutes, enforce_delivery_deadline, audit_enabled, allow_lower_offer, debug_started_at IS NOT NULL AS debug_enabled FROM delivery_dispatch_settings WHERE id = true');
+    const { rows } = await query('SELECT radius_meters, subsidy_cents, offer_delivery_mode, missed_offer_block_minutes, enforce_delivery_deadline, audit_enabled, allow_lower_offer, parallel_geocoding, debug_started_at IS NOT NULL AS debug_enabled FROM delivery_dispatch_settings WHERE id = true');
     return res.json(rows[0]);
   }
-  const { radiusMeters, subsidyCents, offerDeliveryMode, missedOfferBlockMinutes, enforceDeliveryDeadline, auditEnabled, allowLowerOffer, debugEnabled } = req.body ?? {};
+  const { radiusMeters, subsidyCents, offerDeliveryMode, missedOfferBlockMinutes, enforceDeliveryDeadline, auditEnabled, allowLowerOffer, debugEnabled, parallelGeocoding } = req.body ?? {};
   if (!Number.isInteger(radiusMeters) || radiusMeters < 100 || radiusMeters > 100000 ||
       !Number.isInteger(subsidyCents) || subsidyCents < 0 || subsidyCents > 1000000 ||
       (offerDeliveryMode !== undefined && !['push', 'polling'].includes(offerDeliveryMode))) {
@@ -410,6 +408,9 @@ export async function dispatchSettings(req: Request, res: Response) {
   if (debugEnabled !== undefined && typeof debugEnabled !== 'boolean') {
     return res.status(400).json({ error: 'Configuração do depurador inválida.' });
   }
+  if (parallelGeocoding !== undefined && typeof parallelGeocoding !== 'boolean') {
+    return res.status(400).json({ error: 'Modo de consulta de endereços inválido.' });
+  }
   const { rows } = await query(
     `UPDATE delivery_dispatch_settings SET radius_meters = $1, subsidy_cents = $2,
      offer_delivery_mode = COALESCE($3, offer_delivery_mode),
@@ -417,10 +418,11 @@ export async function dispatchSettings(req: Request, res: Response) {
      enforce_delivery_deadline = COALESCE($5, enforce_delivery_deadline),
      audit_enabled = COALESCE($6, audit_enabled),
      allow_lower_offer = COALESCE($7, allow_lower_offer),
+     parallel_geocoding = COALESCE($9, parallel_geocoding),
      debug_started_at = CASE WHEN $8::boolean THEN COALESCE(debug_started_at, clock_timestamp())
        WHEN $8::boolean = false THEN NULL ELSE debug_started_at END WHERE id = true
-     RETURNING radius_meters, subsidy_cents, offer_delivery_mode, missed_offer_block_minutes, enforce_delivery_deadline, audit_enabled, allow_lower_offer, debug_started_at IS NOT NULL AS debug_enabled`,
-    [radiusMeters, subsidyCents, offerDeliveryMode, missedOfferBlockMinutes, enforceDeliveryDeadline, auditEnabled, allowLowerOffer, debugEnabled]
+     RETURNING radius_meters, subsidy_cents, offer_delivery_mode, missed_offer_block_minutes, enforce_delivery_deadline, audit_enabled, allow_lower_offer, parallel_geocoding, debug_started_at IS NOT NULL AS debug_enabled`,
+    [radiusMeters, subsidyCents, offerDeliveryMode, missedOfferBlockMinutes, enforceDeliveryDeadline, auditEnabled, allowLowerOffer, debugEnabled, parallelGeocoding]
   );
   return res.json(rows[0]);
 }

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { query } from '../config/database';
-import { locateDeliveryAddress, routeDelivery } from './DeliveryRouting';
+import { locateDeliveryAddresses, routeDelivery } from './DeliveryRouting';
 
 export interface DeliveryDistanceOrder {
   id: string;
@@ -46,10 +46,8 @@ async function loadDistance(orderId: string, key: string, pickup: string, destin
   let distanceMeters = null;
   try {
     const signal = AbortSignal.timeout(8000);
-    const [from, to] = await Promise.all([
-      locateDeliveryAddress(geocoderUrl, pickup, signal),
-      locateDeliveryAddress(geocoderUrl, destination, signal),
-    ]);
+    const { rows: [settings] } = await query('SELECT parallel_geocoding FROM delivery_dispatch_settings WHERE id = true');
+    const [from, to] = await locateDeliveryAddresses(geocoderUrl, [pickup, destination], signal, settings?.parallel_geocoding === true);
     if (from && to) {
       const route = await routeDelivery(routeUrl, from, to, signal);
       if (route && Number.isFinite(route.distance) && route.distance >= 0 && route.distance <= 2147483647) {

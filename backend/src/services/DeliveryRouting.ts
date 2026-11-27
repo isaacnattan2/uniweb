@@ -16,7 +16,14 @@ export class DeliveryProviderHttpError extends Error {
   }
 }
 
-export function locateDeliveryAddress(geocoderUrl: string, address: string, signal: AbortSignal): Promise<RoutePoint | null> {
+export async function locateDeliveryAddresses(geocoderUrl: string, addresses: string[], signal: AbortSignal, parallel: boolean) {
+  if (parallel) return Promise.all(addresses.map((address) => fetchDeliveryAddress(geocoderUrl, address, signal)));
+  const points: (RoutePoint | null)[] = [];
+  for (const address of addresses) points.push(await locateDeliveryAddress(geocoderUrl, address, signal));
+  return points;
+}
+
+function locateDeliveryAddress(geocoderUrl: string, address: string, signal: AbortSignal): Promise<RoutePoint | null> {
   const lookup = geocodingQueue.then(async () => {
     signal.throwIfAborted();
     const wait = Math.ceil(nextGeocodingStart - performance.now());

@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import { query } from '../config/database';
 import { AuthRequest } from '../middleware/auth';
-import { locateDeliveryAddress, routeDelivery, validCoordinate } from '../services/DeliveryRouting';
+import { locateDeliveryAddresses, routeDelivery, validCoordinate } from '../services/DeliveryRouting';
 
 const validOrderId = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const activeOrder = `o.delivery_type = 'delivery' AND o.deleted_at IS NULL
@@ -86,7 +86,8 @@ export async function getDeliveryRoute(req: AuthRequest, res: Response) {
        AND ${activeOrder} AND ${assignedDelivery}
        AND d.tracking_updated_at > NOW() - INTERVAL '45 seconds'
        AND (d.tracking_route_requested_at IS NULL OR d.tracking_route_requested_at <= NOW() - INTERVAL '30 seconds')
-     RETURNING d.tracking_latitude, d.tracking_longitude, o.delivery_address`,
+     RETURNING d.tracking_latitude, d.tracking_longitude, o.delivery_address,
+       (SELECT parallel_geocoding FROM delivery_dispatch_settings WHERE id = true) AS parallel_geocoding`,
     [req.params.orderId, req.userId]
   );
   if (!delivery) return res.status(409).json({ error: 'Rota indisponível no momento. Aguarde a atualização da localização.' });
@@ -95,7 +96,7 @@ export async function getDeliveryRoute(req: AuthRequest, res: Response) {
     const signal = AbortSignal.timeout(8000);
     const address = delivery.delivery_address?.trim();
     if (!address) return res.status(422).json({ error: 'O pedido não tem um endereço de entrega.' });
-    const destination = await locateDeliveryAddress(geocoderUrl, address, signal);
+    const [destination] = await locateDeliveryAddresses(geocoderUrl, [address], signal, delivery.parallel_geocoding === true);
     if (!destination) {
       return res.status(422).json({ error: 'Endereço do pedido não encontrado no mapa.' });
     }
