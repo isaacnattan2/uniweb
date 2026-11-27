@@ -163,7 +163,8 @@ export function OrdersPage() {
                   <p>Entrega a partir de {new Date(order.slot_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</p>}
                 {order.payment_status === 'paid' && order.promised_at && ['scheduled','searching','offered','assigned','in_transit'].includes(order.dispatch_state) &&
                   <p>Previsão até {new Date(order.promised_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</p>}
-                {order.dispatch_state === 'needs_choice' && order.payment_status === 'paid' && (
+                {order.dispatch_state === 'needs_choice' && order.payment_status === 'paid' &&
+                  (!order.multi_pickup || order.route_order_id === order.id) && (
                   <DeliveryAlternatives orderId={order.id} onChanged={() => setRevision((current) => current + 1)} />
                 )}
                 {orderId && (
@@ -197,14 +198,15 @@ export function OrdersPage() {
                 )}
 
                 <div className="order-footer">
-                  {order.status !== 'cancelled' && !['in_transit','incident','delivered'].includes(order.dispatch_state) &&
+                  {order.status !== 'cancelled' && !order.multi_pickup && !['in_transit','incident','delivered'].includes(order.dispatch_state) &&
                     <button type="button" className="btn-secondary"
                     disabled={cancellingId !== null} onClick={() => void cancelOrder(order)}>
                     {cancellingId === order.id ? 'Cancelando…' : 'Cancelar pedido'}
                   </button>}
                   {orderId && order.checkoutUrl && <a href={order.checkoutUrl} className="btn-secondary">Continuar pagamento</a>}
                   <div className="order-total">
-                    {order.dispatch_state && <p>Frete: R$ {Number(order.delivery_fee).toFixed(2)}</p>}
+                    {order.dispatch_state && (!order.multi_pickup || order.route_order_id === order.id) &&
+                      <p>{order.multi_pickup ? 'Frete do carrinho' : 'Frete'}: R$ {Number(order.delivery_fee).toFixed(2)}</p>}
                     {orderId && Number(order.discount) > 0 && (
                       <>
                         <p>Subtotal: R$ {Number(order.subtotal).toFixed(2)}</p>

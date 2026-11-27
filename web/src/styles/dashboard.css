@@ -118,6 +118,18 @@
   font-weight: 700;
 }
 
+.feedback-dialog.admin-license-preview {
+  width: min(48rem, calc(100% - 2rem));
+}
+
+.admin-license-preview img {
+  display: block;
+  max-inline-size: 100%;
+  max-block-size: 68vh;
+  margin: 1rem auto 0;
+  object-fit: contain;
+}
+
 .admin-driver-actions {
   display: flex;
   flex-wrap: wrap;

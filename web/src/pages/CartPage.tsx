@@ -72,7 +72,7 @@ export function CartPage() {
   const chargeInstallments = Math.min(installments, maxCardInstallments);
   const addressComplete = !!savedAddresses && !!activeAddress && isDeliveryAddressComplete(activeAddress);
   const quoteKey = JSON.stringify([checkoutStoresKey, activeAddress, userId, deliveryType, deliveryMode, quoteRefresh]);
-  const deliveryOptions = checkoutStores.map((id) => {
+  const deliveryOptions = (grouped ? ['all'] : checkoutStores).map((id) => {
     const result = deliveryQuotes[id]?.key === quoteKey ? deliveryQuotes[id] : undefined;
     const quote = result?.data;
     const selection = deliverySelections[id]?.key === quoteKey ? deliverySelections[id].value : '';
@@ -83,6 +83,8 @@ export function CartPage() {
   });
   const deliveryFees = deliveryOptions.reduce((sum, { option }) => sum + (option?.feeCents ?? 0), 0);
   const allFreightSelected = deliveryOptions.every(({ option }) => Boolean(option));
+  const allQuotesLoaded = deliveryOptions.every(({ result }) => Boolean(result));
+  const hasQuoteOptions = deliveryOptions.every(({ quote }) => Boolean(quote?.options.length));
   const consentKey = allFreightSelected ? JSON.stringify(deliveryOptions.map(({ option, selection }) => [option?.id, selection])) : '';
   const feeAccepted = !!consentKey && acceptedFee === consentKey;
   useEffect(() => {
@@ -111,9 +113,9 @@ export function CartPage() {
   else if (deliveryType !== 'pickup' && !addressComplete) checkoutBlocker = 'Informe o endereço de entrega completo.';
   else if (deliveryType === 'delivery') {
     if (!deliveryMode) checkoutBlocker = 'Escolha entrega imediata ou agendada.';
-    else if (deliveryOptions.some(({ result }) => !result)) checkoutBlocker = 'Aguarde o cálculo do frete.';
-    else if (deliveryOptions.some(({ quote }) => !quote?.options.length)) checkoutBlocker = 'Atualize o frete ou escolha outra modalidade.';
-    else if (!allFreightSelected) checkoutBlocker = deliveryMode === 'immediate' ? 'Escolha o frete de cada loja.' : 'Escolha o horário de cada entrega.';
+    else if (!allQuotesLoaded) checkoutBlocker = 'Aguarde o cálculo do frete.';
+    else if (!hasQuoteOptions) checkoutBlocker = 'Atualize o frete ou escolha outra modalidade.';
+    else if (!allFreightSelected) checkoutBlocker = deliveryMode === 'immediate' ? 'Escolha uma opção de frete.' : 'Escolha um horário de entrega.';
     else if (!feeAccepted) checkoutBlocker = 'Marque a opção “Aceito o frete” para continuar.';
   }
 
@@ -129,18 +131,19 @@ export function CartPage() {
     if (!token || userType !== 'customer' || !activeAddress || !addressComplete || deliveryType !== 'delivery' || !deliveryMode) return;
     const request = new AbortController();
     const timer = setTimeout(() => {
-      for (const id of JSON.parse(checkoutStoresKey) as string[]) {
-        void getDeliveryQuote(id, activeAddress, deliveryMode, request.signal).then((data) => {
-          if (!request.signal.aborted) setDeliveryQuotes((current) => ({ ...current, [id]: { key: quoteKey, data } }));
-        }).catch((err) => {
-          if (!request.signal.aborted) setDeliveryQuotes((current) => ({
-            ...current, [id]: { key: quoteKey, error: err.response?.data?.error || 'Não foi possível calcular o frete.' },
-          }));
+      const ids = JSON.parse(checkoutStoresKey) as string[];
+      if (!ids.length) return;
+      const id = grouped ? 'all' : ids[0];
+      void getDeliveryQuote(grouped ? ids : id, activeAddress, deliveryMode, request.signal).then((data) => {
+        if (!request.signal.aborted) setDeliveryQuotes({ [id]: { key: quoteKey, data } });
+      }).catch((err) => {
+        if (!request.signal.aborted) setDeliveryQuotes({
+          [id]: { key: quoteKey, error: err.response?.data?.error || 'Não foi possível calcular o frete.' },
         });
-      }
+      });
     }, 350);
     return () => { clearTimeout(timer); request.abort(); };
-  }, [token, userType, checkoutStoresKey, activeAddress, addressComplete, deliveryType, deliveryMode, quoteKey]);
+  }, [token, userType, checkoutStoresKey, grouped, activeAddress, addressComplete, deliveryType, deliveryMode, quoteKey]);
 
   useEffect(() => {
     if (!token || userType !== 'customer') return;
@@ -206,7 +209,7 @@ export function CartPage() {
     const selections = deliveryType === 'delivery' ? deliveryOptions.flatMap(({ option, selection }) => option ? [{
       deliveryQuoteId: option.id, scheduledAt: deliveryMode === 'scheduled' ? selection : null, deliveryFeeAccepted: true as const,
     }] : []) : [];
-    const dispatch = grouped && selections.length ? { deliveryQuotes: selections } : selections[0];
+    const dispatch = selections[0];
     const appliedCoupon = grouped ? '' : couponCode.trim();
     submitting.current = true;
     setLoading(true);
@@ -381,8 +384,7 @@ export function CartPage() {
                     <ul className="checkout-store-list">
                       {checkoutStores.map((id) => {
                         const subtotal = cart.reduce((sum, item) => item.businessId === id ? sum + item.price * item.quantity : sum, 0);
-                        const freight = deliveryOptions.find((entry) => entry.id === id)?.option?.feeCents ?? 0;
-                        return <li key={id}>{storeName(id)} · {currency.format(subtotal + freight / 100)}</li>;
+                        return <li key={id}>{storeName(id)} · {currency.format(subtotal)}</li>;
                       })}
                     </ul>
                   )}
@@ -463,7 +465,7 @@ export function CartPage() {
                     <>
                       {deliveryOptions.map(({ id, result, quote, selection }) => (
                         <React.Fragment key={id}>
-                      {grouped && <strong>{storeName(id)}</strong>}
+                      {grouped && <p>Um entregador far? as coletas nas lojas do carrinho.</p>}
                       {!result && <p role="status">Consultando opções de entrega…</p>}
                       {result?.error && <p className="error-message" role="alert">{result.error}</p>}
                       {quote && !quote.options.length && (
@@ -507,7 +509,7 @@ export function CartPage() {
                           <span>Aceito o frete {grouped ? 'total ' : ''}de {currency.format(deliveryFees / 100)}.</span>
                         </label>
                       )}
-                      {deliveryOptions.every(({ result }) => result) && <button type="button" className="btn-secondary" disabled={loading} onClick={() => {
+                      {allQuotesLoaded && <button type="button" className="btn-secondary" disabled={loading} onClick={() => {
                         setError('');
                         setQuoteRefresh((current) => current + 1);
                       }}>Atualizar frete</button>}

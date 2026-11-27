@@ -39,6 +39,7 @@ interface CheckoutQuote extends DispatchRoute {
   business_id: string;
   pickup_address: string;
   immediate_minutes: number | null;
+  pickup_stops: { businessId: string; address: string }[] | null;
 }
 
 interface CheckoutProduct {
@@ -244,6 +245,7 @@ export class OrderController {
         throw new CheckoutError(400, 'Use um cupom por compra de uma loja.');
       }
       const deliveryByStore = new Map<string, { quote: CheckoutQuote; slot: Date | null }>();
+      let routeStops: CheckoutQuote['pickup_stops'] = null;
       if (deliverySelections.length) {
         const { rows } = await client.query<CheckoutQuote>(
           `SELECT * FROM delivery_quotes WHERE id = ANY($1::uuid[]) AND user_id = $2
@@ -251,12 +253,15 @@ export class OrderController {
           [deliverySelections.map(({ deliveryQuoteId }) => deliveryQuoteId), req.userId, address],
         );
         const selections = new Map(deliverySelections.map((selection) => [selection.deliveryQuoteId.toLowerCase(), selection]));
-        if (rows.length !== deliverySelections.length || rows.length !== groups.size) {
-          throw new CheckoutError(409, 'Atualize o frete de cada loja do pedido.');
+        if (rows.length !== 1 || deliverySelections.length !== 1) {
+          throw new CheckoutError(409, 'Atualize o frete do carrinho.');
         }
         for (const quote of rows) {
-          if (!groups.has(quote.business_id) || deliveryByStore.has(quote.business_id)) {
-            throw new CheckoutError(409, 'Atualize o frete de cada loja do pedido.');
+          routeStops = quote.pickup_stops;
+          const quotedStores = new Set(routeStops?.map((stop) => stop.businessId) ?? [quote.business_id]);
+          if (quotedStores.size !== groups.size || !groups.has(quote.business_id) ||
+              [...groups.keys()].some((id) => !quotedStores.has(id))) {
+            throw new CheckoutError(409, 'A cotação não corresponde às lojas do carrinho. Atualize o frete.');
           }
           const scheduledAt = selections.get(quote.id)!.scheduledAt;
           deliveryByStore.set(quote.business_id, { quote, slot: scheduledAt ? new Date(scheduledAt) : null });
@@ -267,6 +272,7 @@ export class OrderController {
       }
 
       const orderIds: string[] = [];
+      const ordersByStore = new Map<string, string>();
       const maxCardInstallments = Math.min(...result.rows.map((product) => product.max_card_installments));
       if (savedCard && installments > maxCardInstallments) {
         throw new CheckoutError(400, 'O número de parcelas excede o limite da loja.');
@@ -299,6 +305,7 @@ export class OrderController {
 
         payableCents += subtotal - discount + deliveryFee;
         const orderId = uuidv4();
+        ordersByStore.set(businessId, orderId);
         const amount = formatCents(subtotal);
         await client.query(
           `INSERT INTO orders (id, user_id, business_id, order_number, subtotal, total, payment_method, delivery_type, delivery_address, discount, coupon_code, delivery_fee)
@@ -338,7 +345,8 @@ export class OrderController {
           }
           const promisedAt = new Date((slot?.getTime() ?? Date.now()) +
             (slot ? dispatchWindowMinutes(delivery.quote) : delivery.quote.immediate_minutes ?? 0) * 60000);
-          const candidates = await findDispatchCandidates(client, delivery.quote, slot, null, slot ? null : promisedAt);
+          const candidates = await findDispatchCandidates(client, { ...delivery.quote, multiPickup: Boolean(routeStops) },
+            slot, null, slot ? null : promisedAt);
           if (!candidates.length) throw new CheckoutError(409, 'A entrega de uma loja ficou indisponível. Atualize a cotação.');
           const reservedDriver = slot ? candidates[0].user_id : null;
           await client.query(
@@ -375,6 +383,15 @@ export class OrderController {
         orderIds.push(orderId);
       }
 
+      if (routeStops) {
+        const routeOrder = ordersByStore.get(routeStops[0].businessId);
+        await client.query(
+          `INSERT INTO delivery_route_stops (route_order_id, order_id, position, address)
+           SELECT $1, stop.order_id, stop.position, stop.address
+           FROM unnest($2::uuid[], $3::text[]) WITH ORDINALITY AS stop(order_id, address, position)`,
+          [routeOrder, routeStops.map(({ businessId }) => ordersByStore.get(businessId)), routeStops.map(({ address }) => address)],
+        );
+      }
       if (payableCents > 999999999999999n) {
         throw new CheckoutError(400, 'O valor da compra excede o limite permitido.');
       }
@@ -474,16 +491,20 @@ export class OrderController {
 
       const result = await query(
         `SELECT o.id, o.total AS total_amount, o.order_status AS status, o.created_at, o.payment_status,
-                o.delivery_type, o.delivery_status, o.delivery_fee, (o.delivery_driver_id IS NOT NULL) AS delivery_assigned,
+                o.delivery_type, o.delivery_status, o.delivery_fee,
+                COALESCE(route.route_order_id, o.id) AS route_order_id, route.order_id IS NOT NULL AS multi_pickup,
+                (COALESCE(lead.delivery_driver_id, o.delivery_driver_id) IS NOT NULL) AS delivery_assigned,
                 j.state AS dispatch_state, j.slot_at, j.promised_at, j.refund_state,
                 COALESCE(json_agg(
                   json_build_object('productId', oi.product_id, 'quantity', oi.quantity, 'unitPrice', oi.product_price, 'productName', oi.product_name)
                 ) FILTER (WHERE oi.id IS NOT NULL), '[]'::json) AS items
          FROM orders o
          LEFT JOIN order_items oi ON o.id = oi.order_id
-         LEFT JOIN delivery_dispatch j ON j.order_id = o.id
+         LEFT JOIN delivery_route_stops route ON route.order_id = o.id
+         LEFT JOIN orders lead ON lead.id = route.route_order_id
+         LEFT JOIN delivery_dispatch j ON j.order_id = COALESCE(route.route_order_id, o.id)
          WHERE o.user_id = $1
-         GROUP BY o.id, j.order_id
+         GROUP BY o.id, j.order_id, route.order_id, lead.id
          ORDER BY o.created_at DESC`,
         [req.userId]
       );
@@ -505,13 +526,15 @@ export class OrderController {
       const result = await query(
         `SELECT o.id, o.total AS total_amount, o.order_status AS status, o.created_at,
                 o.payment_method, o.payment_status, o.delivery_type, o.delivery_address, o.subtotal, o.discount, o.coupon_code,
-                o.delivery_status, o.delivery_fee, (o.delivery_driver_id IS NOT NULL) AS delivery_assigned,
+                o.delivery_status, o.delivery_fee,
+                COALESCE(route.route_order_id, o.id) AS route_order_id, route.order_id IS NOT NULL AS multi_pickup,
+                (COALESCE(lead.delivery_driver_id, o.delivery_driver_id) IS NOT NULL) AS delivery_assigned,
                 j.state AS dispatch_state, j.slot_at, j.promised_at, j.refund_state,
                 CASE WHEN o.delivery_type = 'delivery' AND o.payment_status = 'paid'
                   AND o.order_status IN ('confirmed', 'processing') AND (j.state = 'in_transit' OR
                     (j.order_id IS NULL AND o.delivery_status = 'in_transit') OR
                     (j.order_id IS NULL AND o.delivery_status = 'processing'))
-                  THEN o.delivery_confirmation_code END AS delivery_confirmation_code,
+                  THEN COALESCE(lead.delivery_confirmation_code, o.delivery_confirmation_code) END AS delivery_confirmation_code,
                 c.provider_id, c.installment_count, c.payment_flow,
                 COALESCE(json_agg(
                   json_build_object('productId', oi.product_id, 'quantity', oi.quantity, 'unitPrice', oi.product_price, 'productName', oi.product_name)
@@ -519,9 +542,11 @@ export class OrderController {
          FROM orders o
          LEFT JOIN order_items oi ON o.id = oi.order_id
          LEFT JOIN asaas_checkouts c ON c.id = o.asaas_checkout_id
-         LEFT JOIN delivery_dispatch j ON j.order_id = o.id
+         LEFT JOIN delivery_route_stops route ON route.order_id = o.id
+         LEFT JOIN orders lead ON lead.id = route.route_order_id
+         LEFT JOIN delivery_dispatch j ON j.order_id = COALESCE(route.route_order_id, o.id)
          WHERE o.id = $1 AND o.user_id = $2
-         GROUP BY o.id, j.order_id, c.provider_id, c.installment_count, c.payment_flow`,
+         GROUP BY o.id, j.order_id, route.order_id, lead.id, c.provider_id, c.installment_count, c.payment_flow`,
         [orderId, req.userId]
       );
 

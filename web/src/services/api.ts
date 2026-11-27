@@ -364,8 +364,8 @@ export async function saveAdminDeliveryRatePolicy(policy: DeliveryRatePolicy) {
   return (await api.put<DeliveryRatePolicy>('/admin/drivers/delivery-rate', policy)).data;
 }
 
-export async function getDriverLicensePhoto(id: string): Promise<Blob> {
-  return (await api.get('/admin/drivers/' + encodeURIComponent(id) + '/license-photo', { responseType: 'blob' })).data;
+export async function getDriverLicensePhoto(id: string, signal?: AbortSignal): Promise<Blob> {
+  return (await api.get('/admin/drivers/' + encodeURIComponent(id) + '/license-photo', { responseType: 'blob', signal })).data;
 }
 
 export async function setDriverMissedOfferBlock(id: string, minutes: number | null) {
@@ -596,8 +596,9 @@ export interface DeliveryQuote {
 
 export type DeliveryQuoteMode = 'immediate' | 'scheduled';
 
-export async function getDeliveryQuote(businessId: string, address: DeliveryAddress, mode: DeliveryQuoteMode, signal: AbortSignal) {
-  return (await api.post<DeliveryQuote>('/orders/delivery-quote', { businessId, address, mode }, { signal })).data;
+export async function getDeliveryQuote(stores: string | string[], address: DeliveryAddress, mode: DeliveryQuoteMode, signal: AbortSignal) {
+  const businesses = typeof stores === 'string' ? { businessId: stores } : { businessIds: stores };
+  return (await api.post<DeliveryQuote>('/orders/delivery-quote', { ...businesses, address, mode }, { signal })).data;
 }
 
 export async function getDeliveryAlternatives(orderId: string) {

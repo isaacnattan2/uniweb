@@ -9,6 +9,7 @@ import { getOrderDeliveryDistance, ratePickupAddress } from '../services/OrderDe
 import type { DeliveryDistanceOrder } from '../services/OrderDeliveryDistance';
 
 const availableOrder = `o.deleted_at IS NULL AND o.payment_status = 'paid'
+  AND NOT EXISTS (SELECT 1 FROM delivery_route_stops s WHERE s.order_id = o.id AND s.route_order_id <> o.id)
   AND o.order_status IN ('confirmed', 'processing')
   AND o.delivery_type = 'delivery' AND o.delivery_status = 'pending'
   AND o.delivery_driver_id IS NULL
@@ -56,7 +57,11 @@ async function listDeliveries(req: AuthRequest, res: Response, next: NextFunctio
          SELECT f.order_id, f.id, 'declined', NULL, f.offered_at
          FROM delivery_dispatch_offers f WHERE f.user_id = $3 AND f.state = 'declined' AND $4::text = 'declined'
        )` : ''} SELECT o.id, o.order_number, o.created_at, o.delivery_status, o.order_status, b.id AS store_id, b.name AS store_name,
-              NULLIF(TRIM(b.address), '') AS pickup_address,
+              COALESCE(j.pickup_address, NULLIF(TRIM(b.address), '')) AS pickup_address,
+              (SELECT json_agg(json_build_object('orderId', s.order_id, 'address', s.address,
+                'storeName', store.name, 'collected', s.collected_at IS NOT NULL) ORDER BY s.position)
+                FROM delivery_route_stops s JOIN orders child ON child.id = s.order_id
+                JOIN businesses store ON store.id = child.business_id WHERE s.route_order_id = o.id) AS pickups,
               ${ratePickupAddress} AS rate_pickup_address,
               TRIM(o.delivery_address) AS destination_address,
               SUBSTRING(o.delivery_address FROM ' · ([[:alpha:] .''-]+/[A-Z]{2}) · CEP [0-9]{5}-[0-9]{3}$') AS destination_area,
@@ -114,6 +119,7 @@ async function listDeliveries(req: AuthRequest, res: Response, next: NextFunctio
           orderNumber: row.order_number,
           createdAt: row.created_at,
           pickup: { storeId: row.store_id, storeName: row.store_name, address: row.pickup_address },
+          ...(row.pickups && { pickups: row.pickups }),
           destinationArea: row.destination_area,
           destinationAddress: row.destination_address,
           deliveryFee: row.offer_id && !accepted ? row.offer_fee_cents / 100 :

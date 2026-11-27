@@ -1,7 +1,7 @@
 import { AdminDriverAudit } from './AdminDriverAudit';
 import { AdminStoreAsaas } from './AdminStoreAsaas';
 import { Link, useSearchParams } from 'react-router-dom';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useFeedback } from './Feedback';
 import { getDriverLicensePhoto, getAdminDrivers, setAdminBlock, setDriverDeliveryRateLock, setDriverMissedOfferBlock } from '../services/api';
 import type { AdminDriver } from '../services/api';
@@ -18,10 +18,49 @@ const vehicleLabels: Record<string, string> = {
   truck: 'Caminhão',
 };
 
+function DriverLicensePreview({ driver, onClose }: { driver: AdminDriver; onClose: () => void }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [url, setUrl] = useState<string>();
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    const request = new AbortController();
+    let photoUrl: string | undefined;
+    void getDriverLicensePhoto(driver.id, request.signal).then((file) => {
+      if (request.signal.aborted) return;
+      photoUrl = URL.createObjectURL(file);
+      setUrl(photoUrl);
+    }).catch(() => {
+      if (!request.signal.aborted) setFailed(true);
+    });
+    return () => {
+      request.abort();
+      if (photoUrl) URL.revokeObjectURL(photoUrl);
+    };
+  }, [driver.id]);
+
+  useEffect(() => {
+    if (!dialog.current?.open) dialog.current?.showModal();
+  }, []);
+
+  return (
+    <dialog ref={dialog} className="feedback-dialog admin-license-preview" aria-labelledby="driver-license-title" onClose={onClose}>
+      <h2 id="driver-license-title">CNH de {driver.full_name}</h2>
+      {failed ? <p role="alert">Não foi possível visualizar a foto da CNH.</p>
+        : url ? <img src={url} alt={`Foto da CNH de ${driver.full_name}`} onError={() => setFailed(true)} />
+        : <p role="status">Carregando foto da CNH…</p>}
+      <div className="feedback-actions">
+        <button type="button" className="btn-secondary" onClick={() => dialog.current?.close()}>Fechar</button>
+      </div>
+    </dialog>
+  );
+}
+
 export function AdminDrivers({ auditOnly = false }: { auditOnly?: boolean }) {
   const [search, setSearch] = useSearchParams();
   const selectedAuditDriver = auditOnly ? search.get('entregador') : null;
   const [selectedAsaasDriver, setSelectedAsaasDriver] = useState<string>();
+  const [previewDriver, setPreviewDriver] = useState<AdminDriver>();
   const [drivers, setDrivers] = useState<AdminDriver[]>();
   const [savingId, setSavingId] = useState<string>();
   const [lockingId, setLockingId] = useState<string>();
@@ -151,6 +190,7 @@ export function AdminDrivers({ auditOnly = false }: { auditOnly?: boolean }) {
   return (
     <section className="admin-drivers" aria-labelledby="drivers-heading">
       <h2 id="drivers-heading">Entregadores</h2>
+      {previewDriver && <DriverLicensePreview key={previewDriver.id} driver={previewDriver} onClose={() => setPreviewDriver(undefined)} />}
       {loadError && <p className="error-message" role="alert">{loadError}</p>}
       {asaasDriver && <AdminStoreAsaas key={asaasDriver.id} accountId={asaasDriver.id} driverName={asaasDriver.full_name} />}
       {error && <p className="error-message" role="alert">{error}</p>}
@@ -209,7 +249,10 @@ export function AdminDrivers({ auditOnly = false }: { auditOnly?: boolean }) {
                   Auditoria de entregas
                 </Link>
                 {driver.has_license_photo && (
-                  <button type="button" className="btn-secondary" onClick={() => void downloadLicense(driver)}>Baixar foto da CNH</button>
+                  <>
+                    <button type="button" className="btn-secondary" onClick={() => setPreviewDriver(driver)}>Visualizar foto da CNH</button>
+                    <button type="button" className="btn-secondary" onClick={() => void downloadLicense(driver)}>Baixar foto da CNH</button>
+                  </>
                 )}
                 {driver.status !== 'inactive' && (
                   <button type="button" className={driver.status === 'suspended' ? 'btn-primary' : 'btn-secondary'}

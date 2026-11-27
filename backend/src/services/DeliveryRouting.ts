@@ -2,7 +2,7 @@ export function validCoordinate(value: unknown, limit: number): value is number 
   return typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= limit;
 }
 
-interface RoutePoint { lat: number; lon: number }
+export interface RoutePoint { lat: number; lon: number }
 
 export class DeliveryProviderHttpError extends Error {
   constructor(readonly status: number) {
@@ -31,13 +31,17 @@ export async function locateDeliveryAddress(geocoderUrl: string, address: string
 }
 
 export async function routeDelivery(routeUrl: string, pickup: RoutePoint, destination: RoutePoint, signal: AbortSignal) {
+  return routeDeliveryStops(routeUrl, [pickup, destination], signal);
+}
+
+export async function routeDeliveryStops(routeUrl: string, locations: RoutePoint[], signal: AbortSignal) {
   const response = await fetch(routeUrl, {
     method: 'POST',
     redirect: 'error',
     signal,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      locations: [pickup, destination],
+      locations: locations.map((point) => ({ ...point, type: 'break' })),
       costing: 'motorcycle',
       format: 'osrm',
       shape_format: 'geojson',

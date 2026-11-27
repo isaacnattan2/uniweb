@@ -23,6 +23,8 @@ export const dispatchExclusionReasons: Record<string, string> = {
   shift_unavailable: 'Sem horário de trabalho compatível',
   outside_radius: 'Fora do raio da loja',
   fee_over_limit: 'Frete acima do limite',
+  app_update_required: 'App sem suporte a múltiplas coletas',
+  route_unavailable: 'Rota até a primeira coleta indisponível',
   cannot_arrive_in_time: 'Tempo estimado excede o prazo',
 };
 

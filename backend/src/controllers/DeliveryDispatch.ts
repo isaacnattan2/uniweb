@@ -4,7 +4,7 @@ import { query } from '../config/database';
 import type { AuthRequest } from '../middleware/auth';
 import { storeCanReceivePayout } from '../services/AsaasStoreApproval';
 import { formatDeliveryAddress, normalizeDeliveryAddress } from '../services/DeliveryAddress';
-import { DeliveryProviderHttpError, locateDeliveryAddress, routeDelivery, validCoordinate } from '../services/DeliveryRouting';
+import { DeliveryProviderHttpError, locateDeliveryAddress, routeDeliveryStops, validCoordinate } from '../services/DeliveryRouting';
 import { ratePickupAddress } from '../services/OrderDeliveryDistance';
 import { dispatchTransaction, dispatchUuid, dispatchWindowMinutes, findDispatchCandidates, findDispatchSlotOptions, findDispatchSlots, recordDispatchEarnings, releaseDispatchAssignment, respondToDispatchOffer } from '../services/DeliveryDispatch';
 import type { DispatchRoute } from '../services/DeliveryDispatch';
@@ -13,47 +13,69 @@ import { notifyAdminDriverPresence, notifyOrderEvent } from '../services/OrderPu
 export async function quoteDelivery(req: AuthRequest, res: Response) {
   if (req.userType !== 'customer' || !req.userId) return res.sendStatus(403);
   const { businessId, address, mode } = req.body ?? {};
+  const requested = req.body?.businessIds ?? [businessId];
   const normalized = normalizeDeliveryAddress(address);
   const destination = normalized && formatDeliveryAddress(normalized);
-  if (typeof businessId !== 'string' || !dispatchUuid.test(businessId) || !destination) {
+  if (!Array.isArray(requested) || !requested.length || requested.length > 20 ||
+      !requested.every((id) => typeof id === 'string' && dispatchUuid.test(id)) || !destination) {
     return res.status(400).json({ error: 'Informe a loja e o endereço completo de entrega.' });
   }
   if (mode !== 'immediate' && mode !== 'scheduled') {
     return res.status(400).json({ error: 'Escolha entrega imediata ou agendada.' });
   }
-  const { rows: [settings] } = await query(
-    `SELECT ${ratePickupAddress} AS pickup_address, b.owner_id, p.default_cents, s.radius_meters, s.subsidy_cents
+  const ids = [...new Set<string>(requested.map((id: string) => id.toLowerCase()))];
+  const { rows: stores } = await query(
+    `SELECT b.id, ${ratePickupAddress} AS pickup_address, b.owner_id, p.default_cents, s.radius_meters, s.subsidy_cents
      FROM businesses b JOIN users u ON u.id = b.owner_id AND u.status = 'active'
      CROSS JOIN delivery_dispatch_settings s CROSS JOIN driver_delivery_rate_policy p
-     WHERE b.id = $1 AND b.status = 'active' AND b.deleted_at IS NULL`, [businessId]
+     WHERE b.id = ANY($1::uuid[]) AND b.status = 'active' AND b.deleted_at IS NULL ORDER BY b.id`, [ids]
   );
-  if (!settings?.pickup_address) return res.status(422).json({ error: 'A loja ainda não disponibiliza frete para entrega.' });
-  if (!await storeCanReceivePayout(businessId, settings.owner_id)) {
+  if (stores.length !== ids.length || stores.some((store) => !store.pickup_address)) {
+    return res.status(422).json({ error: 'Uma loja do carrinho ainda não disponibiliza frete para entrega.' });
+  }
+  const eligibility = await Promise.all(stores.map((store) => storeCanReceivePayout(store.id, store.owner_id)));
+  if (eligibility.includes(false)) {
     return res.status(409).json({ error: 'A loja est\u00e1 com o cadastro de recebimentos pendente.' });
   }
   const geocoder = process.env.NOMINATIM_SEARCH_URL?.trim();
   const router = process.env.VALHALLA_ROUTE_URL?.trim();
   if (!geocoder || !router) return res.status(503).json({ error: 'A cotação de entrega está temporariamente indisponível.' });
   let route: DispatchRoute;
+  let stops: { businessId: string; address: string }[];
   let provider = 'nominatim';
   let signal = AbortSignal.timeout(8000);
   try {
-    const [pickup, dropoff] = await Promise.all([
-      locateDeliveryAddress(geocoder, settings.pickup_address, signal),
-      locateDeliveryAddress(geocoder, destination, signal),
-    ]);
+    const [dropoff, ...pickups] = await Promise.all([destination, ...stores.map((store) => store.pickup_address)]
+      .map((location) => locateDeliveryAddress(geocoder, location, signal)));
+    if (!dropoff || pickups.some((point) => !point)) {
+      return res.status(422).json({ error: 'Não foi possível localizar todos os pontos de coleta e entrega.' });
+    }
+    const distanceFrom = (a: NonNullable<typeof dropoff>, b: NonNullable<typeof dropoff>) =>
+      (a.lat - b.lat) ** 2 + (a.lon - b.lon) ** 2;
+    const remaining = stores.map((store, index) => ({ store, point: pickups[index]! }));
+    const ordered = [];
+    let nextPoint = dropoff;
+    while (remaining.length) {
+      remaining.sort((a, b) => distanceFrom(a.point, nextPoint) - distanceFrom(b.point, nextPoint));
+      const stop = remaining.shift()!;
+      ordered.unshift(stop);
+      nextPoint = stop.point;
+    }
+    const { point: pickup, store: settings } = ordered[0];
+    stops = ordered.map(({ store }) => ({ businessId: store.id, address: store.pickup_address }));
     provider = 'valhalla';
     signal = AbortSignal.timeout(8000);
-    const trip = pickup && dropoff && await routeDelivery(router, pickup, dropoff, signal);
-    if (!pickup || !trip || !Number.isFinite(trip.distance) || trip.distance < 0 || trip.distance > 1000000 ||
+    const trip = await routeDeliveryStops(router, [...ordered.map(({ point }) => point), dropoff], signal);
+    if (!trip || !Number.isFinite(trip.distance) || trip.distance < 0 || trip.distance > 1000000 ||
         !Number.isFinite(trip.duration) || trip.duration < 0) {
       return res.status(422).json({ error: 'Não foi possível calcular uma rota da loja até este endereço.' });
     }
     const distance = Math.round(trip.distance);
     route = {
       pickup_latitude: pickup.lat, pickup_longitude: pickup.lon, distance_meters: distance,
-      duration_minutes: Math.max(1, Math.ceil(trip.duration / 60)), rate_cents: settings.default_cents,
+      duration_minutes: Math.max(1, Math.ceil(trip.duration / 60)) + (stops.length - 1) * 5, rate_cents: settings.default_cents,
       fee_cents: Math.round(settings.default_cents * distance / 1000),
+      multiPickup: stops.length > 1,
       subsidy_cents: settings.subsidy_cents, radius_meters: settings.radius_meters,
     };
   } catch (error) {
@@ -79,16 +101,18 @@ export async function quoteDelivery(req: AuthRequest, res: Response) {
     }
     options.sort((a, b) => a.feeCents - b.feeCents);
   } else if (slots.length) {
-    options.push({ id: randomUUID(), feeCents: route.fee_cents, estimatedMinutes: null });
+    options.push({ id: randomUUID(), feeCents: stops.length > 1
+      ? Math.max(...slotOptions.map(({ feeCents }) => feeCents)) : route.fee_cents, estimatedMinutes: null });
   }
   if (options.length) await query(
     `INSERT INTO delivery_quotes (id, user_id, business_id, destination, pickup_address, pickup_latitude, pickup_longitude,
-       distance_meters, duration_minutes, rate_cents, fee_cents, subsidy_cents, radius_meters, immediate_minutes, expires_at)
-     SELECT option.id,$1,$2,$3,$4,$5,$6,$7,$8,$9,option.fee_cents,$10,$11,option.estimated_minutes,NOW() + INTERVAL '5 minutes'
+       distance_meters, duration_minutes, rate_cents, fee_cents, subsidy_cents, radius_meters, immediate_minutes, expires_at, pickup_stops)
+     SELECT option.id,$1,$2,$3,$4,$5,$6,$7,$8,$9,option.fee_cents,$10,$11,option.estimated_minutes,NOW() + INTERVAL '5 minutes',$15::jsonb
      FROM unnest($12::uuid[], $13::int[], $14::int[]) AS option(id, fee_cents, estimated_minutes)`,
-    [req.userId, businessId, destination, settings.pickup_address, route.pickup_latitude, route.pickup_longitude,
+    [req.userId, stops[0].businessId, destination, stops[0].address, route.pickup_latitude, route.pickup_longitude,
       route.distance_meters, route.duration_minutes, route.rate_cents, route.subsidy_cents, route.radius_meters,
-      options.map(({ id }) => id), options.map(({ feeCents }) => feeCents), options.map(({ estimatedMinutes }) => estimatedMinutes)]
+      options.map(({ id }) => id), options.map(({ feeCents }) => feeCents), options.map(({ estimatedMinutes }) => estimatedMinutes),
+      stops.length > 1 ? JSON.stringify(stops) : null]
   );
   res.set('Cache-Control', 'no-store');
   return res.json({
@@ -99,6 +123,7 @@ export async function quoteDelivery(req: AuthRequest, res: Response) {
 export async function updateDriverPresence(req: AuthRequest, res: Response) {
   if (req.userType !== 'driver' || !req.userId) return res.sendStatus(403);
   const { action, latitude, longitude } = req.body ?? {};
+  const multiPickup = req.body?.multiPickup === true;
   if (!['checkin','checkout','location'].includes(action) ||
       (action !== 'checkout' && (!validCoordinate(latitude, 90) || !validCoordinate(longitude, 180)))) {
     return res.status(400).json({ error: 'Informe uma ação e localização válidas.' });
@@ -113,31 +138,31 @@ export async function updateDriverPresence(req: AuthRequest, res: Response) {
   }
   if (action === 'location') {
     const { rowCount } = await query(
-      'UPDATE driver_dispatch_presence SET latitude = $2, longitude = $3, location_at = NOW() WHERE user_id = $1 AND online',
-      [req.userId, latitude, longitude]
+      'UPDATE driver_dispatch_presence SET latitude = $2, longitude = $3, location_at = NOW(), multi_pickup = $4 WHERE user_id = $1 AND online',
+      [req.userId, latitude, longitude, multiPickup]
     );
     if (rowCount) return res.json({ online: true, blockedUntil: null });
     return res.json(await driverBlockStatus(req.userId));
   }
   const { rowCount } = await query(
-    `INSERT INTO driver_dispatch_presence (user_id, online, latitude, longitude, location_at, checked_in_at)
-     SELECT user_id, true, $2, $3, NOW(), NOW() FROM drivers WHERE user_id = $1 AND deleted_at IS NULL
+    `INSERT INTO driver_dispatch_presence (user_id, online, latitude, longitude, location_at, checked_in_at, multi_pickup)
+     SELECT user_id, true, $2, $3, NOW(), NOW(), $4 FROM drivers WHERE user_id = $1 AND deleted_at IS NULL
      ON CONFLICT (user_id) DO UPDATE SET online = true, latitude = EXCLUDED.latitude,
-       longitude = EXCLUDED.longitude, location_at = NOW(),
+       longitude = EXCLUDED.longitude, location_at = NOW(), multi_pickup = EXCLUDED.multi_pickup,
        checked_in_at = NOW(), blocked_until = NULL,
        ignored_offers = CASE WHEN driver_dispatch_presence.blocked_until IS NOT NULL THEN 0 ELSE driver_dispatch_presence.ignored_offers END
      WHERE NOT driver_dispatch_presence.online
        AND (driver_dispatch_presence.blocked_until IS NULL OR driver_dispatch_presence.blocked_until <= NOW())`,
-    [req.userId, latitude, longitude]
+    [req.userId, latitude, longitude, multiPickup]
   );
   if (rowCount) {
     notifyAdminDriverPresence();
     return res.json({ online: true });
   }
   const refreshed = await query(
-    `UPDATE driver_dispatch_presence p SET latitude = $2, longitude = $3, location_at = NOW()
+    `UPDATE driver_dispatch_presence p SET latitude = $2, longitude = $3, location_at = NOW(), multi_pickup = $4
      WHERE p.user_id = $1 AND p.online AND EXISTS (SELECT 1 FROM drivers d WHERE d.user_id = p.user_id AND d.deleted_at IS NULL)`,
-    [req.userId, latitude, longitude],
+    [req.userId, latitude, longitude, multiPickup],
   );
   if (refreshed.rowCount) return res.json({ online: true, blockedUntil: null });
   return res.json(await driverBlockStatus(req.userId));
@@ -277,7 +302,7 @@ export async function respondDispatch(req: AuthRequest, res: Response) {
   if (!dispatchUuid.test(orderId) || typeof offerId !== 'string' || !dispatchUuid.test(offerId) || typeof accept !== 'boolean') {
     return res.status(400).json({ error: 'Oferta inválida.' });
   }
-  if (!await respondToDispatchOffer(req.userId, orderId, offerId, accept)) {
+  if (!await respondToDispatchOffer(req.userId, orderId, offerId, accept, req.body?.multiPickup === true)) {
     return res.status(409).json({ error: 'A oferta expirou ou a corrida já não está disponível.' });
   }
   if (accept) notifyOrderEvent('assigned', [orderId]);
@@ -287,6 +312,10 @@ export async function respondDispatch(req: AuthRequest, res: Response) {
 export async function markDeliveryPickedUp(req: AuthRequest, res: Response) {
   if (req.userType !== 'driver' || !req.userId) return res.sendStatus(403);
   if (!dispatchUuid.test(req.params.orderId)) return res.sendStatus(400);
+  const stopOrderId = req.body?.stopOrderId;
+  if (stopOrderId !== undefined && (typeof stopOrderId !== 'string' || !dispatchUuid.test(stopOrderId))) return res.sendStatus(400);
+  const { orderId } = req.params;
+  let collectedOrderId = orderId;
   const rowCount = await dispatchTransaction(async (client) => {
     const { rows: [order] } = await client.query(
       `SELECT j.state FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id
@@ -296,6 +325,30 @@ export async function markDeliveryPickedUp(req: AuthRequest, res: Response) {
     if (order?.state === 'in_transit') return 2;
     if (order?.state !== 'assigned') return 0;
     await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1::text, 1))', [req.userId]);
+    const { rows: stops } = await client.query(
+      `SELECT order_id, collected_at FROM delivery_route_stops WHERE route_order_id = $1 ORDER BY position`, [orderId]);
+    if (stops.length) {
+      if (stops.some((stop) => stop.order_id === stopOrderId && stop.collected_at)) return 2;
+      const pending = stops.filter((stop) => !stop.collected_at);
+      if (pending[0]?.order_id !== stopOrderId) return 0;
+      const allowed = await client.query(
+        `SELECT 1 FROM delivery_dispatch j JOIN orders lead ON lead.id = j.order_id JOIN orders child ON child.id = $3
+         WHERE j.order_id = $1 AND lead.delivery_driver_id = $2 AND child.payment_status = 'paid'
+           AND child.order_status IN ('confirmed', 'processing') AND child.deleted_at IS NULL
+           AND (j.slot_at IS NULL OR j.slot_at <= NOW())
+           AND NOT EXISTS (
+             SELECT 1 FROM orders active LEFT JOIN delivery_dispatch dj ON dj.order_id = active.id
+             WHERE active.id <> lead.id AND active.delivery_driver_id = $2 AND active.deleted_at IS NULL
+               AND (active.delivery_status = 'in_transit' OR (active.delivery_status = 'processing'
+                 AND (dj.slot_at IS NULL OR dj.slot_at <= COALESCE(j.slot_at, NOW()))))
+           )`, [orderId, req.userId, stopOrderId]);
+      if (!allowed.rowCount) return 0;
+      collectedOrderId = stopOrderId;
+      if (pending.length > 1) {
+        await client.query('UPDATE delivery_route_stops SET collected_at = NOW() WHERE order_id = $1', [stopOrderId]);
+        return 1;
+      }
+    }
     const result = await client.query(
     `WITH picked_up AS (
        UPDATE orders o SET delivery_status = 'in_transit'
@@ -315,10 +368,16 @@ export async function markDeliveryPickedUp(req: AuthRequest, res: Response) {
      UPDATE delivery_dispatch SET state = 'in_transit' WHERE order_id IN (SELECT id FROM picked_up)`,
       [req.params.orderId, req.userId]
     );
+    if (result.rowCount && stops.length) {
+      await client.query('UPDATE delivery_route_stops SET collected_at = NOW() WHERE order_id = $1', [stopOrderId]);
+      await client.query(
+        `UPDATE orders SET delivery_status = 'in_transit', order_status = 'processing'
+         WHERE id IN (SELECT order_id FROM delivery_route_stops WHERE route_order_id = $1 AND order_id <> $1)`, [orderId]);
+    }
     return result.rowCount;
   });
   if (!rowCount) return res.status(409).json({ error: 'A retirada ainda não está disponível. Verifique o horário e se há outra corrida ativa.' });
-  if (rowCount === 1) notifyOrderEvent('collected', [req.params.orderId]);
+  if (rowCount === 1) notifyOrderEvent('collected', [collectedOrderId]);
   return res.sendStatus(204);
 }
 
@@ -370,6 +429,10 @@ export async function getCurrentDispatchOffer(req: AuthRequest, res: Response) {
      FROM delivery_dispatch_settings s LEFT JOIN LATERAL (
        SELECT f.id AS offer_id, f.order_id, f.expires_at, f.fee_cents, f.rate_cents, f.pickup_distance_meters, o.order_number,
               o.created_at, o.delivery_address, j.pickup_address, j.distance_meters, j.slot_at,
+              (SELECT json_agg(json_build_object('orderId', s.order_id, 'address', s.address,
+                'storeName', store.name, 'collected', false) ORDER BY s.position)
+               FROM delivery_route_stops s JOIN orders child ON child.id = s.order_id
+               JOIN businesses store ON store.id = child.business_id WHERE s.route_order_id = j.order_id) AS pickups,
               b.id AS store_id, b.name AS store_name
        FROM delivery_dispatch_offers f
        JOIN delivery_dispatch j ON j.order_id = f.order_id AND j.state = 'offered'
@@ -390,6 +453,7 @@ export async function getCurrentDispatchOffer(req: AuthRequest, res: Response) {
       offerId: row.offer_id, offerExpiresAt: row.expires_at, deliveryFee: row.fee_cents / 100,
       rateCents: row.rate_cents, distanceMeters: row.distance_meters, pickupDistanceMeters: row.pickup_distance_meters, scheduledAt: row.slot_at,
       pickup: { storeId: row.store_id, storeName: row.store_name, address: row.pickup_address },
+      ...(row.pickups && { pickups: row.pickups }),
       destinationArea: null, destinationAddress: row.delivery_address,
     } : null,
   });
@@ -399,7 +463,9 @@ export async function listDeliveryAlternatives(req: AuthRequest, res: Response) 
   if (req.userType !== 'customer' || !req.userId) return res.sendStatus(403);
   if (!dispatchUuid.test(req.params.orderId)) return res.sendStatus(400);
   const { rows: [job] } = await query(
-    `SELECT j.*, s.subsidy_cents AS current_subsidy_cents FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id
+    `SELECT j.*, s.subsidy_cents AS current_subsidy_cents,
+       EXISTS (SELECT 1 FROM delivery_route_stops stop WHERE stop.route_order_id = j.order_id) AS "multiPickup"
+     FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id
      JOIN delivery_dispatch_settings s ON s.id = true
      WHERE j.order_id = $1 AND o.user_id = $2 AND j.state = 'needs_choice' AND o.payment_status = 'paid'`,
     [req.params.orderId, req.userId]
@@ -422,7 +488,9 @@ export async function rescheduleDelivery(req: AuthRequest, res: Response) {
   }
   const changed = await dispatchTransaction(async (client) => {
     const { rows: [job] } = await client.query(
-      `SELECT j.*, s.subsidy_cents AS current_subsidy_cents FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id
+      `SELECT j.*, s.subsidy_cents AS current_subsidy_cents,
+         EXISTS (SELECT 1 FROM delivery_route_stops stop WHERE stop.route_order_id = j.order_id) AS "multiPickup"
+       FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id
        JOIN delivery_dispatch_settings s ON s.id = true
        WHERE j.order_id = $1 AND o.user_id = $2 AND j.state = 'needs_choice'
          AND o.order_status = 'confirmed' AND o.payment_status = 'paid' FOR UPDATE OF o, j`, [orderId, req.userId]
@@ -469,19 +537,31 @@ export async function resolveDispatchIncident(req: AuthRequest, res: Response) {
        WHERE j.order_id = $1 AND j.state = 'incident' AND o.payment_status = 'paid' FOR UPDATE OF o, j`, [orderId]
     );
     if (!job) return false;
+    const { rows: stops } = await client.query(
+      'SELECT order_id, collected_at FROM delivery_route_stops WHERE route_order_id = $1 ORDER BY position', [orderId]);
+    const orderIds = stops.length ? stops.map((stop) => stop.order_id) : [orderId];
+    const incomplete = stops.some((stop) => !stop.collected_at);
+    if (action === 'delivered' && incomplete) return false;
     await client.query(
       'UPDATE delivery_dispatch SET resolution_reason = $2, resolved_by = $3, resolved_at = NOW() WHERE order_id = $1',
       [orderId, reason, req.userId]
     );
     if (action === 'returned') {
+      await client.query('UPDATE delivery_route_stops SET collected_at = NULL WHERE route_order_id = $1', [orderId]);
+      await client.query(
+        `UPDATE orders SET order_status = 'confirmed', delivery_status = 'pending'
+         WHERE id = ANY($1::uuid[]) AND id <> $2`, [orderIds, orderId]);
       await releaseDispatchAssignment(client, orderId, 'choice');
     } else if (action === 'resume') {
-      await client.query("UPDATE delivery_dispatch SET state = 'in_transit' WHERE order_id = $1", [orderId]);
+      await client.query(
+        `UPDATE delivery_dispatch SET state = CASE WHEN $2::boolean THEN 'assigned' ELSE 'in_transit' END,
+           promised_at = CASE WHEN $2::boolean THEN GREATEST(promised_at, NOW() + make_interval(mins => duration_minutes + 15))
+                              ELSE promised_at END WHERE order_id = $1`, [orderId, incomplete]);
     } else if (action === 'delivered') {
       await client.query("UPDATE delivery_dispatch SET state = 'delivered' WHERE order_id = $1", [orderId]);
       await client.query(
         `UPDATE orders SET order_status = 'completed', delivery_status = 'delivered', delivery_confirmation_code = NULL,
-         delivery_confirmation_attempts = 0, delivery_confirmation_retry_at = NULL WHERE id = $1`, [orderId]
+         delivery_confirmation_attempts = 0, delivery_confirmation_retry_at = NULL WHERE id = ANY($1::uuid[])`, [orderIds]
       );
       await client.query(
         `UPDATE deliveries SET status = 'delivered', completed_at = NOW(), tracking_latitude = NULL,
@@ -492,17 +572,17 @@ export async function resolveDispatchIncident(req: AuthRequest, res: Response) {
       await client.query("UPDATE delivery_dispatch SET state = 'cancelled', refund_state = 'pending' WHERE order_id = $1", [orderId]);
       await client.query(
         `UPDATE orders SET order_status = 'cancelled', delivery_status = 'cancelled',
-         delivery_confirmation_code = NULL WHERE id = $1`, [orderId]
+         delivery_confirmation_code = NULL WHERE id = ANY($1::uuid[])`, [orderIds]
       );
       await client.query(
         `UPDATE deliveries SET status = 'cancelled', tracking_latitude = NULL, tracking_longitude = NULL,
          tracking_updated_at = NULL, tracking_route_requested_at = NULL WHERE order_id = $1`, [orderId]
       );
     }
-    return true;
+    return orderIds;
   });
-  if (!changed) return res.status(409).json({ error: 'Esta ocorrência já foi resolvida.' });
+  if (!changed) return res.status(409).json({ error: 'A ocorrência já foi resolvida ou ainda há coletas pendentes.' });
   notifyOrderEvent(action === 'returned' ? 'delivery_unavailable' : action === 'delivered' ? 'delivered' :
-    action === 'cancel' ? 'cancelled' : 'collected', [orderId]);
+    action === 'cancel' ? 'cancelled' : 'collected', changed);
   return res.sendStatus(204);
 }

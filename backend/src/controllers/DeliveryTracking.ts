@@ -28,10 +28,12 @@ export async function getDeliveryTracking(req: AuthRequest, res: Response) {
   const { rows: [order] } = await query(
     `SELECT COALESCE(${activeOrder}, false) AND o.delivery_driver_id IS NOT NULL AS active,
             d.tracking_latitude, d.tracking_longitude, d.tracking_updated_at
-     FROM orders o
+     FROM orders requested
+     LEFT JOIN delivery_route_stops stop ON stop.order_id = requested.id
+     JOIN orders o ON o.id = COALESCE(stop.route_order_id, requested.id) AND o.user_id = requested.user_id
      LEFT JOIN deliveries d ON d.order_id = o.id AND ${assignedDelivery}
        AND d.tracking_updated_at > NOW() - INTERVAL '45 seconds'
-     WHERE o.id = $1 AND o.user_id = $2 AND o.deleted_at IS NULL`, [req.params.orderId, req.userId]
+     WHERE requested.id = $1 AND requested.user_id = $2 AND requested.deleted_at IS NULL`, [req.params.orderId, req.userId]
   );
   if (!order) return res.sendStatus(404);
   return res.json({

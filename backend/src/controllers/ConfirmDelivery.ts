@@ -74,12 +74,15 @@ export async function confirmDelivery(req: AuthRequest, res: Response, next: Nex
       await client.query(
         `UPDATE orders SET order_status = 'completed', delivery_status = 'delivered',
            delivery_confirmation_code = NULL, delivery_confirmation_attempts = 0,
-           delivery_confirmation_retry_at = NULL, updated_at = NOW() WHERE id = $1`, [orderId]
+           delivery_confirmation_retry_at = NULL, updated_at = NOW()
+         WHERE id = $1 OR id IN (SELECT order_id FROM delivery_route_stops WHERE route_order_id = $1)`, [orderId]
       );
       await client.query("UPDATE delivery_dispatch SET state = 'delivered' WHERE order_id = $1", [orderId]);
       if (order.dispatch_state) await recordDispatchEarnings(client, orderId);
+      const { rows: stops } = await client.query(
+        'SELECT order_id FROM delivery_route_stops WHERE route_order_id = $1 AND order_id <> $1', [orderId]);
       await client.query('COMMIT');
-      notifyOrderEvent('delivered', [orderId]);
+      notifyOrderEvent('delivered', [orderId, ...stops.map((stop) => stop.order_id)]);
       return res.sendStatus(204);
     } catch (error) {
       await client.query('ROLLBACK');
@@ -108,7 +111,9 @@ export async function cancelDelivery(req: AuthRequest, res: Response, next: Next
       await client.query('BEGIN');
       const { rows: [order] } = await client.query(
         `SELECT delivery_status, order_status,
-           (SELECT state FROM delivery_dispatch j WHERE j.order_id = orders.id) AS dispatch_state FROM orders
+           (SELECT state FROM delivery_dispatch j WHERE j.order_id = orders.id) AS dispatch_state,
+           EXISTS (SELECT 1 FROM delivery_route_stops s WHERE s.route_order_id = orders.id AND s.collected_at IS NOT NULL) AS has_collected
+         FROM orders
          WHERE id = $1 AND delivery_driver_id = $2 AND delivery_type = 'delivery'
            AND deleted_at IS NULL FOR UPDATE`, [orderId, req.userId]
       );
@@ -130,7 +135,7 @@ export async function cancelDelivery(req: AuthRequest, res: Response, next: Next
           await client.query('COMMIT');
           return res.sendStatus(204);
         }
-        if (order.delivery_status === 'in_transit') {
+        if (order.delivery_status === 'in_transit' || order.has_collected) {
           const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 500) : '';
           if (!reason) {
             await client.query('ROLLBACK');

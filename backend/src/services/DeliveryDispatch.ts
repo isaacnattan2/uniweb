@@ -4,6 +4,7 @@ import type { PoolClient, QueryResult } from 'pg';
 import { getClient, query } from '../config/database';
 import { driverCanReceivePayout, filterDriversEligibleForPayout } from './AsaasStoreApproval';
 import { notifyAdminDriverPresence, notifyDriverCheckinBlocked, notifyDriverOffer, notifyOrderEvent } from './OrderPush';
+import { routeDelivery } from './DeliveryRouting';
 
 export const dispatchUuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
@@ -16,9 +17,11 @@ export interface DispatchRoute {
   fee_cents: number;
   subsidy_cents: number;
   radius_meters: number;
+  multiPickup?: boolean;
 }
 
 type DispatchDatabase = { query: (sql: string, parameters?: unknown[]) => Promise<QueryResult> };
+type ApproachCache = Map<string, Promise<{ distance: number; duration: number } | null | undefined>>;
 
 export function dispatchWindowMinutes(route: DispatchRoute) {
   return route.duration_minutes + Math.ceil(route.radius_meters / 300) + 30;
@@ -39,6 +42,7 @@ const eligibleDrivers = (audit: boolean) => `
     p.location_at, p.blocked_until,
     array_remove(ARRAY[
     CASE WHEN (a.wallet_id IS NOT NULL AND a.encrypted_key IS NOT NULL) IS NOT TRUE THEN 'financial_account_missing' END,
+    CASE WHEN $13::boolean AND p.multi_pickup IS NOT TRUE THEN 'app_update_required' END,
     CASE WHEN (p.blocked_until IS NULL OR p.blocked_until <= NOW()) IS NOT TRUE THEN 'checkin_blocked' END,
     CASE WHEN ($8::timestamptz IS NOT NULL OR p.online) IS NOT TRUE THEN 'offline' END,
     CASE WHEN (($11::uuid IS NOT NULL OR $9::uuid IS NULL OR NOT EXISTS (
@@ -96,6 +100,7 @@ export async function findDispatchCandidates(
   reservedUserId: string | null = null,
   allRates = false,
   audit?: { searchCycle: number; searchUntil: Date; record: (event: DispatchAuditEvent) => void },
+  approachCache?: ApproachCache,
 ) {
   const { rows } = await db.query(
     `WITH eligible AS (${eligibleDrivers(Boolean(audit))}), priced AS (
@@ -108,7 +113,8 @@ export async function findDispatchCandidates(
         CASE WHEN pickup_meters IS NULL THEN CASE WHEN $8::timestamptz IS NULL
           THEN 'location_missing_or_stale' ELSE 'shift_unavailable' END
           WHEN pickup_meters > $7::int THEN 'outside_radius' END,
-        CASE WHEN NOT ($12::boolean OR $11::uuid IS NOT NULL OR fee_cents <= $6::int OR allow_lower_offer) THEN 'fee_over_limit' END,
+        CASE WHEN NOT ($12::boolean OR fee_cents <= $6::int OR NOT $13::boolean AND ($11::uuid IS NOT NULL OR allow_lower_offer))
+          THEN 'fee_over_limit' END,
         CASE WHEN COALESCE((SELECT enforce_delivery_deadline FROM delivery_dispatch_settings WHERE id = true), false)
           AND pickup_meters IS NOT NULL AND $10::timestamptz IS NOT NULL
           AND GREATEST(NOW(), COALESCE($8, NOW())) + make_interval(mins => pickup_minutes + $4::int) > $10
@@ -117,12 +123,47 @@ export async function findDispatchCandidates(
     )
     SELECT user_id, rate_cents, fee_cents,
       CASE WHEN $12::boolean THEN fee_cents ELSE LEAST(fee_cents, $6::int) END AS offer_fee_cents,
-      pickup_minutes, latitude, longitude, ROUND(pickup_meters)::int AS pickup_meters, location_at, blocked_until, reasons FROM evaluated
+      pickup_minutes, latitude, longitude, ROUND(pickup_meters)::int AS pickup_meters, location_at, blocked_until, reasons,
+      (SELECT enforce_delivery_deadline FROM delivery_dispatch_settings WHERE id = true) AS enforce_deadline FROM evaluated
     ${audit ? '' : 'WHERE cardinality(reasons) = 0'}
     ORDER BY pickup_minutes, fee_cents, user_id`,
     [route.pickup_latitude, route.pickup_longitude, route.distance_meters, route.duration_minutes,
-      route.rate_cents, route.fee_cents + route.subsidy_cents, route.radius_meters, slot, orderId, promisedAt, reservedUserId, allRates],
+      route.rate_cents, route.fee_cents + route.subsidy_cents, route.radius_meters, slot, orderId, promisedAt, reservedUserId, allRates, Boolean(route.multiPickup)],
   );
+  if (route.multiPickup) {
+    const router = process.env.VALHALLA_ROUTE_URL?.trim();
+    const pickup = { lat: route.pickup_latitude, lon: route.pickup_longitude };
+    const priceable = rows.filter((row) => !row.reasons.length);
+    for (let index = 0; index < priceable.length; index += 8) {
+      await Promise.all(priceable.slice(index, index + 8).map(async (row) => {
+        const origin = { lat: row.latitude, lon: row.longitude };
+        const key = `${origin.lat},${origin.lon}`;
+        let lookup = approachCache?.get(key);
+        if (!lookup) {
+          lookup = origin.lat === pickup.lat && origin.lon === pickup.lon
+            ? Promise.resolve({ distance: 0, duration: 0 })
+            : router ? routeDelivery(router, origin, pickup, AbortSignal.timeout(5000)).catch(() => null) : Promise.resolve(null);
+          approachCache?.set(key, lookup);
+        }
+        const approach = await lookup;
+        if (!approach || !Number.isFinite(approach.distance) || approach.distance < 0 || approach.distance > 1000000 ||
+            !Number.isFinite(approach.duration) || approach.duration < 0) {
+          row.reasons.push('route_unavailable');
+          return;
+        }
+        row.pickup_meters = Math.round(approach.distance);
+        row.pickup_minutes = Math.ceil(approach.duration / 60);
+        row.fee_cents = Math.round(row.rate_cents * (route.distance_meters + row.pickup_meters) / 1000);
+        row.offer_fee_cents = row.fee_cents;
+        if (!allRates && row.fee_cents > route.fee_cents + route.subsidy_cents) row.reasons.push('fee_over_limit');
+        if (row.enforce_deadline && promisedAt &&
+          Math.max(Date.now(), slot?.getTime() ?? 0) + (row.pickup_minutes + route.duration_minutes) * 60000 > promisedAt.getTime()) {
+          row.reasons.push('cannot_arrive_in_time');
+        }
+      }));
+    }
+    rows.sort((a, b) => a.pickup_minutes - b.pickup_minutes || a.fee_cents - b.fee_cents);
+  }
   const candidates = rows.filter((row) => row.reasons.length === 0) as {
     user_id: string; rate_cents: number; fee_cents: number; offer_fee_cents: number; pickup_meters: number;
     pickup_minutes: number; latitude: number; longitude: number;
@@ -163,9 +204,10 @@ export async function findDispatchSlotOptions(route: DispatchRoute, db: Dispatch
      ORDER BY slot LIMIT 48`, [route.duration_minutes + Math.ceil(route.radius_meters / 300)]
   );
   const available: { slot: Date; feeCents: number }[] = [];
+  const approachCache: ApproachCache | undefined = route.multiPickup ? new Map() : undefined;
   for (let index = 0; index < rows.length && available.length < 12; index += 8) {
     const batch = await Promise.all(rows.slice(index, index + 8).map(async ({ slot }) => {
-      const candidates = await findDispatchCandidates(db, route, slot, null, null, null, quote);
+      const candidates = await findDispatchCandidates(db, route, slot, null, null, null, quote, undefined, approachCache);
       return candidates.length ? { slot, feeCents: Math.min(...candidates.map((candidate) => candidate.fee_cents)) } : null;
     }));
     available.push(...batch.filter((option): option is { slot: Date; feeCents: number } => option !== null));
@@ -196,7 +238,10 @@ export async function tickDispatch() {
     const { rows: [lock] } = await client.query('SELECT pg_try_advisory_xact_lock(19750214) AS acquired');
     if (!lock.acquired) return { unavailable: [], blockedDrivers: [], events: [], debugEvents: [] };
     const { rows } = await client.query(
-      `SELECT j.*, o.order_status, o.payment_status, o.delivery_driver_id, s.audit_enabled, s.debug_started_at IS NOT NULL AS debug_enabled, s.subsidy_cents AS current_subsidy_cents FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id
+      `SELECT j.*, o.order_status, o.payment_status, o.delivery_driver_id, s.audit_enabled, s.debug_started_at IS NOT NULL AS debug_enabled, s.subsidy_cents AS current_subsidy_cents,
+         EXISTS (SELECT 1 FROM delivery_route_stops s WHERE s.route_order_id = j.order_id) AS "multiPickup",
+         EXISTS (SELECT 1 FROM delivery_route_stops s WHERE s.route_order_id = j.order_id AND s.collected_at IS NOT NULL) AS has_collected
+       FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id
        CROSS JOIN delivery_dispatch_settings s
        WHERE s.id = true AND (j.state IN ('scheduled','searching','offered') OR (j.state = 'assigned' AND j.promised_at <= NOW())) AND
          (j.state <> 'scheduled' OR j.slot_at <= NOW() + INTERVAL '30 minutes')
@@ -230,6 +275,12 @@ export async function tickDispatch() {
         await client.query("UPDATE delivery_dispatch SET state = 'searching' WHERE order_id = $1", [job.order_id]);
       }
       if (job.state === 'assigned') {
+        if (job.has_collected) {
+          await client.query(
+            "UPDATE delivery_dispatch SET state = 'incident', incident_reason = 'Prazo expirado após uma das coletas.' WHERE order_id = $1", [job.order_id]);
+          trace('dispatch_assignment_expired', { driverId: job.delivery_driver_id });
+          continue;
+        }
         await releaseDispatchAssignment(client, job.order_id, 'choice');
         trace('dispatch_assignment_expired', { driverId: job.delivery_driver_id });
         unavailable.push(job.order_id);
@@ -338,16 +389,18 @@ export async function tickDispatch() {
   }));
 }
 
-export async function respondToDispatchOffer(userId: string, orderId: string, offerId: string, accept: boolean) {
+export async function respondToDispatchOffer(userId: string, orderId: string, offerId: string, accept: boolean, multiPickup = false) {
   const debugEvents: DispatchAuditEvent[] = [];
   const result = await dispatchTransaction(async (client) => {
     const { rows: [job] } = await client.query(
       `SELECT j.*, o.delivery_driver_id, o.delivery_address, o.payment_status, o.order_status,
+              EXISTS (SELECT 1 FROM delivery_route_stops s WHERE s.route_order_id = j.order_id) AS "multiPickup",
               (SELECT debug_started_at IS NOT NULL FROM delivery_dispatch_settings WHERE id = true) AS debug_enabled
        FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id
        WHERE j.order_id = $1 FOR UPDATE OF o, j`, [orderId]
     );
     if (!job) return false;
+    if (accept && job.multiPickup && !multiPickup) return false;
     const trace = (event: string, reason?: string) => {
       if (job.debug_enabled) debugEvents.push({ event, orderId, offerId, driverId: userId,
         searchCycle: job.search_cycle, reason, occurredAt: new Date().toISOString() });

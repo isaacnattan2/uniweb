@@ -29,6 +29,11 @@ export async function settleAsaasOrders(client: PoolClient, id: string, paid: bo
       [rows.map((order) => order.id)]
     );
     newOrders = dispatch.rows.filter((job) => job.state !== 'cancelled').map((job) => job.order_id);
+    if (newOrders.length) {
+      const { rows: stops } = await client.query(
+        'SELECT order_id FROM delivery_route_stops WHERE route_order_id = ANY($1::uuid[]) AND order_id <> route_order_id', [newOrders]);
+      newOrders.push(...stops.map((stop) => stop.order_id));
+    }
     if (userId && rows.length) {
       await lockCart(client, userId);
       const ids = rows.filter((order) => order.order_status === 'confirmed').map((order) => order.id);

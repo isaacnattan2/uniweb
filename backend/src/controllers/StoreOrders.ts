@@ -15,9 +15,11 @@ export async function listStoreOrders(req: Request, res: Response) {
   }
   const { rows } = await query(
     `SELECT o.id, o.order_number, o.created_at, o.total, o.order_status AS status, o.payment_status,
-            o.delivery_type, o.delivery_status, (o.delivery_driver_id IS NOT NULL) AS delivery_assigned,
-            j.state AS dispatch_state, j.slot_at
-     FROM orders o LEFT JOIN delivery_dispatch j ON j.order_id = o.id
+            o.delivery_type, o.delivery_status, (COALESCE(lead.delivery_driver_id, o.delivery_driver_id) IS NOT NULL) AS delivery_assigned,
+            j.state AS dispatch_state, j.slot_at, stop.collected_at
+     FROM orders o LEFT JOIN delivery_route_stops stop ON stop.order_id = o.id
+     LEFT JOIN orders lead ON lead.id = stop.route_order_id
+     LEFT JOIN delivery_dispatch j ON j.order_id = COALESCE(stop.route_order_id, o.id)
      WHERE o.business_id = $1 AND o.deleted_at IS NULL${orderId ? ' AND o.id = $4' : ''}
      ORDER BY o.created_at DESC NULLS LAST, o.id LIMIT $2 OFFSET $3`,
     orderId ? [req.params.id, pageSize + 1, 0, orderId] : [req.params.id, pageSize + 1, Number(offset)]
@@ -37,6 +39,7 @@ export async function updateStoreOrder(req: Request, res: Response) {
   if (!requeue) {
     const managed = await cancelOwnedOrder(orderId, id, true);
     if (managed.found) {
+      if (managed.shared_route) return res.status(409).json({ error: 'Encaminhe ao suporte o cancelamento de entrega com várias coletas.' });
       if (managed.blocked && !managed.changed) return res.status(409).json({ error: 'A retirada já ocorreu. Encaminhe este pedido ao suporte.' });
       if (managed.changed) notifyOrderEvent('cancelled', [orderId], managed.offered_driver_id);
       return res.sendStatus(204);
@@ -51,6 +54,7 @@ export async function updateStoreOrder(req: Request, res: Response) {
          delivery_confirmation_retry_at = NULL, updated_at = NOW()
        WHERE id = $1 AND business_id = $2 AND deleted_at IS NULL
          AND NOT EXISTS (SELECT 1 FROM delivery_dispatch j WHERE j.order_id = orders.id)
+         AND NOT EXISTS (SELECT 1 FROM delivery_route_stops s WHERE s.order_id = orders.id)
          AND order_status IN ('pending', 'confirmed', 'processing')
          AND ${requeue
            ? "payment_status = 'paid' AND delivery_type = 'delivery' AND delivery_status = 'cancelled' AND delivery_driver_id IS NOT NULL"
