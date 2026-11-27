@@ -1,17 +1,16 @@
 import { getClient, query } from '../config/database';
-import { getAsaasConfig } from './AsaasCheckout';
+import { asaasPaymentIdPattern, getAsaasConfig } from './AsaasCheckout';
 import { cardApi, AsaasCardError } from './AsaasSavedCards';
 import { notifyAsaasSettlement, settleAsaasOrders } from './AsaasPaymentSettlement';
 
 type AsaasConfig = NonNullable<ReturnType<typeof getAsaasConfig>>;
 export type CardPaymentState = 'paid' | 'pending' | 'failed';
 type ProviderPayment = { id?: string; externalReference?: string; customer?: string; billingType?: string; status?: string; installment?: string };
-const idPattern = /^pay_[a-z0-9]+$/i;
 const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
 export async function observeDirectCardPayment(payment?: ProviderPayment, refused = false) {
   const reference = payment?.externalReference;
-  if (!reference || !uuid.test(reference) || typeof payment?.id !== 'string' || !idPattern.test(payment.id) ||
+  if (!reference || !uuid.test(reference) || typeof payment?.id !== 'string' || !asaasPaymentIdPattern.test(payment.id) ||
       payment.billingType !== 'CREDIT_CARD' || typeof payment.customer !== 'string') return 'pending';
   const paid = payment.status === 'CONFIRMED' || payment.status === 'RECEIVED';
   const failed = refused || payment.status === 'REFUSED';

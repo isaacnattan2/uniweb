@@ -4,9 +4,9 @@ import { query } from '../config/database';
 import { readSplitCondition, worstCardBand } from '../services/AsaasSplit';
 import { asaasStoreRequest, decryptStoreKey, sandboxStoreConfig, storeSandboxApi } from '../services/AsaasStoreAccounts';
 import { loadAsaasFees } from './AdminAsaasFees';
+import { asaasPaymentIdPattern } from '../services/AsaasCheckout';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const paymentId = /^pay_[a-z0-9]+$/i;
 
 interface SplitPayment {
   id: string;
@@ -27,7 +27,7 @@ async function readSharedCardPayments(key: string, reference: string, gross: num
   const plan = payments[0]?.installment;
   if (hasMore || !payments.length || payments.length !== count ||
       (count > 1 && !plan) || new Set(payments.map(({ id }) => id)).size !== count ||
-      payments.some((payment) => !paymentId.test(payment.id) || payment.installment !== plan) ||
+      payments.some((payment) => !asaasPaymentIdPattern.test(payment.id) || payment.installment !== plan) ||
       payments.reduce((total, payment) => total + Math.round(payment.value * 100), 0) !== gross) return;
   return payments;
 }
@@ -182,7 +182,7 @@ export async function readSplitPayments(_req: Request, res: Response) {
   }) => {
     if (!shared_reference) return order;
     let payments = byCheckout.get(shared_reference);
-    if (order.payment_status === 'paid' && paymentId.test(shared_payment_id) && !payments) {
+    if (order.payment_status === 'paid' && asaasPaymentIdPattern.test(shared_payment_id) && !payments) {
       payments = readSharedCardPayments(config.parentKey, shared_reference, Number(shared_gross), installment_count)
         .catch(() => undefined);
       byCheckout.set(shared_reference, payments);
@@ -190,7 +190,7 @@ export async function readSplitPayments(_req: Request, res: Response) {
     const charges = await payments;
     return {
       ...order,
-      shared_payment_id: paymentId.test(shared_payment_id) ? shared_payment_id : null,
+      shared_payment_id: asaasPaymentIdPattern.test(shared_payment_id) ? shared_payment_id : null,
       store_split_status: order.snapshot.storeEstimate === 0 ? 'none'
         : charges && sharedWalletSettled(charges, order.snapshot.split.walletId, Number(wallet_cents)) ? 'done' : 'unconfirmed',
     };
@@ -303,7 +303,7 @@ export async function sendDriverSplitPayment(req: Request, res: Response) {
       net = totalCents('netValue');
       if ((!planId && payments.length !== 1) || payments.length === 0 ||
           new Set(payments.map((payment) => payment.id)).size !== payments.length ||
-          payments.some((payment) => !paymentId.test(payment.id) || payment.status !== 'RECEIVED' ||
+          payments.some((payment) => !asaasPaymentIdPattern.test(payment.id) || payment.status !== 'RECEIVED' ||
             !Number.isFinite(payment.netValue) || payment.netValue < 0 || payment.netValue > payment.value) ||
           totalCents('value') !== order.snapshot.gross || !Number.isSafeInteger(net)) {
         return res.status(409).json({ error: 'O Asaas ainda não confirmou o recebimento integral deste checkout.' });

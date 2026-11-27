@@ -1,5 +1,5 @@
 import { query } from '../config/database';
-import { getAsaasConfig } from './AsaasCheckout';
+import { asaasPaymentIdPattern, getAsaasConfig } from './AsaasCheckout';
 import { dispatchUuid } from './DeliveryDispatch';
 
 interface AsaasPayment {
@@ -66,7 +66,7 @@ export async function reconcileDeliveryRefunds() {
       const total = payments.reduce((sum, payment) => sum + Math.round(payment.value * 100), 0);
       if (result.hasMore || !payments.length || total !== Math.round(Number(job.total) * 100) ||
           new Set(payments.map((payment) => payment.id)).size !== payments.length ||
-          payments.some(({ id }) => !/^pay_[a-z0-9]+$/i.test(id))) {
+          payments.some(({ id }) => !asaasPaymentIdPattern.test(id))) {
         if (Date.now() - new Date(job.updated_at).getTime() > 300000) await markRefundForReview(job.order_id);
         continue;
       }

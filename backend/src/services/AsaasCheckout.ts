@@ -1,4 +1,5 @@
 export const MAX_CARD_INSTALLMENTS = 12;
+export const asaasPaymentIdPattern = /^pay_[a-z0-9_]+$/i;
 export const checkoutIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export class AsaasCheckoutSetupError extends Error {
