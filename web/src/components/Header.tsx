@@ -53,6 +53,10 @@ export function Header({ compact = false, leading }: { compact?: boolean; leadin
     navigate(userType === 'driver' ? '/login/driver' : '/login');
   };
 
+  const rideDownload = rideApk
+    ? <a className="header-ride-download" href={rideApk}>Baixar UniCorrida</a>
+    : <button className="header-ride-download" type="button" disabled title="APK ainda indisponível">Baixar UniCorrida</button>;
+
   return (
     <header className="header">
       <div className="container">
@@ -76,9 +80,6 @@ export function Header({ compact = false, leading }: { compact?: boolean; leadin
           )}
 
           {!isAuthPage && isShopper && <nav className="nav" aria-label="Navegação principal">
-            {rideApk
-              ? <a className="header-ride-download" href={rideApk}>Baixar UniCorrida</a>
-              : <button className="header-ride-download" type="button" disabled title="APK ainda indisponível">Baixar UniCorrida</button>}
             <Link to="/cart" className="nav-link">🛒 Carrinho ({cartItems.length})</Link>
             {token && (
               <>
@@ -91,17 +92,23 @@ export function Header({ compact = false, leading }: { compact?: boolean; leadin
           {!isAuthPage && <div className={compact ? "header-actions header-profile-actions" : "header-actions"}>
             {token && <div id="header-push-settings" />}
             {token ? (
-              <button onClick={handleLogout} className="btn-logout">
-                Sair
-              </button>
+              <>
+                <button onClick={handleLogout} className="btn-logout">
+                  Sair
+                </button>
+                {showRideDownload && rideDownload}
+              </>
             ) : (
               <>
                 <Link to="/login" className="btn-login">
                   Login
                 </Link>
-                <Link to="/register" className="btn-register">
-                  Registrar
-                </Link>
+                <div className="header-registration-actions">
+                  <Link to="/register" className="btn-register">
+                    Registrar
+                  </Link>
+                  {rideDownload}
+                </div>
               </>
             )}
           </div>}

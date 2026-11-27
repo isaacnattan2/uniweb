@@ -96,20 +96,6 @@
   color: #667eea;
 }
 
-.header-ride-download {
-  display: inline-flex;
-  align-items: center;
-  background: #2563eb;
-  color: #fff;
-  border: 0;
-  border-radius: 6px;
-  padding: 0.5rem 0.75rem;
-  font-size: 0.875rem;
-  font-weight: 600;
-  text-decoration: none;
-  white-space: nowrap;
-}
-
 a.header-ride-download:hover { background: #1d4ed8; }
 .header-ride-download:disabled { opacity: 0.55; }
 
@@ -157,6 +143,31 @@ a.header-ride-download:hover { background: #1d4ed8; }
 
 .btn-login:hover {
   background: #667eea;
+  color: white;
+}
+
+.header-registration-actions {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: inherit;
+}
+
+.btn-register,
+.header-ride-download {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 20px;
+  border: 0;
+  border-radius: 5px;
+  font: inherit;
+  font-weight: bold;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.header-ride-download {
+  background: #2563eb;
   color: white;
 }
 
@@ -210,11 +221,13 @@ a.header-ride-download:hover { background: #1d4ed8; }
   }
 
   .header-actions {
+    flex-wrap: wrap;
     gap: 8px;
   }
 
   .btn-login,
-  .btn-register {
+  .btn-register,
+  .header-ride-download {
     padding: 8px 10px;
   }
 }
