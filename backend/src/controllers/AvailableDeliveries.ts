@@ -56,7 +56,8 @@ async function listDeliveries(req: AuthRequest, res: Response, next: NextFunctio
          UNION ALL
          SELECT f.order_id, f.id, 'declined', NULL, f.offered_at
          FROM delivery_dispatch_offers f WHERE f.user_id = $3 AND f.state = 'declined' AND $4::text = 'declined'
-       )` : ''} SELECT o.id, o.order_number, o.created_at, o.delivery_status, o.order_status, b.id AS store_id, b.name AS store_name,
+       )` : ''} SELECT o.id, o.order_number, o.created_at, o.delivery_status, o.order_status, o.passenger_ride,
+              COALESCE(b.id, o.id) AS store_id, COALESCE(b.name, 'Corrida de passageiro') AS store_name,
               COALESCE(j.pickup_address, NULLIF(TRIM(b.address), '')) AS pickup_address,
               (SELECT json_agg(json_build_object('orderId', s.order_id, 'address', s.address,
                 'storeName', store.name, 'collected', s.collected_at IS NOT NULL) ORDER BY s.position)
@@ -74,7 +75,7 @@ async function listDeliveries(req: AuthRequest, res: Response, next: NextFunctio
               ${accepted ? ', h.history_offer_id, h.offer_status, h.missed_at' : ''}
        FROM orders o
        ${accepted ? 'JOIN history h ON h.order_id = o.id' : ''}
-       JOIN businesses b ON b.id = o.business_id
+       LEFT JOIN businesses b ON b.id = o.business_id
        LEFT JOIN deliveries d ON d.order_id = o.id AND d.deleted_at IS NULL
        LEFT JOIN delivery_dispatch j ON j.order_id = o.id
        LEFT JOIN delivery_dispatch_offers f ON f.order_id = o.id AND f.user_id = $3 AND f.state = 'pending' AND f.expires_at > NOW()
@@ -118,7 +119,8 @@ async function listDeliveries(req: AuthRequest, res: Response, next: NextFunctio
           orderId: row.id,
           orderNumber: row.order_number,
           createdAt: row.created_at,
-          pickup: { storeId: row.store_id, storeName: row.store_name, address: row.pickup_address },
+          pickup: { storeId: row.store_id, storeName: row.passenger_ride ? 'Corrida de passageiro' : row.store_name, address: row.pickup_address },
+          passengerRide: row.passenger_ride,
           ...(row.pickups && { pickups: row.pickups }),
           destinationArea: row.destination_area,
           destinationAddress: row.destination_address,

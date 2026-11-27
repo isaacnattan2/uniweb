@@ -84,8 +84,8 @@ async function sendOrderEvent(event: OrderEvent, orderIds: string[], offeredDriv
   if (!(web && event !== 'ready') && !(mobile && ['ready', 'cancelled', 'delivered'].includes(event))) return;
 
   const { rows } = await query(
-    `SELECT o.id, o.business_id, o.user_id, o.delivery_driver_id, b.owner_id, (j.order_id IS NOT NULL) AS managed_delivery
-     FROM orders o JOIN businesses b ON b.id = o.business_id
+    `SELECT o.id, o.business_id, o.user_id, o.delivery_driver_id, o.passenger_ride, b.owner_id, (j.order_id IS NOT NULL) AS managed_delivery
+     FROM orders o LEFT JOIN businesses b ON b.id = o.business_id
      LEFT JOIN delivery_dispatch j ON j.order_id = o.id
      WHERE o.id = ANY($1::uuid[])`, [orderIds],
   );
@@ -98,9 +98,9 @@ async function sendOrderEvent(event: OrderEvent, orderIds: string[], offeredDriv
 
   await Promise.all(rows.map(async (order) => {
     const orderCode = order.id.slice(0, 8).toUpperCase();
-    const body = `Pedido #${orderCode}${event === 'new' ? ' recebido' : ''}.`;
+    const body = order.passenger_ride ? `Corrida #${orderCode}.` : `Pedido #${orderCode}${event === 'new' ? ' recebido' : ''}.`;
     const sends: Promise<boolean>[] = [];
-    if (webApp && webKey && origin && web && event !== 'ready') {
+    if (webApp && webKey && origin && web && event !== 'ready' && !order.passenger_ride) {
       const storeUrl = new URL(`/business/${order.business_id}`, origin);
       storeUrl.searchParams.set('order', order.id);
       sends.push(sendPush(webApp, webKey, [order.owner_id], event, body, { url: storeUrl.href },
@@ -133,7 +133,7 @@ const offerDeadline = new Intl.DateTimeFormat('pt-BR', {
 });
 
 export async function notifyDriverOffer(offerId: string, orderId: string, userId: string, expiresAt: Date,
-  feeCents: number, distanceMeters: number) {
+  feeCents: number, distanceMeters: number, passengerRide = false) {
   const appId = process.env.ONESIGNAL_DRIVER_APP_ID;
   const key = process.env.ONESIGNAL_DRIVER_API_KEY;
   const alias = driverPushAlias(userId);
@@ -143,7 +143,7 @@ export async function notifyDriverOffer(offerId: string, orderId: string, userId
 
   const perKm = distanceMeters > 0 && Number.isFinite(feeCents)
     ? ` · ${offerCurrency.format((feeCents / 100) / (distanceMeters / 1000))}/km estimado` : '';
-  const body = `Pedido #${orderId.slice(0, 8).toUpperCase()}${perKm}\nAceite até ${offerDeadline.format(expiresAt)} (Brasília).`;
+  const body = `${passengerRide ? 'Corrida' : 'Pedido'} #${orderId.slice(0, 8).toUpperCase()}${perKm}\nAceite até ${offerDeadline.format(expiresAt)} (Brasília).`;
   const data = { orderId, section: 'available', offerId, offerExpiresAtMs };
   await recordDriverPush([userId], 'delivery_offer', orderId, body, data);
   const remaining = Math.floor((offerExpiresAtMs - Date.now()) / 1000);

@@ -433,7 +433,7 @@ export async function getCurrentDispatchOffer(req: AuthRequest, res: Response) {
     `SELECT s.offer_delivery_mode, clock_timestamp() AS server_now, pending.*
      FROM delivery_dispatch_settings s LEFT JOIN LATERAL (
        SELECT f.id AS offer_id, f.order_id, f.expires_at, f.fee_cents, f.rate_cents, f.pickup_distance_meters, o.order_number,
-              o.created_at, o.delivery_address, j.pickup_address, j.distance_meters, j.slot_at,
+              o.created_at, o.delivery_address, o.passenger_ride, j.pickup_address, j.distance_meters, j.slot_at,
               (SELECT json_agg(json_build_object('orderId', s.order_id, 'address', s.address,
                 'storeName', store.name, 'collected', false) ORDER BY s.position)
                FROM delivery_route_stops s JOIN orders child ON child.id = s.order_id
@@ -443,7 +443,7 @@ export async function getCurrentDispatchOffer(req: AuthRequest, res: Response) {
        JOIN delivery_dispatch j ON j.order_id = f.order_id AND j.state = 'offered'
        JOIN orders o ON o.id = f.order_id AND o.payment_status = 'paid'
          AND o.order_status IN ('confirmed','processing') AND o.deleted_at IS NULL
-       JOIN businesses b ON b.id = o.business_id
+       LEFT JOIN businesses b ON b.id = o.business_id
        WHERE f.user_id = $1 AND f.state = 'pending' AND f.expires_at > clock_timestamp()
          AND NOT EXISTS (SELECT 1 FROM driver_dispatch_presence p WHERE p.user_id = $1 AND p.blocked_until > NOW())
        LIMIT 1
@@ -457,7 +457,8 @@ export async function getCurrentDispatchOffer(req: AuthRequest, res: Response) {
       managed: true, orderId: row.order_id, orderNumber: row.order_number, createdAt: row.created_at,
       offerId: row.offer_id, offerExpiresAt: row.expires_at, deliveryFee: row.fee_cents / 100,
       rateCents: row.rate_cents, distanceMeters: row.distance_meters, pickupDistanceMeters: row.pickup_distance_meters, scheduledAt: row.slot_at,
-      pickup: { storeId: row.store_id, storeName: row.store_name, address: row.pickup_address },
+      pickup: { storeId: row.store_id ?? row.order_id, storeName: row.passenger_ride ? 'Corrida de passageiro' : row.store_name, address: row.pickup_address },
+      passengerRide: row.passenger_ride,
       ...(row.pickups && { pickups: row.pickups }),
       destinationArea: null, destinationAddress: row.delivery_address,
     } : null,
@@ -468,7 +469,7 @@ export async function listDeliveryAlternatives(req: AuthRequest, res: Response) 
   if (req.userType !== 'customer' || !req.userId) return res.sendStatus(403);
   if (!dispatchUuid.test(req.params.orderId)) return res.sendStatus(400);
   const { rows: [job] } = await query(
-    `SELECT j.*, s.subsidy_cents AS current_subsidy_cents,
+    `SELECT j.*, o.passenger_ride, s.subsidy_cents AS current_subsidy_cents,
        EXISTS (SELECT 1 FROM delivery_route_stops stop WHERE stop.route_order_id = j.order_id) AS "multiPickup"
      FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id
      JOIN delivery_dispatch_settings s ON s.id = true
@@ -493,7 +494,7 @@ export async function rescheduleDelivery(req: AuthRequest, res: Response) {
   }
   const changed = await dispatchTransaction(async (client) => {
     const { rows: [job] } = await client.query(
-      `SELECT j.*, s.subsidy_cents AS current_subsidy_cents,
+      `SELECT j.*, o.passenger_ride, s.subsidy_cents AS current_subsidy_cents,
          EXISTS (SELECT 1 FROM delivery_route_stops stop WHERE stop.route_order_id = j.order_id) AS "multiPickup"
        FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id
        JOIN delivery_dispatch_settings s ON s.id = true
@@ -519,8 +520,8 @@ export async function rescheduleDelivery(req: AuthRequest, res: Response) {
 
 export async function listDispatchIncidents(_req: Request, res: Response) {
   const { rows } = await query(
-    `SELECT j.order_id, j.state, j.incident_reason, j.refund_state, b.name AS store_name
-     FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id JOIN businesses b ON b.id = o.business_id
+    `SELECT j.order_id, j.state, j.incident_reason, j.refund_state, COALESCE(b.name, 'UniCorrida') AS store_name
+     FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id LEFT JOIN businesses b ON b.id = o.business_id
      WHERE j.state = 'incident' OR j.refund_state IN ('pending','processing','review')
      ORDER BY o.updated_at DESC LIMIT 100`
   );

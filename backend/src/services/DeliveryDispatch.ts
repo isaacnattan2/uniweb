@@ -18,6 +18,7 @@ export interface DispatchRoute {
   subsidy_cents: number;
   radius_meters: number;
   multiPickup?: boolean;
+  passenger_ride?: boolean;
 }
 
 type DispatchDatabase = { query: (sql: string, parameters?: unknown[]) => Promise<QueryResult> };
@@ -43,6 +44,7 @@ const eligibleDrivers = (audit: boolean) => `
     array_remove(ARRAY[
     CASE WHEN (a.wallet_id IS NOT NULL AND a.encrypted_key IS NOT NULL) IS NOT TRUE THEN 'financial_account_missing' END,
     CASE WHEN $13::boolean AND p.multi_pickup IS NOT TRUE THEN 'app_update_required' END,
+    CASE WHEN $14::boolean AND d.vehicle_type::text IS DISTINCT FROM 'car' THEN 'passenger_vehicle_required' END,
     CASE WHEN (p.blocked_until IS NULL OR p.blocked_until <= NOW()) IS NOT TRUE THEN 'checkin_blocked' END,
     CASE WHEN ($8::timestamptz IS NOT NULL OR p.online) IS NOT TRUE THEN 'offline' END,
     CASE WHEN (($11::uuid IS NOT NULL OR $9::uuid IS NULL OR NOT EXISTS (
@@ -128,7 +130,7 @@ export async function findDispatchCandidates(
     ${audit ? '' : 'WHERE cardinality(reasons) = 0'}
     ORDER BY pickup_minutes, fee_cents, user_id`,
     [route.pickup_latitude, route.pickup_longitude, route.distance_meters, route.duration_minutes,
-      route.rate_cents, route.fee_cents + route.subsidy_cents, route.radius_meters, slot, orderId, promisedAt, reservedUserId, allRates, Boolean(route.multiPickup)],
+      route.rate_cents, route.fee_cents + route.subsidy_cents, route.radius_meters, slot, orderId, promisedAt, reservedUserId, allRates, Boolean(route.multiPickup), Boolean(route.passenger_ride)],
   );
   if (route.multiPickup) {
     const router = process.env.VALHALLA_ROUTE_URL?.trim();
@@ -241,7 +243,7 @@ export async function tickDispatch() {
     const { rows: [lock] } = await client.query('SELECT pg_try_advisory_xact_lock(19750214) AS acquired');
     if (!lock.acquired) return { unavailable: [], blockedDrivers: [], events: [], debugEvents: [] };
     const { rows } = await client.query(
-      `SELECT j.*, o.order_status, o.payment_status, o.delivery_driver_id, s.audit_enabled, s.debug_started_at IS NOT NULL AS debug_enabled, s.subsidy_cents AS current_subsidy_cents,
+      `SELECT j.*, o.order_status, o.payment_status, o.delivery_driver_id, o.passenger_ride, s.audit_enabled, s.debug_started_at IS NOT NULL AS debug_enabled, s.subsidy_cents AS current_subsidy_cents,
          EXISTS (SELECT 1 FROM delivery_route_stops s WHERE s.route_order_id = j.order_id) AS "multiPickup",
          EXISTS (SELECT 1 FROM delivery_route_stops s WHERE s.route_order_id = j.order_id AND s.collected_at IS NOT NULL) AS has_collected
        FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id
@@ -368,17 +370,18 @@ export async function tickDispatch() {
     void Promise.all(blockedDrivers.map(({ userId, orderId }) => notifyDriverCheckinBlocked(userId, orderId)));
   }
   const { rows } = await query(
-    `SELECT f.id, f.order_id, f.user_id, f.expires_at, f.search_cycle, f.fee_cents,
+    `SELECT f.id, f.order_id, f.user_id, f.expires_at, f.search_cycle, f.fee_cents, o.passenger_ride,
        j.distance_meters + COALESCE(f.pickup_distance_meters, 0) AS estimated_distance_meters,
        s.audit_enabled, s.debug_started_at IS NOT NULL AS debug_enabled
      FROM delivery_dispatch_offers f
      JOIN delivery_dispatch j ON j.order_id = f.order_id
+     JOIN orders o ON o.id = f.order_id
      JOIN delivery_dispatch_settings s ON s.id = true AND s.offer_delivery_mode = 'push'
      WHERE f.state = 'pending' AND f.notified_at IS NULL AND f.expires_at > NOW() LIMIT 25`
   );
   await Promise.all(rows.map(async (offer) => {
     const sent = await notifyDriverOffer(offer.id, offer.order_id, offer.user_id, offer.expires_at,
-      offer.fee_cents, offer.estimated_distance_meters);
+      offer.fee_cents, offer.estimated_distance_meters, offer.passenger_ride);
     const event = { event: 'dispatch_offer_push', offerId: offer.id, searchCycle: offer.search_cycle,
       orderId: offer.order_id, driverId: offer.user_id, acceptedByProvider: sent };
     if (offer.audit_enabled) {
@@ -396,7 +399,7 @@ export async function respondToDispatchOffer(userId: string, orderId: string, of
   const debugEvents: DispatchAuditEvent[] = [];
   const result = await dispatchTransaction(async (client) => {
     const { rows: [job] } = await client.query(
-      `SELECT j.*, o.delivery_driver_id, o.delivery_address, o.payment_status, o.order_status,
+      `SELECT j.*, o.delivery_driver_id, o.delivery_address, o.payment_status, o.order_status, o.passenger_ride,
               EXISTS (SELECT 1 FROM delivery_route_stops s WHERE s.route_order_id = j.order_id) AS "multiPickup",
               (SELECT debug_started_at IS NOT NULL FROM delivery_dispatch_settings WHERE id = true) AS debug_enabled
        FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id

@@ -10,6 +10,14 @@ export function validCoordinate(value: unknown, limit: number): value is number 
 
 export interface RoutePoint { lat: number; lon: number }
 
+export function passengerGeocoderUrl() {
+  const token = process.env.UNICORRIDA_LOCATIONIQ_TOKEN?.trim();
+  if (!token) return process.env.NOMINATIM_SEARCH_URL?.trim();
+  const url = new URL('https://us1.locationiq.com/v1/search');
+  url.search = new URLSearchParams({ key: token, format: 'json' }).toString();
+  return url.href;
+}
+
 export class DeliveryProviderHttpError extends Error {
   constructor(readonly status: number) {
     super(`Delivery provider returned HTTP ${status}`);
@@ -24,13 +32,17 @@ export async function locateDeliveryAddresses(geocoderUrl: string, addresses: st
 }
 
 function locateDeliveryAddress(geocoderUrl: string, address: string, signal: AbortSignal): Promise<RoutePoint | null> {
+  return queueGeocoding(() => fetchDeliveryAddress(geocoderUrl, address, signal), signal);
+}
+
+export function queueGeocoding<T>(operation: () => Promise<T>, signal: AbortSignal): Promise<T> {
   const lookup = geocodingQueue.then(async () => {
     signal.throwIfAborted();
     const wait = Math.ceil(nextGeocodingStart - performance.now());
     if (wait > 0) await delay(wait, undefined, { signal });
     signal.throwIfAborted();
     nextGeocodingStart = performance.now() + geocodingIntervalMs;
-    return fetchDeliveryAddress(geocoderUrl, address, signal);
+    return operation();
   });
   geocodingQueue = lookup.then(() => {}, () => {});
   return lookup;
@@ -60,7 +72,7 @@ export async function routeDelivery(routeUrl: string, pickup: RoutePoint, destin
   return routeDeliveryStops(routeUrl, [pickup, destination], signal);
 }
 
-export async function routeDeliveryStops(routeUrl: string, locations: RoutePoint[], signal: AbortSignal) {
+export async function routeDeliveryStops(routeUrl: string, locations: RoutePoint[], signal: AbortSignal, costing: 'motorcycle' | 'auto' = 'motorcycle') {
   const response = await fetch(routeUrl, {
     method: 'POST',
     redirect: 'error',
@@ -68,7 +80,7 @@ export async function routeDeliveryStops(routeUrl: string, locations: RoutePoint
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       locations: locations.map((point) => ({ ...point, type: 'break' })),
-      costing: 'motorcycle',
+      costing,
       format: 'osrm',
       shape_format: 'geojson',
     }),

@@ -158,12 +158,12 @@ export async function readSplitPayments(_req: Request, res: Response) {
   const config = sandboxStoreConfig();
   if (!config) return res.status(503).json({ error: 'A consulta está disponível para o teste no Sandbox.' });
   const { rows } = await query(
-    `SELECT o.id, b.name AS store, o.payment_status, o.order_status, o.delivery_status, o.payment_method,
+    `SELECT o.id, CASE WHEN o.passenger_ride THEN 'UniCorrida' ELSE b.name END AS store, o.payment_status, o.order_status, o.delivery_status, o.payment_method,
          o.asaas_split_snapshot AS snapshot, e.amount_cents AS driver_cents,
          p.state AS payout_state, p.provider_status, p.payment_net_cents, p.store_cents, p.driver_cents AS confirmed_driver_cents,
          c.id AS shared_reference, c.provider_id AS shared_payment_id, c.installment_count,
          shared.gross AS shared_gross, shared.wallet_cents
-     FROM orders o JOIN businesses b ON b.id = o.business_id
+     FROM orders o LEFT JOIN businesses b ON b.id = o.business_id
      LEFT JOIN delivery_driver_earnings e ON e.order_id = o.id
      LEFT JOIN asaas_driver_payouts p ON p.order_id = o.id
      LEFT JOIN asaas_checkouts c ON c.id = o.asaas_checkout_id AND o.asaas_split_snapshot @> '{"sharedCard":true}'
@@ -212,7 +212,7 @@ export async function sendDriverSplitPayment(req: Request, res: Response) {
 
   const { rows: [order] } = await query(
     `SELECT o.asaas_split_snapshot AS snapshot, c.provider_id AS checkout_id, c.id AS checkout_reference, c.installment_count,
-       o.payment_method, e.user_id, e.amount_cents, a.wallet_id, a.encrypted_key, p.state, p.provider_id
+       o.payment_method, o.passenger_ride, e.user_id, e.amount_cents, a.wallet_id, a.encrypted_key, p.state, p.provider_id
      FROM orders o JOIN asaas_checkouts c ON c.id = o.asaas_checkout_id
      JOIN delivery_driver_earnings e ON e.order_id = o.id AND e.user_id = o.delivery_driver_id
      LEFT JOIN asaas_driver_accounts a ON a.driver_id = e.user_id
@@ -256,7 +256,16 @@ export async function sendDriverSplitPayment(req: Request, res: Response) {
     };
     let net: number;
     let store: number;
-    if (order.snapshot.sharedCard) {
+    if (order.passenger_ride && order.payment_method === 'credit_card') {
+      const payments = await readSharedCardPayments(config.parentKey, order.checkout_reference, order.snapshot.gross, 1);
+      const payment = payments?.[0];
+      if (!payment || payment.status !== 'RECEIVED' || !Number.isFinite(payment.netValue) ||
+          payment.netValue < 0 || payment.netValue > payment.value) {
+        return res.status(409).json({ error: 'O Asaas ainda não confirmou o recebimento da corrida.' });
+      }
+      net = Math.round(payment.netValue * 100);
+      store = 0;
+    } else if (order.snapshot.sharedCard) {
       const { rows: siblings } = await query(
         'SELECT asaas_split_snapshot AS snapshot FROM orders WHERE asaas_checkout_id = $1', [order.checkout_reference]);
       const gross = siblings.reduce((sum, { snapshot }) => sum + snapshot.gross, 0);
@@ -320,7 +329,8 @@ export async function sendDriverSplitPayment(req: Request, res: Response) {
           total + Math.round(Math.round(payment.netValue * 100) * split.percentualValue / 100), 0);
     }
     const { balance } = await asaasStoreRequest<{ balance: number }>(storeSandboxApi, '/finance/balance', config.parentKey);
-    if (!Number.isSafeInteger(store) || store < 0 || net - store < amount || !Number.isFinite(balance) || Math.round(balance * 100) < amount) {
+    if (!Number.isSafeInteger(store) || store < 0 || (!order.passenger_ride && net - store < amount) ||
+        !Number.isFinite(balance) || Math.round(balance * 100) < amount) {
       return res.status(409).json({ error: 'O líquido do pedido ou o saldo disponível da plataforma não cobre o repasse.' });
     }
 

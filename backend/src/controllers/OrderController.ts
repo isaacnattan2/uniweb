@@ -249,7 +249,7 @@ export class OrderController {
       if (deliverySelections.length) {
         const { rows } = await client.query<CheckoutQuote>(
           `SELECT * FROM delivery_quotes WHERE id = ANY($1::uuid[]) AND user_id = $2
-           AND destination = $3 AND expires_at > NOW() ORDER BY id FOR UPDATE`,
+           AND destination = $3 AND NOT passenger_ride AND expires_at > NOW() ORDER BY id FOR UPDATE`,
           [deliverySelections.map(({ deliveryQuoteId }) => deliveryQuoteId), req.userId, address],
         );
         const selections = new Map(deliverySelections.map((selection) => [selection.deliveryQuoteId.toLowerCase(), selection]));
@@ -503,7 +503,7 @@ export class OrderController {
          LEFT JOIN delivery_route_stops route ON route.order_id = o.id
          LEFT JOIN orders lead ON lead.id = route.route_order_id
          LEFT JOIN delivery_dispatch j ON j.order_id = COALESCE(route.route_order_id, o.id)
-         WHERE o.user_id = $1
+         WHERE o.user_id = $1 AND NOT o.passenger_ride
          GROUP BY o.id, j.order_id, route.order_id, lead.id
          ORDER BY o.created_at DESC`,
         [req.userId]

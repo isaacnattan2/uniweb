@@ -30,7 +30,7 @@ export async function cancelOwnedOrder(orderId: string, owner: string, managedSt
        FROM orders o LEFT JOIN asaas_checkouts c ON c.id = o.asaas_checkout_id
        LEFT JOIN delivery_dispatch j ON j.order_id = o.id
        WHERE o.id = $1 AND o.deleted_at IS NULL
-         AND CASE WHEN $3::boolean THEN o.business_id = $2 AND (j.order_id IS NOT NULL OR
+         AND CASE WHEN $3::boolean THEN o.business_id = $2 AND NOT o.passenger_ride AND (j.order_id IS NOT NULL OR
            EXISTS (SELECT 1 FROM delivery_route_stops s WHERE s.order_id = o.id)) ELSE o.user_id = $2 END
        FOR UPDATE OF o
      ), changed AS (

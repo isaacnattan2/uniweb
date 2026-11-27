@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import { query } from '../config/database';
 import { AuthRequest } from '../middleware/auth';
-import { locateDeliveryAddresses, routeDelivery, validCoordinate } from '../services/DeliveryRouting';
+import { locateDeliveryAddresses, passengerGeocoderUrl, routeDeliveryStops, validCoordinate } from '../services/DeliveryRouting';
 
 const validOrderId = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const activeOrder = `o.delivery_type = 'delivery' AND o.deleted_at IS NULL
@@ -78,19 +78,20 @@ export async function clearDeliveryTracking(req: AuthRequest, res: Response) {
 export async function getDeliveryRoute(req: AuthRequest, res: Response) {
   if (!trackingRequest(req, res, 'driver')) return;
   const routeUrl = process.env.VALHALLA_ROUTE_URL?.trim();
-  const geocoderUrl = process.env.NOMINATIM_SEARCH_URL?.trim();
-  if (!routeUrl || !geocoderUrl) return res.status(503).json({ error: 'O cálculo de rotas ainda não está configurado.' });
+  if (!routeUrl) return res.status(503).json({ error: 'O cálculo de rotas ainda não está configurado.' });
   const { rows: [delivery] } = await query(
     `UPDATE deliveries d SET tracking_route_requested_at = NOW()
      FROM orders o WHERE o.id = $1 AND o.delivery_driver_id = $2 AND d.order_id = o.id
        AND ${activeOrder} AND ${assignedDelivery}
        AND d.tracking_updated_at > NOW() - INTERVAL '45 seconds'
        AND (d.tracking_route_requested_at IS NULL OR d.tracking_route_requested_at <= NOW() - INTERVAL '30 seconds')
-     RETURNING d.tracking_latitude, d.tracking_longitude, o.delivery_address,
+     RETURNING d.tracking_latitude, d.tracking_longitude, o.delivery_address, o.passenger_ride,
        (SELECT parallel_geocoding FROM delivery_dispatch_settings WHERE id = true) AS parallel_geocoding`,
     [req.params.orderId, req.userId]
   );
   if (!delivery) return res.status(409).json({ error: 'Rota indisponível no momento. Aguarde a atualização da localização.' });
+  const geocoderUrl = delivery.passenger_ride ? passengerGeocoderUrl() : process.env.NOMINATIM_SEARCH_URL?.trim();
+  if (!geocoderUrl) return res.status(503).json({ error: 'O cálculo de rotas ainda não está configurado.' });
 
   try {
     const signal = AbortSignal.timeout(8000);
@@ -101,8 +102,9 @@ export async function getDeliveryRoute(req: AuthRequest, res: Response) {
       return res.status(422).json({ error: 'Endereço do pedido não encontrado no mapa.' });
     }
 
-    const route = await routeDelivery(routeUrl,
-      { lat: delivery.tracking_latitude, lon: delivery.tracking_longitude }, destination, signal);
+    const route = await routeDeliveryStops(routeUrl,
+      [{ lat: delivery.tracking_latitude, lon: delivery.tracking_longitude }, destination], signal,
+      delivery.passenger_ride ? 'auto' : 'motorcycle');
     const points = route?.geometry?.coordinates;
     if (!route || !Number.isFinite(route.distance) || !Number.isFinite(route.duration) ||
         !Array.isArray(points) || points.length < 2 ||

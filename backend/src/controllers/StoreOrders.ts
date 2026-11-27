@@ -20,7 +20,7 @@ export async function listStoreOrders(req: Request, res: Response) {
      FROM orders o LEFT JOIN delivery_route_stops stop ON stop.order_id = o.id
      LEFT JOIN orders lead ON lead.id = stop.route_order_id
      LEFT JOIN delivery_dispatch j ON j.order_id = COALESCE(stop.route_order_id, o.id)
-     WHERE o.business_id = $1 AND o.deleted_at IS NULL${orderId ? ' AND o.id = $4' : ''}
+     WHERE o.business_id = $1 AND o.deleted_at IS NULL AND NOT o.passenger_ride${orderId ? ' AND o.id = $4' : ''}
      ORDER BY o.created_at DESC NULLS LAST, o.id LIMIT $2 OFFSET $3`,
     orderId ? [req.params.id, pageSize + 1, 0, orderId] : [req.params.id, pageSize + 1, Number(offset)]
   );
@@ -52,7 +52,7 @@ export async function updateStoreOrder(req: Request, res: Response) {
          delivery_driver_id = ${requeue ? 'NULL' : 'delivery_driver_id'},
          delivery_confirmation_code = NULL, delivery_confirmation_attempts = 0,
          delivery_confirmation_retry_at = NULL, updated_at = NOW()
-       WHERE id = $1 AND business_id = $2 AND deleted_at IS NULL
+       WHERE id = $1 AND business_id = $2 AND deleted_at IS NULL AND NOT passenger_ride
          AND NOT EXISTS (SELECT 1 FROM delivery_dispatch j WHERE j.order_id = orders.id)
          AND NOT EXISTS (SELECT 1 FROM delivery_route_stops s WHERE s.order_id = orders.id)
          AND order_status IN ('pending', 'confirmed', 'processing')
