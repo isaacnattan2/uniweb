@@ -1,3 +1,9 @@
+import { setTimeout as delay } from 'node:timers/promises';
+
+export const geocodingIntervalMs = 1100;
+let geocodingQueue: Promise<void> = Promise.resolve();
+let nextGeocodingStart = 0;
+
 export function validCoordinate(value: unknown, limit: number): value is number {
   return typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= limit;
 }
@@ -10,7 +16,20 @@ export class DeliveryProviderHttpError extends Error {
   }
 }
 
-export async function locateDeliveryAddress(geocoderUrl: string, address: string, signal: AbortSignal): Promise<RoutePoint | null> {
+export function locateDeliveryAddress(geocoderUrl: string, address: string, signal: AbortSignal): Promise<RoutePoint | null> {
+  const lookup = geocodingQueue.then(async () => {
+    signal.throwIfAborted();
+    const wait = Math.ceil(nextGeocodingStart - performance.now());
+    if (wait > 0) await delay(wait, undefined, { signal });
+    signal.throwIfAborted();
+    nextGeocodingStart = performance.now() + geocodingIntervalMs;
+    return fetchDeliveryAddress(geocoderUrl, address, signal);
+  });
+  geocodingQueue = lookup.then(() => {}, () => {});
+  return lookup;
+}
+
+async function fetchDeliveryAddress(geocoderUrl: string, address: string, signal: AbortSignal): Promise<RoutePoint | null> {
   const parts = address.split(' · ');
   const postcode = /^CEP (\d{5}-\d{3})$/iu.exec(parts.at(-1) ?? '');
   const cityAndState = /^(.+)\/([A-Z]{2})$/u.exec(parts.at(-2) ?? '');

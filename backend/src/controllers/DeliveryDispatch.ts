@@ -4,7 +4,7 @@ import { query } from '../config/database';
 import type { AuthRequest } from '../middleware/auth';
 import { storeCanReceivePayout } from '../services/AsaasStoreApproval';
 import { formatDeliveryAddress, normalizeDeliveryAddress } from '../services/DeliveryAddress';
-import { DeliveryProviderHttpError, locateDeliveryAddress, routeDeliveryStops, validCoordinate } from '../services/DeliveryRouting';
+import { DeliveryProviderHttpError, geocodingIntervalMs, locateDeliveryAddress, routeDeliveryStops, validCoordinate } from '../services/DeliveryRouting';
 import { ratePickupAddress } from '../services/OrderDeliveryDistance';
 import { dispatchTransaction, dispatchUuid, dispatchWindowMinutes, findDispatchCandidates, findDispatchSlotOptions, findDispatchSlots, recordDispatchEarnings, releaseDispatchAssignment, respondToDispatchOffer } from '../services/DeliveryDispatch';
 import type { DispatchRoute } from '../services/DeliveryDispatch';
@@ -43,10 +43,13 @@ export async function quoteDelivery(req: AuthRequest, res: Response) {
   let route: DispatchRoute;
   let stops: { businessId: string; address: string }[];
   let provider = 'nominatim';
-  let signal = AbortSignal.timeout(8000);
+  let signal = AbortSignal.timeout(8000 + stores.length * geocodingIntervalMs);
   try {
-    const [dropoff, ...pickups] = await Promise.all([destination, ...stores.map((store) => store.pickup_address)]
-      .map((location) => locateDeliveryAddress(geocoder, location, signal)));
+    const dropoff = await locateDeliveryAddress(geocoder, destination, signal);
+    const pickups: Awaited<ReturnType<typeof locateDeliveryAddress>>[] = [];
+    for (const store of stores) {
+      pickups.push(await locateDeliveryAddress(geocoder, store.pickup_address, signal));
+    }
     if (!dropoff || pickups.some((point) => !point)) {
       return res.status(422).json({ error: 'Não foi possível localizar todos os pontos de coleta e entrega.' });
     }
