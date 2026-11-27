@@ -92,6 +92,14 @@ export interface PublicBusiness extends RatingSummary {
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 
+export async function getRideAppDownload(signal: AbortSignal) {
+  const route = API_URL.replace(/\/+$/, '') + '/app/unicorrida/android';
+  const response = await fetch(route, { signal, cache: 'no-store' });
+  if (!response.ok) throw new Error('Download do UniCorrida indisponível.');
+  const result = await response.json() as { downloadUrl: string | null };
+  return result.downloadUrl ? route + '/download' : null;
+}
+
 export function formatOrderCode(orderId: string) {
   return orderId.slice(0, 8).toUpperCase();
 }

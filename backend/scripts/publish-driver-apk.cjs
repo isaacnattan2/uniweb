@@ -140,13 +140,13 @@ function httpsUrl(value, variable) {
 
 const managedApk = /^driver-app\/[1-9]\d*\/[0-9a-f]{64}\/unientregador(?:-[a-z0-9]+(?:[._-][a-z0-9]+)*-vc[1-9]\d*(?:-(?:preview|prod))?)?\.apk$/i;
 
-function artifactFilename(expo, channel) {
+function artifactFilename(expo, channel, appName = 'unientregador') {
   const displayVersion = (expo.extra?.displayVersion?.trim() || expo.version)
     .replace(/[^a-z0-9]+/gi, (separator) => separator === '.' ? '.' : '-')
     .replace(/^[.-]+|[.-]+$/g, '');
   if (!displayVersion) throw new Error('Informe um displayVersion válido no app.json.');
   const suffix = channel === 'production' ? '-prod' : channel === 'preview' ? '-preview' : '';
-  return `unientregador-${displayVersion}-vc${expo.android.versionCode}${suffix}.apk`;
+  return `${appName}-${displayVersion}-vc${expo.android.versionCode}${suffix}.apk`;
 }
 
 async function readPublishedRelease(database) {
@@ -414,7 +414,9 @@ async function main() {
   }
 }
 
-main().catch((error) => {
+module.exports = { artifactFilename, getBuildTools, readApkMetadata, readApkSigner, verifyPublicDownload };
+
+if (require.main === module) main().catch((error) => {
   if (error.code === '42P01') {
     console.error('Aplique as migrações add_driver_app_release.sql e add_driver_notifications.sql.');
   } else {

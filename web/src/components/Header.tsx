@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore, useCartStore } from '../context/store';
+import { getRideAppDownload } from '../services/api';
 import '../styles/header.css';
 
 export function Header({ compact = false, leading }: { compact?: boolean; leading?: React.ReactNode }) {
@@ -12,6 +13,8 @@ export function Header({ compact = false, leading }: { compact?: boolean; leadin
   const searchRef = useRef<HTMLInputElement>(null);
   const isAuthPage = location.pathname === '/login' || location.pathname === '/register' || location.pathname === '/register/driver';
   const isShopper = !token || userType === 'customer';
+  const showRideDownload = !isAuthPage && isShopper;
+  const [rideApk, setRideApk] = useState<string | null>(null);
   const profileLabel = userType === 'admin' ? 'Admin' :
     userType === 'business' ? 'Lojista' :
     userType === 'customer' ? 'Cliente' :
@@ -22,6 +25,17 @@ export function Header({ compact = false, leading }: { compact?: boolean; leadin
       setSearch(new URLSearchParams(location.search).get('q') || '');
     }
   }, [location.pathname, location.search]);
+
+  useEffect(() => {
+    if (!showRideDownload) return;
+    const request = new AbortController();
+    void getRideAppDownload(request.signal).then((url) => {
+      if (!request.signal.aborted) setRideApk(url);
+    }).catch(() => {
+      if (!request.signal.aborted) setRideApk(null);
+    });
+    return () => request.abort();
+  }, [showRideDownload, location.pathname]);
 
   function handleSearch(event: React.FormEvent) {
     event.preventDefault();
@@ -62,6 +76,9 @@ export function Header({ compact = false, leading }: { compact?: boolean; leadin
           )}
 
           {!isAuthPage && isShopper && <nav className="nav" aria-label="Navegação principal">
+            {rideApk
+              ? <a className="header-ride-download" href={rideApk}>Baixar UniCorrida</a>
+              : <button className="header-ride-download" type="button" disabled title="APK ainda indisponível">Baixar UniCorrida</button>}
             <Link to="/cart" className="nav-link">🛒 Carrinho ({cartItems.length})</Link>
             {token && (
               <>

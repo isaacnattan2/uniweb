@@ -12,6 +12,7 @@ import orderRoutes from './routes/orders.routes';
 import uploadRoutes from './routes/upload.routes';
 import adminRoutes from './routes/admin.routes';
 import { getDriverAppTheme } from './controllers/DriverAppTheme';
+import { getRideAppRelease } from './controllers/RideAppRelease';
 
 const app = express();
 
@@ -37,6 +38,8 @@ app.use('/api/cart', cartRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/admin', adminRoutes);
 app.get('/api/app/theme', (req, res, next) => getDriverAppTheme(req, res).catch(next));
+app.get('/api/app/unicorrida/android', (_req, res, next) => getRideAppRelease(res).catch(next));
+app.get('/api/app/unicorrida/android/download', (_req, res, next) => getRideAppRelease(res, true).catch(next));
 
 // Health check
 app.get('/health', (req, res) => {

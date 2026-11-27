@@ -96,6 +96,23 @@
   color: #667eea;
 }
 
+.header-ride-download {
+  display: inline-flex;
+  align-items: center;
+  background: #2563eb;
+  color: #fff;
+  border: 0;
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+a.header-ride-download:hover { background: #1d4ed8; }
+.header-ride-download:disabled { opacity: 0.55; }
+
 .nav-link::after {
   content: '';
   position: absolute;
