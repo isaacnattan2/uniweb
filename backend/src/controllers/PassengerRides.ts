@@ -74,6 +74,32 @@ export async function autocompletePassengerAddress(req: AuthRequest, res: Respon
   }
 }
 
+export async function reversePassengerAddress(req: AuthRequest, res: Response) {
+  res.set('Cache-Control', 'no-store');
+  if (req.userType !== 'customer' || !req.userId) return res.sendStatus(403);
+  const { latitude, longitude } = req.body ?? {};
+  if (!validCoordinate(latitude, 90) || !validCoordinate(longitude, 180)) return res.sendStatus(400);
+  try {
+    const configured = new URL(passengerGeocoderUrl() ?? '');
+    const key = configured.hostname.endsWith('.locationiq.com') && configured.searchParams.get('key');
+    if (!key) return res.sendStatus(503);
+    const target = new URL('/v1/reverse', configured.origin);
+    target.search = new URLSearchParams({ key, lat: String(latitude), lon: String(longitude), format: 'json' }).toString();
+    const signal = AbortSignal.timeout(6000);
+    const { rows: [settings] } = await query('SELECT parallel_geocoding FROM delivery_dispatch_settings WHERE id = true');
+    const lookup = async () => {
+      const response = await fetch(target, { signal, redirect: 'error' });
+      if (response.status === 404) return null;
+      if (!response.ok) throw new Error('LocationIQ reverse geocoding unavailable');
+      return address((await response.json() as { display_name?: string }).display_name);
+    };
+    const label = settings?.parallel_geocoding ? await lookup() : await queueGeocoding(lookup, signal);
+    return res.json({ label });
+  } catch {
+    return res.sendStatus(503);
+  }
+}
+
 export async function quotePassengerRide(req: AuthRequest, res: Response) {
   res.set('Cache-Control', 'no-store');
   if (req.userType !== 'customer' || !req.userId) return res.sendStatus(403);

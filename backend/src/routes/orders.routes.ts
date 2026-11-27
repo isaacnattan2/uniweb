@@ -7,7 +7,7 @@ import { asaasWebhook } from '../controllers/AsaasWebhook';
 import { lookupPostalCode } from '../services/DeliveryAddress';
 import OrderController from '../controllers/OrderController';
 import { authMiddleware } from '../middleware/auth';
-import { autocompletePassengerAddress, createPassengerRide, listPassengerRides, quotePassengerRide } from '../controllers/PassengerRides';
+import { autocompletePassengerAddress, createPassengerRide, listPassengerRides, quotePassengerRide, reversePassengerAddress } from '../controllers/PassengerRides';
 import { getCurrentDispatchOffer, quoteDelivery, respondDispatch, markDeliveryPickedUp, listDeliveryAlternatives, rescheduleDelivery } from '../controllers/DeliveryDispatch';
 
 const router = Router();
@@ -18,6 +18,7 @@ router.get('/rides', authMiddleware, (req, res, next) => listPassengerRides(req,
 router.post('/rides', authMiddleware, (req, res, next) => createPassengerRide(req, res).catch(next));
 router.post('/rides/quote', authMiddleware, (req, res, next) => quotePassengerRide(req, res).catch(next));
 router.get('/rides/addresses', authMiddleware, (req, res, next) => autocompletePassengerAddress(req, res).catch(next));
+router.post('/rides/addresses/reverse', authMiddleware, (req, res, next) => reversePassengerAddress(req, res).catch(next));
 router.post('/delivery-quote', authMiddleware, (req, res, next) => quoteDelivery(req, res).catch(next));
 router.post('/', authMiddleware, (req, res) => OrderController.createOrder(req, res));
 router.get('/my-orders', authMiddleware, OrderController.getMyOrders);
