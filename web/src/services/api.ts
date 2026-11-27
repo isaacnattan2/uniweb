@@ -584,7 +584,7 @@ export async function createOrder(
 ): Promise<{ orderIds: string[]; checkoutUrl: string | null; paymentStatus?: 'paid' | 'pending' | 'failed' }> {
   const response = await api.post('/orders/checkout',
     { items, paymentMethod, deliveryType, deliveryAddress, checkoutId, couponCode, ...delivery, ...card },
-    card ? { timeout: 70000 } : undefined);
+    { timeout: 70000 });
   return response.data;
 }
 
@@ -598,7 +598,7 @@ export type DeliveryQuoteMode = 'immediate' | 'scheduled';
 
 export async function getDeliveryQuote(stores: string | string[], address: DeliveryAddress, mode: DeliveryQuoteMode, signal: AbortSignal) {
   const businesses = typeof stores === 'string' ? { businessId: stores } : { businessIds: stores };
-  return (await api.post<DeliveryQuote>('/orders/delivery-quote', { ...businesses, address, mode }, { signal })).data;
+  return (await api.post<DeliveryQuote>('/orders/delivery-quote', { ...businesses, address, mode }, { signal, timeout: 60000 })).data;
 }
 
 export async function getDeliveryAlternatives(orderId: string) {
@@ -796,7 +796,7 @@ export type CustomerCartAction =
   | { action: 'merge'; items: Array<{ productId: string; quantity: number }> };
 
 export async function getCustomerCart(token: string): Promise<CartItem[]> {
-  return (await api.get('/cart', { headers: { Authorization: 'Bearer ' + token } })).data;
+  return (await api.get('/cart', { headers: { Authorization: 'Bearer ' + token }, timeout: 15000 })).data;
 }
 
 export async function changeCustomerCart(token: string, change: CustomerCartAction): Promise<CartItem[]> {

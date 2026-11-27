@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { deleteCustomerCard, getCustomerCards, getSavedDeliveryAddresses, saveCustomerCard,
   type DeliveryAddress, type SavedCardInput, type SavedCustomerCard, type SavedDeliveryAddress } from '../services/api';
 import './customer-saved-cards.css';
+import { BlockingLoader } from './BlockingLoader';
 
 export function SavedCardForm({ onSaved, onCancel, addresses, checkoutAddress }: {
   onSaved: (card: SavedCustomerCard) => void;
@@ -98,6 +99,7 @@ export function SavedCardForm({ onSaved, onCancel, addresses, checkoutAddress }:
   return (
     <form ref={formRef} className="saved-card-form list-panel card-layout"
       aria-labelledby={prefix + 'title'} onSubmit={(event) => void submit(event)} autoComplete="off">
+      {saving && <BlockingLoader message="Salvando cartão…" />}
       <header className="saved-card-form-heading">
         <h3 id={prefix + 'title'}>Adicionar cartão</h3>
         <div className="saved-card-sandbox">

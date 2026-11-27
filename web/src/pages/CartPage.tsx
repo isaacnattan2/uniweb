@@ -1,4 +1,5 @@
 import { cardLabel, SavedCardForm } from '../components/CustomerSavedCards';
+import { BlockingLoader } from '../components/BlockingLoader';
 import type { SavedCustomerCard } from '../services/api';
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -25,6 +26,7 @@ export function CartPage() {
   const refreshCart = useCartStore((state) => state.refresh);
   const { userId, token, userType } = useAuthStore();
   const [loading, setLoading] = useState(false);
+  const [quotingKey, setQuotingKey] = useState<string>();
   const [error, setError] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
   const [checkoutStore, setCheckoutStore] = useState('');
@@ -134,15 +136,22 @@ export function CartPage() {
       const ids = JSON.parse(checkoutStoresKey) as string[];
       if (!ids.length) return;
       const id = grouped ? 'all' : ids[0];
+      setQuotingKey(quoteKey);
       void getDeliveryQuote(grouped ? ids : id, activeAddress, deliveryMode, request.signal).then((data) => {
         if (!request.signal.aborted) setDeliveryQuotes({ [id]: { key: quoteKey, data } });
       }).catch((err) => {
         if (!request.signal.aborted) setDeliveryQuotes({
           [id]: { key: quoteKey, error: err.response?.data?.error || 'Não foi possível calcular o frete.' },
         });
+      }).finally(() => {
+        if (!request.signal.aborted) setQuotingKey(undefined);
       });
     }, 350);
-    return () => { clearTimeout(timer); request.abort(); };
+    return () => {
+      clearTimeout(timer);
+      request.abort();
+      setQuotingKey((current) => current === quoteKey ? undefined : current);
+    };
   }, [token, userType, checkoutStoresKey, grouped, activeAddress, addressComplete, deliveryType, deliveryMode, quoteKey]);
 
   useEffect(() => {
@@ -281,6 +290,9 @@ export function CartPage() {
 
   return (
     <div className="cart-page">
+      {(loading || quotingKey === quoteKey) && (
+        <BlockingLoader message={loading ? 'Processando pagamento…' : 'Calculando frete…'} />
+      )}
       <div className="container">
         <h1>🛒 Meu Carrinho ({cart.length} itens)</h1>
 

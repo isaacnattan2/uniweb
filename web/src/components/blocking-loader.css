@@ -1,0 +1,37 @@
+html:has(.blocking-loader[open]) {
+  overflow: hidden;
+}
+
+.blocking-loader {
+  margin: auto;
+  max-inline-size: calc(100% - 2rem);
+  border: none;
+  background: transparent;
+  color: white;
+  text-align: center;
+}
+
+.blocking-loader::backdrop {
+  background: rgb(15 23 42 / 72%);
+}
+
+.blocking-loader-spinner {
+  display: block;
+  inline-size: 3.75rem;
+  block-size: 3.75rem;
+  margin: 0 auto 1rem;
+  border: 0.3rem solid rgb(255 255 255 / 35%);
+  border-block-start-color: white;
+  border-radius: 50%;
+  animation: blocking-loader-spin 800ms linear infinite;
+}
+
+@keyframes blocking-loader-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .blocking-loader-spinner {
+    animation: none;
+  }
+}
