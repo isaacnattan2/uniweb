@@ -620,19 +620,22 @@ export async function scheduleDeliveryAlternative(orderId: string, scheduledAt: 
 }
 
 export async function getDispatchSettings() {
-  return (await api.get<{ radius_meters: number; subsidy_cents: number; missed_offer_block_minutes: number; enforce_delivery_deadline: boolean; audit_enabled: boolean; debug_enabled: boolean; allow_lower_offer: boolean; parallel_geocoding: boolean; offer_delivery_mode: 'push' | 'polling' }>('/admin/delivery-dispatch/settings')).data;
+  return (await api.get<{ radius_meters: number; subsidy_cents: number; missed_offer_block_minutes: number; enforce_delivery_deadline: boolean; audit_enabled: boolean; debug_enabled: boolean; ride_debug_enabled: boolean; allow_lower_offer: boolean; parallel_geocoding: boolean; offer_delivery_mode: 'push' | 'polling' }>('/admin/delivery-dispatch/settings')).data;
 }
 
-export async function saveDispatchSettings(radiusMeters: number, subsidyCents: number, offerDeliveryMode: 'push' | 'polling', missedOfferBlockMinutes: number, enforceDeliveryDeadline: boolean, auditEnabled: boolean, allowLowerOffer: boolean, debugEnabled?: boolean, parallelGeocoding?: boolean) {
-  await api.put('/admin/delivery-dispatch/settings', { radiusMeters, subsidyCents, offerDeliveryMode, missedOfferBlockMinutes, enforceDeliveryDeadline, auditEnabled, allowLowerOffer, debugEnabled, parallelGeocoding });
+export async function saveDispatchSettings(radiusMeters: number, subsidyCents: number, offerDeliveryMode: 'push' | 'polling', missedOfferBlockMinutes: number, enforceDeliveryDeadline: boolean, auditEnabled: boolean, allowLowerOffer: boolean, debugEnabled?: boolean, parallelGeocoding?: boolean, rideDebugEnabled?: boolean) {
+  await api.put('/admin/delivery-dispatch/settings', { radiusMeters, subsidyCents, offerDeliveryMode, missedOfferBlockMinutes, enforceDeliveryDeadline, auditEnabled, allowLowerOffer, debugEnabled, parallelGeocoding, rideDebugEnabled });
 }
+
+export type DispatchDebugFilter = 'all' | 'delivery' | 'ride';
 
 export interface DispatchDebugEvent {
   key: string;
+  requestType: Exclude<DispatchDebugFilter, 'all'>;
   driverName?: string | null;
   details: Pick<DriverAuditEntry['details'], 'customerFeeCents' | 'subsidyCents' | 'maxFeeCents'> & {
     event: string;
-    orderId: string;
+    orderId: string | null;
     occurredAt: string;
     searchCycle?: number;
     driverId?: string;
@@ -647,8 +650,8 @@ export interface DispatchDebugEvent {
   };
 }
 
-export async function getDispatchDebug(signal: AbortSignal) {
-  return (await api.get<{ enabled: boolean; events: DispatchDebugEvent[]; driverNames?: Record<string, string> }>('/admin/delivery-dispatch/debug', { signal })).data;
+export async function getDispatchDebug(signal: AbortSignal, type: DispatchDebugFilter) {
+  return (await api.get<{ enabled: boolean; events: DispatchDebugEvent[]; driverNames?: Record<string, string> }>('/admin/delivery-dispatch/debug', { signal, params: { type } })).data;
 }
 
 export interface DispatchIncident {

@@ -10,6 +10,7 @@ import { lockCart } from '../services/CustomerCart';
 import { dispatchTransaction, dispatchUuid, findDispatchCandidates } from '../services/DeliveryDispatch';
 import { routeDeliveryStops, validCoordinate, type RoutePoint } from '../services/DeliveryRouting';
 import { geocodingIntervalMs, getGeocoder, locateDeliveryAddresses, runGeocoding } from '../services/Geocoding';
+import { recordDispatchDebug, type DispatchAuditEvent } from '../services/DeliveryDispatchAudit';
 
 class RideError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
@@ -20,6 +21,12 @@ function address(value: unknown) {
 }
 
 type RideAddress = RoutePoint & { label: string };
+
+function signRideAddress(value: RideAddress, secret: string, userId: string) {
+  return jwt.sign(value, secret, {
+    audience: 'unicorrida-address', subject: userId, algorithm: 'HS256', expiresIn: '20m',
+  });
+}
 
 function selectedAddress(value: unknown, userId: string): RideAddress | null {
   if (typeof value !== 'string' || !process.env.JWT_SECRET || value.length > 2000) return null;
@@ -49,9 +56,7 @@ export async function autocompletePassengerAddress(req: AuthRequest, res: Respon
       const label = address(entry.label);
       const { lat, lon } = entry;
       if (!label) return [];
-      return [{ label, token: jwt.sign({ label, lat, lon }, secret, {
-        audience: 'unicorrida-address', subject: userId, algorithm: 'HS256', expiresIn: '20m',
-      }) }];
+      return [{ label, token: signRideAddress({ label, lat, lon }, secret, userId) }];
     });
     return res.json(suggestions);
   } catch {
@@ -69,8 +74,13 @@ export async function reversePassengerAddress(req: AuthRequest, res: Response) {
   try {
     const signal = AbortSignal.timeout(6000);
     const { rows: [settings] } = await query('SELECT parallel_geocoding FROM delivery_dispatch_settings WHERE id = true');
-    const label = await runGeocoding(() => reverse({ lat: latitude, lon: longitude }, signal), signal, settings?.parallel_geocoding === true);
-    return res.json({ label: address(label) });
+    const point = { lat: latitude, lon: longitude };
+    const label = address(await runGeocoding(() => reverse(point, signal), signal, settings?.parallel_geocoding === true));
+    const secret = process.env.JWT_SECRET;
+    return res.json({
+      label,
+      ...(label && secret && { token: signRideAddress({ ...point, label }, secret, req.userId) }),
+    });
   } catch {
     return res.sendStatus(503);
   }
@@ -97,7 +107,8 @@ export async function quotePassengerRide(req: AuthRequest, res: Response) {
     return res.status(503).json({ error: 'O serviço de corridas ainda não está configurado.' });
   }
   const { rows: [settings] } = await query(
-    `SELECT p.default_cents, s.radius_meters, s.subsidy_cents, s.parallel_geocoding
+    `SELECT p.default_cents, s.radius_meters, s.subsidy_cents, s.parallel_geocoding,
+       s.ride_debug_started_at IS NOT NULL AS ride_debug_enabled
      FROM delivery_dispatch_settings s CROSS JOIN driver_delivery_rate_policy p WHERE s.id = true AND p.id = true`);
   if (!settings) return res.status(503).json({ error: 'O serviço de corridas ainda não está disponível.' });
 
@@ -112,8 +123,18 @@ export async function quotePassengerRide(req: AuthRequest, res: Response) {
   const dropoff = destinationChoice ?? coordinates.shift();
   const pickup = originChoice ?? (origin ? coordinates.shift() : gps);
   if (!pickup || !dropoff) return res.status(422).json({ error: 'Confira o número, bairro, cidade e CEP dos endereços.' });
-  const trip = await routeDeliveryStops(router, [pickup, dropoff], AbortSignal.timeout(8000),
-    vehicleType === 'car' ? 'auto' : 'motorcycle').catch(() => null);
+  const reverse = geocoder.reverse;
+  const reverseSignal = AbortSignal.timeout(6000);
+  const gpsAddress = !origin && gps ? selectedAddress(req.body?.gpsAddressToken, req.userId) : null;
+  const knownPickupAddress = origin ?? (gpsAddress?.lat === pickup.lat && gpsAddress?.lon === pickup.lon ? gpsAddress.label : null);
+  const [trip, pickupLabel] = await Promise.all([
+    routeDeliveryStops(router, [pickup, dropoff], AbortSignal.timeout(8000),
+      vehicleType === 'car' ? 'auto' : 'motorcycle').catch(() => null),
+    knownPickupAddress ?? (reverse && gps
+      ? runGeocoding(() => reverse(pickup, reverseSignal), reverseSignal, settings.parallel_geocoding === true)
+        .then(address).catch(() => null)
+      : null),
+  ]);
   if (!trip || !Number.isFinite(trip.distance) || trip.distance <= 0 || trip.distance > 1000000 ||
       !Number.isFinite(trip.duration) || trip.duration <= 0) {
     return res.status(422).json({ error: 'Não foi possível traçar uma rota entre os pontos informados.' });
@@ -123,19 +144,25 @@ export async function quotePassengerRide(req: AuthRequest, res: Response) {
     duration_minutes: Math.ceil(trip.duration / 60), rate_cents: settings.default_cents,
     fee_cents: 0, subsidy_cents: settings.subsidy_cents, radius_meters: settings.radius_meters,
   };
-  const candidates = await findDispatchCandidates({ query }, route, null, null, null, null, true);
+  let quoteDebug: DispatchAuditEvent | undefined;
+  const candidates = await findDispatchCandidates({ query }, route, null, null, null, null, true,
+    settings.ride_debug_enabled ? { record: (event) => { quoteDebug = event; } } : undefined);
   const candidate = candidates.filter((entry) => entry.fee_cents > 0)
     .sort((a, b) => a.fee_cents - b.fee_cents || a.pickup_minutes - b.pickup_minutes)[0];
+  if (quoteDebug) void recordDispatchDebug([{
+    ...quoteDebug, event: 'ride_quote_candidates_evaluated', requestType: 'ride', vehicleType,
+    selectedDriverId: candidate?.user_id ?? null, occurredAt: new Date().toISOString(),
+  }]);
   const points = (trip.geometry?.coordinates ?? []).flatMap(([longitude, latitude]) =>
     validCoordinate(latitude, 90) && validCoordinate(longitude, 180) ? [{ latitude, longitude }] : []);
   const preview = {
     origin: { latitude: pickup.lat, longitude: pickup.lon }, destination: { latitude: dropoff.lat, longitude: dropoff.lon },
-    points, distanceMeters: route.distance_meters, estimatedMinutes: route.duration_minutes,
+    originAddress: pickupLabel, points, distanceMeters: route.distance_meters, estimatedMinutes: route.duration_minutes,
   };
   if (!candidate) return res.json({ ...preview, quoteId: null, fareCents: null,
     unavailable: `Nenhum motorista com ${vehicleType === 'car' ? 'carro' : 'moto'} está disponível neste embarque.` });
   const quoteId = randomUUID();
-  const pickupAddress = origin ?? `${pickup.lat.toFixed(6)}, ${pickup.lon.toFixed(6)}`;
+  const pickupAddress = pickupLabel ?? `${pickup.lat.toFixed(6)}, ${pickup.lon.toFixed(6)}`;
   const estimatedMinutes = candidate.pickup_minutes + route.duration_minutes + 10;
   await query(
     `INSERT INTO delivery_quotes (id, user_id, destination, pickup_address, pickup_latitude, pickup_longitude,
@@ -228,10 +255,13 @@ export async function listPassengerRides(req: AuthRequest, res: Response) {
     `SELECT o.id, o.created_at AS "createdAt", o.order_status AS status, o.payment_status AS "paymentStatus",
        o.payment_method AS "paymentMethod", o.delivery_address AS destination, j.pickup_address AS origin, j.state AS "dispatchState",
        (o.total * 100)::int AS "fareCents", COALESCE(o.passenger_vehicle_type, 'car') AS "vehicleType", driver.full_name AS "driverName", c.provider_id,
+       CASE WHEN j.state IN ('assigned', 'in_transit') THEN driver.avatar_url END AS "driverPhotoUrl",
+       vehicle.vehicle_plate AS "vehiclePlate", vehicle.vehicle_color AS "vehicleColor",
        CASE WHEN j.state = 'in_transit' AND o.payment_status = 'paid' THEN o.delivery_confirmation_code END AS "confirmationCode"
      FROM orders o JOIN delivery_dispatch j ON j.order_id = o.id
      LEFT JOIN asaas_checkouts c ON c.id = o.asaas_checkout_id AND c.payment_flow = 'hosted'
      LEFT JOIN users driver ON driver.id = o.delivery_driver_id
+     LEFT JOIN drivers vehicle ON vehicle.user_id = driver.id AND vehicle.deleted_at IS NULL AND j.state IN ('assigned', 'in_transit')
      WHERE o.user_id = $1 AND o.passenger_ride AND o.deleted_at IS NULL ORDER BY o.created_at DESC LIMIT 50`, [req.userId]);
   return res.json(rows.map(({ provider_id, ...row }) => ({
     ...row, checkoutUrl: provider_id && row.paymentStatus === 'pending' ? checkoutUrl(provider_id) : null,

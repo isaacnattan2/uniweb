@@ -35,15 +35,22 @@ const titles = {
 type OrderEvent = keyof typeof titles;
 type PushEvent = OrderEvent | 'driver_presence';
 
+function pushTitle(event: PushEvent, passengerRide = false) {
+  if (event === 'driver_presence') return 'Presença de entregadores';
+  if (event === 'cancelled' && passengerRide) return 'Corrida cancelada';
+  return titles[event];
+}
+
 async function recordDriverPush(driverIds: string[], kind: OrderEvent, orderId: string, body: string,
-  data: { section: string; offerId?: string; offerExpiresAtMs?: number }) {
+  data: { section: string; offerId?: string; offerExpiresAtMs?: number; event?: OrderEvent; passengerRide?: boolean }) {
   if (!driverIds.length) return;
   try {
     await query(
       `INSERT INTO driver_notifications (id, driver_id, kind, title, body, data)
        SELECT $1 || ':' || driver_id, driver_id, $2, $3, $4, $5 FROM unnest($6::uuid[]) AS recipients(driver_id)
        ON CONFLICT (id) DO NOTHING`,
-      [kind + ':' + (data.offerId ?? orderId), kind, titles[kind], body, JSON.stringify({ orderId, ...data }), driverIds],
+      [kind + ':' + (data.offerId ?? orderId), kind, pushTitle(kind, data.passengerRide), body,
+        JSON.stringify({ orderId, ...data }), driverIds],
     );
   } catch (error) {
     console.warn('Falha ao registrar notificação do entregador', kind, error instanceof Error ? error.message : error);
@@ -98,7 +105,9 @@ async function sendOrderEvent(event: OrderEvent, orderIds: string[], offeredDriv
 
   await Promise.all(rows.map(async (order) => {
     const orderCode = order.id.slice(0, 8).toUpperCase();
-    const body = order.passenger_ride ? `Corrida #${orderCode}.` : `Pedido #${orderCode}${event === 'new' ? ' recebido' : ''}.`;
+    const body = order.passenger_ride
+      ? `Corrida #${orderCode}${event === 'cancelled' ? ' foi cancelada' : ''}.`
+      : `Pedido #${orderCode}${event === 'new' ? ' recebido' : ''}.`;
     const sends: Promise<boolean>[] = [];
     if (webApp && webKey && origin && web && event !== 'ready' && !order.passenger_ride) {
       const storeUrl = new URL(`/business/${order.business_id}`, origin);
@@ -115,11 +124,13 @@ async function sendOrderEvent(event: OrderEvent, orderIds: string[], offeredDriv
         : [...new Set<string>([order.delivery_driver_id, event === 'cancelled' && offeredDriverId]
           .filter((id): id is string => typeof id === 'string'))];
       const section = event === 'ready' ? 'available' : 'accepted';
-      await recordDriverPush(driverIds, event, order.id, body, { section });
+      const data = { section, event, passengerRide: order.passenger_ride === true };
+      await recordDriverPush(driverIds, event, order.id, body, data);
       const recipients = driverIds.map((id) => driverPushAlias(id)!);
       for (let offset = 0; offset < recipients.length; offset += 20000) {
         sends.push(sendPush(driverApp, driverKey, recipients.slice(offset, offset + 20000), event, body, {
-          data: { orderId: order.id, section, event },
+          data: { orderId: order.id, ...data },
+          ...(event === 'cancelled' && data.passengerRide && { priority: 10 }),
         }));
       }
     }
@@ -163,7 +174,7 @@ export async function notifyDriverCheckinBlocked(userId: string, orderId: string
 }
 
 async function sendPush(appId: string, apiKey: string, recipients: string[], event: PushEvent, body: string,
-  destination: { url: string } | { data: { orderId: string; section: string; offerId?: string; offerExpiresAtMs?: number; event?: OrderEvent }; ttl?: number; priority?: number },
+  destination: { url: string } | { data: { orderId: string; section: string; offerId?: string; offerExpiresAtMs?: number; event?: OrderEvent; passengerRide?: boolean }; ttl?: number; priority?: number },
   key: string = randomUUID()) {
   try {
     const response = await fetch('https://api.onesignal.com/notifications', {
@@ -175,7 +186,7 @@ async function sendPush(appId: string, apiKey: string, recipients: string[], eve
         include_aliases: { external_id: recipients },
         target_channel: 'push',
         idempotency_key: key,
-        headings: { en: event === 'driver_presence' ? 'Presença de entregadores' : titles[event] },
+        headings: { en: pushTitle(event, 'data' in destination && destination.data.passengerRide) },
         contents: { en: body },
         ...(event === 'delivery_offer' && {
           ios_sound: 'uni_delivery_offer.wav',

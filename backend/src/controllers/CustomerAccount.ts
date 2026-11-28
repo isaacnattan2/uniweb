@@ -55,7 +55,7 @@ export async function updateCustomerProfile(req: AuthRequest, res: Response) {
   }
 }
 
-export async function uploadCustomerAvatar(req: AuthRequest, res: Response) {
+export async function uploadProfileAvatar(req: AuthRequest, res: Response) {
   if (!req.file) return res.status(400).json({ error: 'Selecione uma foto de perfil.' });
   let avatar: string;
   try {

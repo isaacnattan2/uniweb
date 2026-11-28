@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { formatOrderCode, getDispatchDebug, type DispatchDebugEvent } from '../services/api';
+import { formatOrderCode, getDispatchDebug, type DispatchDebugEvent, type DispatchDebugFilter } from '../services/api';
 import { dispatchAuditLabels, dispatchExclusionReasons } from './AdminDriverAudit';
 
 const labels: Record<string, string> = {
@@ -12,6 +12,7 @@ const labels: Record<string, string> = {
   dispatch_offer_declined: 'Oferta recusada',
   dispatch_offer_accepted: 'Oferta aceita',
   dispatch_acceptance_failed: 'Aceite rejeitado na revalidação',
+  ride_quote_candidates_evaluated: 'Motoristas avaliados para cotação',
 };
 
 function eventOutcome(details: DispatchDebugEvent['details']) {
@@ -21,6 +22,8 @@ function eventOutcome(details: DispatchDebugEvent['details']) {
         details.state === 'assigned' ? 'Verificando prazo da alocação' : 'Buscando candidatos';
     case 'dispatch_candidates_evaluated':
       return details.selectedDriverId ? 'Selecionado para receber a oferta' : 'Nenhum candidato elegível';
+    case 'ride_quote_candidates_evaluated':
+      return details.selectedDriverId ? 'Motorista usado na estimativa' : 'Nenhum motorista disponível';
     case 'dispatch_offer_created':
       return 'Aguardando aceitação';
     case 'dispatch_offer_conflict':
@@ -56,62 +59,90 @@ function describeExclusion(reason: string, driverFeeCents: number | undefined, d
     `= limite de ${money.format(limitCents / 100)}.`;
 }
 
-export function AdminDispatchDebug({ onDisabled }: { onDisabled: () => void }) {
-  const [feed, setFeed] = useState<Awaited<ReturnType<typeof getDispatchDebug>>>();
-  const events = feed?.events;
+export function AdminDispatchDebug({ filterEnabled, onDisabled }: { filterEnabled: boolean; onDisabled: () => void }) {
+  const [filter, setFilter] = useState<DispatchDebugFilter>('all');
+  const requestType = filterEnabled ? filter : 'all';
+  const [feed, setFeed] = useState<{ filter: DispatchDebugFilter; data: Awaited<ReturnType<typeof getDispatchDebug>> }>();
+  const data = feed?.filter === requestType ? feed.data : undefined;
+  const events = data?.events;
   const [error, setError] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
+    let loading = false;
     async function refresh() {
+      if (loading || document.visibilityState !== 'visible') return;
+      loading = true;
       try {
-        const result = await getDispatchDebug(controller.signal);
+        const result = await getDispatchDebug(controller.signal, requestType);
         if (controller.signal.aborted) return;
         if (!result.enabled) {
           onDisabled();
           return;
         }
-        setFeed(result);
+        setFeed({ filter: requestType, data: result });
         setError(false);
       } catch {
         if (!controller.signal.aborted) setError(true);
+      } finally {
+        loading = false;
       }
-      if (!controller.signal.aborted) timer = setTimeout(refresh, 2000);
+      if (!controller.signal.aborted && document.visibilityState === 'visible') timer = setTimeout(refresh, 2000);
+    }
+    function refreshOnVisibility() {
+      clearTimeout(timer);
+      void refresh();
     }
     void refresh();
+    document.addEventListener('visibilitychange', refreshOnVisibility);
     return () => {
       controller.abort();
       clearTimeout(timer);
+      document.removeEventListener('visibilitychange', refreshOnVisibility);
     };
-  }, [onDisabled]);
+  }, [onDisabled, requestType]);
 
   return (
     <section className="admin-dispatch-debug" aria-labelledby="dispatch-debug-heading">
-      <h3 id="dispatch-debug-heading">Busca de entregadores ao vivo</h3>
+      <h3 id="dispatch-debug-heading">Depuração de solicitações ao vivo</h3>
+      {filterEnabled && <div className="form-group">
+        <label htmlFor="dispatch-debug-filter">Tipo de solicitação</label>
+        <select id="dispatch-debug-filter" value={filter} onChange={(event) => {
+          setError(false);
+          setFilter(event.target.value as DispatchDebugFilter);
+        }}>
+          <option value="all">Entregas e corridas</option>
+          <option value="delivery">Somente entregas</option>
+          <option value="ride">Somente corridas</option>
+        </select>
+      </div>}
       {error && <p role="status">Falha ao atualizar os eventos. Tentando reconectar.</p>}
       {!error && !events?.length && <p role="status">{events ? 'Aguardando eventos da busca.' : 'Carregando eventos…'}</p>}
       {!!events?.length && <ol className="list-panel list-panel-inset admin-dispatch-events" tabIndex={0} aria-label="Últimos eventos da busca">
-        {events.map(({ key, details, driverName }) => {
+        {events.map(({ key, requestType: kind, details, driverName }) => {
           const driverId = details.driverId ?? details.selectedDriverId;
+          const driverLabel = kind === 'ride' ? 'Motorista' : 'Entregador';
+          const requestLabel = kind === 'ride' ? 'Corrida' : 'Pedido de entrega';
+          const reference = details.orderId ? `${requestLabel} #${formatOrderCode(details.orderId)}` : 'Cotação de corrida';
           const outcome = eventOutcome(details);
           const displayName = (id: string) =>
-            feed?.driverNames?.[id]?.trim() || (id === driverId ? driverName?.trim() : undefined) || 'Nome indisponível';
+            data?.driverNames?.[id]?.trim() || (id === driverId ? driverName?.trim() : undefined) || 'Nome indisponível';
           return (
             <li key={key}>
               <details>
                 <summary>
                   <time dateTime={details.occurredAt}>{clock.format(new Date(details.occurredAt))}</time>
                   {' · '}{labels[details.event] ?? details.event}
-                  {' · Pedido #'}{formatOrderCode(details.orderId)}
-                  {driverId ? ` · Entregador ${displayName(driverId)}` : ' · Sem entregador alvo'}
+                  {' · '}{reference}
+                  {driverId && ` · ${driverLabel} ${displayName(driverId)}`}
                   {outcome && ` · ${outcome}`}
                 </summary>
-                <p>Pedido {details.orderId} · Ciclo {details.searchCycle ?? '—'}</p>
-                {details.driverId && <p>Entregador {displayName(details.driverId)}</p>}
+                {details.orderId && <p>{requestLabel} {details.orderId} · Ciclo {details.searchCycle ?? '—'}</p>}
+                {details.driverId && <p>{driverLabel} {displayName(details.driverId)}</p>}
                 {details.acceptedByProvider != null && <p>{details.acceptedByProvider ? 'Envio aceito pelo OneSignal' : 'Envio sem confirmação do OneSignal'}</p>}
                 {details.drivers && <>
-                  <p>{details.drivers.length} entregadores avaliados</p>
+                  <p>{details.drivers.length} {kind === 'ride' ? 'motoristas avaliados' : 'entregadores avaliados'}</p>
                   {details.selectedDriverId && <p>Selecionado {displayName(details.selectedDriverId)}</p>}
                   <ul>
                     {details.drivers.map((driver) => <li key={driver.driverId}>

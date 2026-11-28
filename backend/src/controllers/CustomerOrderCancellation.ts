@@ -45,11 +45,11 @@ export async function cancelOwnedOrder(orderId: string, owner: string, managedSt
            owned.dispatch_state IN ('payment_pending','scheduled','searching','offered','assigned','needs_choice')
            AND owned.delivery_status IN ('pending','processing')
          ))
-       RETURNING o.id, o.payment_status, owned.order_status AS previous_status, owned.delivery_status AS previous_delivery
+       RETURNING o.id, o.payment_status, o.passenger_ride, owned.order_status AS previous_status, owned.delivery_status AS previous_delivery
      ), withdrawn AS (
        UPDATE delivery_dispatch_offers f SET state = 'withdrawn' FROM changed c
        WHERE f.order_id = c.id AND f.state = 'pending'
-       RETURNING f.user_id, f.expires_at
+       RETURNING f.user_id, f.offered_at, f.expires_at, c.passenger_ride
      ), dispatch AS (
        UPDATE delivery_dispatch j SET state = 'cancelled',
          refund_state = CASE WHEN c.payment_status = 'paid' THEN 'pending' ELSE j.refund_state END
@@ -69,7 +69,7 @@ export async function cancelOwnedOrder(orderId: string, owner: string, managedSt
      SELECT EXISTS (SELECT 1 FROM owned WHERE awaiting_card) AS awaiting_card,
        EXISTS (SELECT 1 FROM owned WHERE shared_route) AS shared_route,
        EXISTS (SELECT 1 FROM owned) AS found, EXISTS (SELECT 1 FROM changed) AS changed,
-       (SELECT user_id FROM withdrawn WHERE expires_at > NOW() LIMIT 1) AS offered_driver_id,
+       (SELECT user_id FROM withdrawn WHERE passenger_ride OR expires_at > NOW() ORDER BY offered_at DESC LIMIT 1) AS offered_driver_id,
        EXISTS (SELECT 1 FROM owned WHERE dispatch_state IS NOT NULL AND
          (delivery_status IN ('in_transit','delivered') OR dispatch_state = 'incident')) AS blocked`,
     [orderId, owner, managedStoreOrder],

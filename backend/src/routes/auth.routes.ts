@@ -4,7 +4,7 @@ import { saveDriverLicensePhoto } from '../controllers/DriverLicensePhoto';
 import { Router } from 'express';
 import { driverPushAlias, signStorePushIdentity } from '../services/OrderPush';
 import { upload } from '../services/UploadService';
-import { getCustomerProfile, listCustomerAddresses, requireCustomer, saveCustomerAddress, updateCustomerProfile, uploadCustomerAvatar } from '../controllers/CustomerAccount';
+import { getCustomerProfile, listCustomerAddresses, requireCustomer, saveCustomerAddress, updateCustomerProfile, uploadProfileAvatar } from '../controllers/CustomerAccount';
 import { lookupPostalCode } from '../services/DeliveryAddress';
 import { getDriverRegistration, registerDriver, updateDriverRegistration } from '../controllers/DriverRegistration';
 import { readMyDeliveryRate, updateMyDeliveryRate } from '../controllers/DriverDeliveryRates';
@@ -42,10 +42,12 @@ router.get('/me/push-identity', authMiddleware, (req: AuthRequest, res) => {
 router.get('/postal-code/:cep', lookupPostalCode);
 router.get('/me/profile', authMiddleware, requireCustomer, (req, res, next) => getCustomerProfile(req, res).catch(next));
 router.put('/me/profile', authMiddleware, requireCustomer, (req, res, next) => updateCustomerProfile(req, res).catch(next));
-router.post('/me/avatar', authMiddleware, requireCustomer, (req, res, next) => {
+router.post('/me/avatar', authMiddleware, (req: AuthRequest, res, next) => {
+  if (!req.userId || (req.userType !== 'customer' && req.userType !== 'driver')) return res.sendStatus(403);
+  res.set('Cache-Control', 'no-store');
   upload.single('image')(req, res, (error) => {
     if (error) return res.status(400).json({ error: 'Envie uma imagem JPEG, PNG, WebP ou GIF de até 5 MB.' });
-    return uploadCustomerAvatar(req, res).catch(next);
+    return uploadProfileAvatar(req, res).catch(next);
   });
 });
 router.get('/me/addresses', authMiddleware, requireCustomer, (req, res, next) => listCustomerAddresses(req, res).catch(next));

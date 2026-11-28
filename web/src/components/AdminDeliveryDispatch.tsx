@@ -13,8 +13,8 @@ const actions = [
 const refunds: Record<string, string> = { pending: 'Estorno solicitado', processing: 'Estorno em processamento', review: 'Estorno requer conferência no Asaas' };
 
 export function AdminDeliveryDispatch({ section }: { section: 'settings' | 'incidents' }) {
-  const [settings, setSettings] = useState<{ radius: string; subsidy: string; blockMinutes: string; enforceDeadline: boolean; auditEnabled: boolean; debugEnabled: boolean; allowLowerOffer: boolean; parallelGeocoding: boolean; offerMode: 'push' | 'polling' }>();
-  const [debugActive, setDebugActive] = useState(false);
+  const [settings, setSettings] = useState<{ radius: string; subsidy: string; blockMinutes: string; enforceDeadline: boolean; auditEnabled: boolean; debugEnabled: boolean; rideDebugEnabled: boolean; allowLowerOffer: boolean; parallelGeocoding: boolean; offerMode: 'push' | 'polling' }>();
+  const [debugActive, setDebugActive] = useState({ delivery: false, ride: false });
   const [incidents, setIncidents] = useState<DispatchIncident[]>();
   const [incidentId, setIncidentId] = useState('');
   const [action, setAction] = useState('');
@@ -27,10 +27,11 @@ export function AdminDeliveryDispatch({ section }: { section: 'settings' | 'inci
     let active = true;
     if (section === 'settings') void getDispatchSettings().then((data) => {
       if (!active) return;
-      setDebugActive(data.debug_enabled === true);
+      setDebugActive({ delivery: data.debug_enabled === true, ride: data.ride_debug_enabled === true });
       setSettings({ radius: String(data.radius_meters / 1000), subsidy: (data.subsidy_cents / 100).toFixed(2),
         blockMinutes: String(data.missed_offer_block_minutes ?? 60), enforceDeadline: data.enforce_delivery_deadline === true, auditEnabled: data.audit_enabled !== false, debugEnabled: data.debug_enabled === true, allowLowerOffer: data.allow_lower_offer === true,
-        parallelGeocoding: data.parallel_geocoding === true, offerMode: data.offer_delivery_mode === 'polling' ? 'polling' : 'push' });
+        rideDebugEnabled: data.ride_debug_enabled === true, parallelGeocoding: data.parallel_geocoding === true,
+        offerMode: data.offer_delivery_mode === 'polling' ? 'polling' : 'push' });
     }).catch(() => { if (active) setError('Não foi possível carregar as regras de alocação.'); });
     if (section === 'incidents') void getDispatchIncidents().then((data) => { if (active) setIncidents(data); })
       .catch(() => { if (active) setError('Não foi possível carregar as ocorrências.'); });
@@ -38,8 +39,8 @@ export function AdminDeliveryDispatch({ section }: { section: 'settings' | 'inci
   }, [section]);
 
   const handleDebugDisabled = useCallback(() => {
-    setDebugActive(false);
-    setSettings((current) => current && { ...current, debugEnabled: false });
+    setDebugActive({ delivery: false, ride: false });
+    setSettings((current) => current && { ...current, debugEnabled: false, rideDebugEnabled: false });
   }, []);
 
   async function apply(event: React.FormEvent, operation: () => Promise<void>, message: string) {
@@ -61,8 +62,10 @@ export function AdminDeliveryDispatch({ section }: { section: 'settings' | 'inci
       {error && <p className="error-message" role="alert">{error}</p>}
       {section === 'settings' && !settings && !error && <p role="status">Carregando configuração…</p>}
       {section === 'settings' && settings && <form onSubmit={(event) => void apply(event, async () => {
-        await saveDispatchSettings(Math.round(Number(settings.radius) * 1000), Math.round(Number(settings.subsidy) * 100), settings.offerMode, Number(settings.blockMinutes), settings.enforceDeadline, settings.auditEnabled, settings.allowLowerOffer, settings.debugEnabled, settings.parallelGeocoding);
-        setDebugActive(settings.debugEnabled);
+        await saveDispatchSettings(Math.round(Number(settings.radius) * 1000), Math.round(Number(settings.subsidy) * 100),
+          settings.offerMode, Number(settings.blockMinutes), settings.enforceDeadline, settings.auditEnabled,
+          settings.allowLowerOffer, settings.debugEnabled, settings.parallelGeocoding, settings.rideDebugEnabled);
+        setDebugActive({ delivery: settings.debugEnabled, ride: settings.rideDebugEnabled });
       },
         'Regras de alocação salvas.')}>
         <div className="admin-rate-fields admin-dispatch-fields">
@@ -109,7 +112,12 @@ export function AdminDeliveryDispatch({ section }: { section: 'settings' | 'inci
         <label className="admin-rate-checkbox" htmlFor="dispatch-debug-enabled">
           <input id="dispatch-debug-enabled" type="checkbox" checked={settings.debugEnabled} disabled={saving}
             onChange={(event) => setSettings({ ...settings, debugEnabled: event.target.checked })} />
-          Ativar depurador da busca de entregadores
+          Ativar depuração de entregas
+        </label>
+        <label className="admin-rate-checkbox" htmlFor="dispatch-ride-debug-enabled">
+          <input id="dispatch-ride-debug-enabled" type="checkbox" checked={settings.rideDebugEnabled} disabled={saving}
+            onChange={(event) => setSettings({ ...settings, rideDebugEnabled: event.target.checked })} />
+          Ativar depuração de corridas
         </label>
         <label className="admin-rate-checkbox" htmlFor="dispatch-parallel-geocoding">
           <input id="dispatch-parallel-geocoding" type="checkbox" checked={settings.parallelGeocoding} disabled={saving}
@@ -118,7 +126,8 @@ export function AdminDeliveryDispatch({ section }: { section: 'settings' | 'inci
         </label>
         <button type="submit" className="btn-primary" disabled={saving}>Salvar regras de alocação</button>
       </form>}
-      {section === 'settings' && debugActive && <AdminDispatchDebug onDisabled={handleDebugDisabled} />}
+      {section === 'settings' && (debugActive.delivery || debugActive.ride) &&
+        <AdminDispatchDebug filterEnabled={debugActive.delivery && debugActive.ride} onDisabled={handleDebugDisabled} />}
       {section === 'incidents' && <>
       {incidents?.length === 0 && <p>Nenhuma ocorrência ou estorno pendente.</p>}
       {!!incidents?.length && <ul className="admin-category-list list-panel list-panel-inset" aria-label="Ocorrências e estornos" tabIndex={0}>

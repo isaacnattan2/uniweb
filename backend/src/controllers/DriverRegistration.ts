@@ -24,9 +24,9 @@ function validContact({ fullName, email, phone }: ReturnType<typeof driverProfil
 }
 
 function vehicleError({ type, manufacturer, brand, color, plate }: ReturnType<typeof driverProfile>) {
-  if (!vehicleTypes.includes(type) || !manufacturer || manufacturer.length > 100 ||
-      !brand || brand.length > 100 || !color || color.length > 50) {
-    return 'Selecione o veículo e informe fabricante, marca e cor.';
+  if (!color || color.length > 50) return 'Informe a cor do veículo com até 50 caracteres.';
+  if (!vehicleTypes.includes(type) || !manufacturer || manufacturer.length > 100 || !brand || brand.length > 100) {
+    return 'Selecione o veículo e informe fabricante e marca.';
   }
   if ((type !== 'bicycle' || plate) && !/^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$/.test(plate)) {
     return 'Informe uma placa válida, como ABC1234 ou ABC1D23.';
@@ -100,7 +100,7 @@ export async function getDriverRegistration(req: AuthRequest, res: Response) {
   if (req.userType !== 'driver' || !req.userId) return res.sendStatus(403);
   res.set('Cache-Control', 'no-store');
   const result = await query(
-    `SELECT u.full_name, u.email, u.phone, d.vehicle_type, d.vehicle_manufacturer, d.vehicle_brand, d.vehicle_color, d.vehicle_plate,
+    `SELECT u.full_name, u.email, u.phone, u.avatar_url, d.vehicle_type, d.vehicle_manufacturer, d.vehicle_brand, d.vehicle_color, d.vehicle_plate,
       (SELECT uploaded_at FROM driver_license_photos WHERE driver_user_id = u.id) AS license_photo_uploaded_at,
       (SELECT download_url FROM driver_app_release WHERE id = true) AS release_download_url
      FROM drivers d JOIN users u ON u.id = d.user_id WHERE u.id = $1 AND d.deleted_at IS NULL`,
@@ -131,7 +131,7 @@ export async function updateDriverRegistration(req: AuthRequest, res: Response) 
        )
        UPDATE users u SET full_name = $2, email = $3, phone = $4, updated_at = NOW()
        FROM vehicle v WHERE u.id = v.user_id
-       RETURNING u.full_name, u.email, u.phone, v.vehicle_type, v.vehicle_manufacturer,
+       RETURNING u.full_name, u.email, u.phone, u.avatar_url, v.vehicle_type, v.vehicle_manufacturer,
          v.vehicle_brand, v.vehicle_color, v.vehicle_plate,
          (SELECT uploaded_at FROM driver_license_photos WHERE driver_user_id = u.id) AS license_photo_uploaded_at`,
       [req.userId, fullName, email, phone, type, manufacturer, brand, color, plate || null]

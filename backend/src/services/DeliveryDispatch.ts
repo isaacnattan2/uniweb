@@ -102,7 +102,7 @@ export async function findDispatchCandidates(
   orderId: string | null = null, promisedAt: Date | null = null,
   reservedUserId: string | null = null,
   allRates = false,
-  audit?: { searchCycle: number; searchUntil: Date; record: (event: DispatchAuditEvent) => void },
+  audit?: { searchCycle?: number; searchUntil?: Date; record: (event: DispatchAuditEvent) => void },
   approachCache?: ApproachCache,
 ) {
   const { rows } = await db.query(
@@ -271,7 +271,9 @@ export async function tickDispatch(triggeredByEvent = false) {
     const { rows: [lock] } = await client.query('SELECT pg_try_advisory_xact_lock(19750214) AS acquired');
     if (!lock.acquired) return { unavailable: [], blockedDrivers: [], events: [], debugEvents: [] };
     const { rows } = await client.query(
-      `SELECT j.*, o.order_status, o.payment_status, o.delivery_driver_id, o.passenger_ride, o.passenger_vehicle_type, s.audit_enabled, s.debug_started_at IS NOT NULL AS debug_enabled, s.subsidy_cents AS current_subsidy_cents,
+      `SELECT j.*, o.order_status, o.payment_status, o.delivery_driver_id, o.passenger_ride, o.passenger_vehicle_type, s.audit_enabled,
+         (CASE WHEN o.passenger_ride THEN s.ride_debug_started_at ELSE s.debug_started_at END) IS NOT NULL AS debug_enabled,
+         s.subsidy_cents AS current_subsidy_cents,
          EXISTS (SELECT 1 FROM delivery_route_stops s WHERE s.route_order_id = j.order_id) AS "multiPickup",
          EXISTS (SELECT 1 FROM delivery_route_stops s WHERE s.route_order_id = j.order_id AND s.collected_at IS NOT NULL) AS has_collected
        FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id
@@ -289,13 +291,14 @@ export async function tickDispatch(triggeredByEvent = false) {
     const unavailable: string[] = [];
     const blockedDrivers: { userId: string; orderId: string }[] = [];
     for (const job of rows) {
+      const requestType = job.passenger_ride ? 'ride' : 'delivery';
       const record = (event: DispatchAuditEvent) => {
         const entry = { ...event, occurredAt: new Date().toISOString() };
         if (job.audit_enabled) events.push(entry);
-        if (job.debug_enabled) debugEvents.push(entry);
+        if (job.debug_enabled) debugEvents.push({ ...entry, requestType });
       };
       const trace = (event: string, details: Record<string, unknown> = {}) => {
-        if (job.debug_enabled) debugEvents.push({ ...details, event, orderId: job.order_id,
+        if (job.debug_enabled) debugEvents.push({ ...details, event, requestType, orderId: job.order_id,
           searchCycle: job.search_cycle, occurredAt: new Date().toISOString() });
       };
       trace('dispatch_attempt_started', { state: job.state, searchUntil: job.search_until });
@@ -404,7 +407,7 @@ export async function tickDispatch(triggeredByEvent = false) {
   const { rows } = await query(
     `SELECT f.id, f.order_id, f.user_id, f.expires_at, f.search_cycle, f.fee_cents, o.passenger_ride,
        j.distance_meters + COALESCE(f.pickup_distance_meters, 0) AS estimated_distance_meters,
-       s.audit_enabled, s.debug_started_at IS NOT NULL AS debug_enabled
+       s.audit_enabled, (CASE WHEN o.passenger_ride THEN s.ride_debug_started_at ELSE s.debug_started_at END) IS NOT NULL AS debug_enabled
      FROM delivery_dispatch_offers f
      JOIN delivery_dispatch j ON j.order_id = f.order_id
      JOIN orders o ON o.id = f.order_id
@@ -420,7 +423,8 @@ export async function tickDispatch(triggeredByEvent = false) {
       console.info(JSON.stringify(event));
       void recordDispatchAudit([event]);
     }
-    if (offer.debug_enabled) await recordDispatchDebug([{ ...event, occurredAt: new Date().toISOString() }]);
+    if (offer.debug_enabled) await recordDispatchDebug([{ ...event, requestType: offer.passenger_ride ? 'ride' : 'delivery',
+      occurredAt: new Date().toISOString() }]);
     if (sent) {
       await query('UPDATE delivery_dispatch_offers SET notified_at = NOW() WHERE id = $1', [offer.id]);
     }
@@ -433,14 +437,15 @@ export async function respondToDispatchOffer(userId: string, orderId: string, of
     const { rows: [job] } = await client.query(
       `SELECT j.*, o.delivery_driver_id, o.delivery_address, o.payment_status, o.order_status, o.passenger_ride, o.passenger_vehicle_type,
               EXISTS (SELECT 1 FROM delivery_route_stops s WHERE s.route_order_id = j.order_id) AS "multiPickup",
-              (SELECT debug_started_at IS NOT NULL FROM delivery_dispatch_settings WHERE id = true) AS debug_enabled
+              (SELECT (CASE WHEN o.passenger_ride THEN ride_debug_started_at ELSE debug_started_at END) IS NOT NULL
+               FROM delivery_dispatch_settings WHERE id = true) AS debug_enabled
        FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id
        WHERE j.order_id = $1 FOR UPDATE OF o, j`, [orderId]
     );
     if (!job) return false;
     if (accept && job.multiPickup && !multiPickup) return false;
     const trace = (event: string, reason?: string) => {
-      if (job.debug_enabled) debugEvents.push({ event, orderId, offerId, driverId: userId,
+      if (job.debug_enabled) debugEvents.push({ event, requestType: job.passenger_ride ? 'ride' : 'delivery', orderId, offerId, driverId: userId,
         searchCycle: job.search_cycle, reason, occurredAt: new Date().toISOString() });
     };
     const { rows: [offer] } = await client.query(

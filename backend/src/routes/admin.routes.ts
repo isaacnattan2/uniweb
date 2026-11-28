@@ -27,14 +27,19 @@ router.get('/businesses/:id/asaas-account', (req, res, next) => adminAsaasApprov
 router.post('/businesses/:id/asaas-account/sandbox-approve', (req, res, next) => adminAsaasApproval(req, res).catch(next));
 router.get('/delivery-dispatch/settings', (req, res, next) => dispatchSettings(req, res).catch(next));
 router.put('/delivery-dispatch/settings', (req, res, next) => dispatchSettings(req, res).catch(next));
-router.get('/delivery-dispatch/debug', async (_req, res, next) => {
+router.get('/delivery-dispatch/debug', async (req, res, next) => {
+  const requestType = req.query.type ?? 'all';
+  if (requestType !== 'all' && requestType !== 'delivery' && requestType !== 'ride') {
+    return res.status(400).json({ error: 'Selecione entregas, corridas ou todos os tipos.' });
+  }
   try {
     const { rows } = await query(
       `WITH settings AS (
-         SELECT debug_started_at FROM delivery_dispatch_settings WHERE id = true
+         SELECT debug_started_at, ride_debug_started_at FROM delivery_dispatch_settings WHERE id = true
        ), recent_events AS (
-         SELECT id, details FROM delivery_dispatch_debug_events
-         WHERE created_at >= (SELECT debug_started_at FROM settings)
+         SELECT id, details, request_type FROM delivery_dispatch_debug_events CROSS JOIN settings
+         WHERE created_at >= CASE request_type WHEN 'ride' THEN ride_debug_started_at ELSE debug_started_at END
+           AND ($1 = 'all' OR request_type = $1)
          ORDER BY id DESC LIMIT 100
        ), driver_ids AS (
          SELECT details->>'driverId' AS user_id FROM recent_events
@@ -46,14 +51,14 @@ router.get('/delivery-dispatch/debug', async (_req, res, next) => {
        ), driver_names AS (
          SELECT d.user_id, u.full_name FROM driver_ids d JOIN users u ON u.id = d.user_id::uuid
        )
-       SELECT settings.debug_started_at IS NOT NULL AS enabled,
+       SELECT (settings.debug_started_at IS NOT NULL OR settings.ride_debug_started_at IS NOT NULL) AS enabled,
          COALESCE((SELECT jsonb_agg(jsonb_build_object(
-           'key', e.id::text, 'details', e.details, 'driverName', d.full_name
+           'key', e.id::text, 'requestType', e.request_type, 'details', e.details, 'driverName', d.full_name
          ) ORDER BY e.id DESC) FROM recent_events e
          LEFT JOIN driver_names d ON d.user_id = COALESCE(e.details->>'driverId', e.details->>'selectedDriverId')
          ), '[]'::jsonb) AS events,
          COALESCE((SELECT jsonb_object_agg(user_id, full_name) FROM driver_names), '{}'::jsonb) AS "driverNames"
-       FROM settings`,
+       FROM settings`, [requestType],
     );
     res.set('Cache-Control', 'no-store').json(rows[0] ?? { enabled: false, events: [], driverNames: {} });
   } catch (error) {
