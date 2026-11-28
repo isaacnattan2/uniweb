@@ -240,7 +240,33 @@ export async function dispatchTransaction<T>(operation: (client: PoolClient) => 
   } finally { client.release(failedRollback); }
 }
 
-export async function tickDispatch() {
+export async function nextDispatchCheck(): Promise<Date | null> {
+  const { rows: [row] } = await query(
+    `SELECT MIN(due_at) AS due_at FROM (
+       SELECT GREATEST(
+         CASE j.state WHEN 'scheduled' THEN j.slot_at - INTERVAL '30 minutes'
+           WHEN 'assigned' THEN j.promised_at ELSE NOW() END,
+         j.next_attempt_at, pending.expires_at
+       ) AS due_at
+       FROM delivery_dispatch j
+       LEFT JOIN LATERAL (
+         SELECT MAX(expires_at) AS expires_at FROM delivery_dispatch_offers
+         WHERE order_id = j.order_id AND state = 'pending'
+       ) pending ON true
+       WHERE j.state IN ('scheduled','searching','offered','assigned')
+         AND (j.state <> 'scheduled' OR j.slot_at IS NOT NULL)
+         AND EXISTS (SELECT 1 FROM delivery_dispatch_settings WHERE id = true)
+       UNION ALL
+       SELECT NOW() + INTERVAL '15 seconds'
+       FROM delivery_dispatch_settings s WHERE s.id = true AND s.offer_delivery_mode = 'push'
+       AND EXISTS (SELECT 1 FROM delivery_dispatch_offers
+         WHERE state = 'pending' AND notified_at IS NULL AND expires_at > NOW() + INTERVAL '15 seconds')
+     ) deadlines`
+  );
+  return row.due_at;
+}
+
+export async function tickDispatch(triggeredByEvent = false) {
   const { unavailable, blockedDrivers, events, debugEvents } = await dispatchTransaction(async (client) => {
     const { rows: [lock] } = await client.query('SELECT pg_try_advisory_xact_lock(19750214) AS acquired');
     if (!lock.acquired) return { unavailable: [], blockedDrivers: [], events: [], debugEvents: [] };
@@ -252,10 +278,11 @@ export async function tickDispatch() {
        CROSS JOIN delivery_dispatch_settings s
        WHERE s.id = true AND (j.state IN ('scheduled','searching','offered') OR (j.state = 'assigned' AND j.promised_at <= NOW())) AND
          (j.state <> 'scheduled' OR j.slot_at <= NOW() + INTERVAL '30 minutes')
-         AND COALESCE(j.next_attempt_at, NOW()) <= NOW()
+         AND (($1 AND j.state = 'searching') OR COALESCE(j.next_attempt_at, NOW()) <= NOW())
          AND NOT EXISTS (SELECT 1 FROM delivery_dispatch_offers f WHERE f.order_id = j.order_id
            AND f.state = 'pending' AND f.expires_at > NOW())
-       ORDER BY j.promised_at LIMIT 25 FOR UPDATE OF o, j SKIP LOCKED`
+       ORDER BY j.promised_at LIMIT 25 FOR UPDATE OF o, j SKIP LOCKED`,
+      [triggeredByEvent],
     );
     const events: DispatchAuditEvent[] = [];
     const debugEvents: DispatchAuditEvent[] = [];
@@ -343,8 +370,11 @@ export async function tickDispatch() {
         searchCycle: job.search_cycle, searchUntil: job.search_until, record,
       } : undefined);
       if (!candidates.length) {
-        await client.query("UPDATE delivery_dispatch SET state = 'searching', next_attempt_at = NOW() + INTERVAL '10 seconds' WHERE order_id = $1", [job.order_id]);
-        trace('dispatch_retry_scheduled', { retryInSeconds: 10 });
+        await client.query(
+          `UPDATE delivery_dispatch SET state = 'searching',
+             next_attempt_at = LEAST(search_until, NOW() + INTERVAL '1 minute') WHERE order_id = $1`, [job.order_id]
+        );
+        trace('dispatch_retry_scheduled', { retryInSeconds: 60 });
         continue;
       }
       const candidate = candidates[0];
@@ -423,7 +453,7 @@ export async function respondToDispatchOffer(userId: string, orderId: string, of
       || offer.state !== 'pending' || !offer.live) return false;
     if (!accept) {
       await client.query("UPDATE delivery_dispatch_offers SET state = 'declined' WHERE id = $1", [offerId]);
-      await client.query("UPDATE delivery_dispatch SET state = 'searching' WHERE order_id = $1", [orderId]);
+      await client.query("UPDATE delivery_dispatch SET state = 'searching', next_attempt_at = NULL WHERE order_id = $1", [orderId]);
       await client.query('UPDATE driver_dispatch_presence SET ignored_offers = 0 WHERE user_id = $1', [userId]);
       trace('dispatch_offer_declined');
       return true;

@@ -10,6 +10,7 @@ import { ratePickupAddress } from '../services/OrderDeliveryDistance';
 import { dispatchTransaction, dispatchUuid, dispatchWindowMinutes, findDispatchCandidates, findDispatchSlotOptions, findDispatchSlots, recordDispatchEarnings, releaseDispatchAssignment, respondToDispatchOffer } from '../services/DeliveryDispatch';
 import type { DispatchRoute } from '../services/DeliveryDispatch';
 import { notifyAdminDriverPresence, notifyOrderEvent } from '../services/OrderPush';
+import { wakeWork } from '../services/WorkEvents';
 
 export async function quoteDelivery(req: AuthRequest, res: Response) {
   if (req.userType !== 'customer' || !req.userId) return res.sendStatus(403);
@@ -158,6 +159,7 @@ export async function updateDriverPresence(req: AuthRequest, res: Response) {
     [req.userId, latitude, longitude, multiPickup]
   );
   if (rowCount) {
+    wakeWork('dispatch');
     notifyAdminDriverPresence();
     return res.json({ online: true });
   }
@@ -308,6 +310,7 @@ export async function respondDispatch(req: AuthRequest, res: Response) {
     return res.status(409).json({ error: 'A oferta expirou ou a corrida já não está disponível.' });
   }
   if (accept) notifyOrderEvent('assigned', [orderId]);
+  wakeWork('dispatch');
   return res.sendStatus(204);
 }
 
@@ -425,6 +428,7 @@ export async function dispatchSettings(req: Request, res: Response) {
      RETURNING radius_meters, subsidy_cents, offer_delivery_mode, missed_offer_block_minutes, enforce_delivery_deadline, audit_enabled, allow_lower_offer, parallel_geocoding, debug_started_at IS NOT NULL AS debug_enabled`,
     [radiusMeters, subsidyCents, offerDeliveryMode, missedOfferBlockMinutes, enforceDeliveryDeadline, auditEnabled, allowLowerOffer, debugEnabled, parallelGeocoding]
   );
+  wakeWork('dispatch');
   return res.json(rows[0]);
 }
 
@@ -516,6 +520,7 @@ export async function rescheduleDelivery(req: AuthRequest, res: Response) {
     );
     return true;
   });
+  if (changed) wakeWork('dispatch');
   return changed ? res.sendStatus(204) : res.status(409).json({ error: 'Esta alternativa de entrega ficou indisponível.' });
 }
 
@@ -589,6 +594,8 @@ export async function resolveDispatchIncident(req: AuthRequest, res: Response) {
     return orderIds;
   });
   if (!changed) return res.status(409).json({ error: 'A ocorrência já foi resolvida ou ainda há coletas pendentes.' });
+  wakeWork('dispatch');
+  if (action === 'cancel') wakeWork('refunds');
   notifyOrderEvent(action === 'returned' ? 'delivery_unavailable' : action === 'delivered' ? 'delivered' :
     action === 'cancel' ? 'cancelled' : 'collected', changed);
   return res.sendStatus(204);

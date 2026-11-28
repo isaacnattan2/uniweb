@@ -1,6 +1,7 @@
 import { query } from '../config/database';
 import { asaasPaymentIdPattern, getAsaasConfig } from './AsaasCheckout';
 import { dispatchUuid } from './DeliveryDispatch';
+import { wakeWork } from './WorkEvents';
 
 interface AsaasPayment {
   id: string;
@@ -10,6 +11,40 @@ interface AsaasPayment {
   value: number;
   installment?: string | null;
   refunds?: Array<{ status: string; value: number }>;
+}
+
+const pendingRefund = `(
+  (o.payment_status = 'paid' AND (j.refund_state IN ('pending','processing')
+    OR (j.refund_state = 'review' AND j.refund_checked_at IS NULL)))
+  OR (j.state = 'cancelled' AND o.payment_status = 'pending' AND o.created_at > NOW() - INTERVAL '35 minutes')
+) AND NOT EXISTS (SELECT 1 FROM orders other WHERE other.asaas_checkout_id = c.id AND other.id <> o.id)`;
+
+const refundDueAt = `COALESCE(j.refund_checked_at + CASE WHEN j.refund_state = 'processing'
+  THEN INTERVAL '15 minutes' ELSE INTERVAL '1 minute' END, NOW())`;
+
+export async function nextRefundCheck(): Promise<Date | null> {
+  if (!getAsaasConfig()) return null;
+  const { rows: [row] } = await query(
+    `SELECT MIN(${refundDueAt}) AS due_at
+     FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id
+     JOIN asaas_checkouts c ON c.id = o.asaas_checkout_id WHERE ${pendingRefund}`
+  );
+  return row.due_at;
+}
+
+export async function observeDeliveryRefund(payment: { id?: unknown; checkoutSession?: unknown; externalReference?: unknown } | undefined) {
+  const references = [payment?.checkoutSession, payment?.externalReference]
+    .flatMap((value) => typeof value === 'string' && dispatchUuid.test(value) ? [value] : []);
+  const paymentId = typeof payment?.id === 'string' && asaasPaymentIdPattern.test(payment.id) ? payment.id : null;
+  if (!references.length && !paymentId) return;
+  const result = await query(
+    `UPDATE delivery_dispatch j SET refund_checked_at = NULL
+     FROM orders o JOIN asaas_checkouts c ON c.id = o.asaas_checkout_id
+     WHERE j.order_id = o.id AND o.payment_status = 'paid' AND j.refund_state IN ('pending','processing','review')
+       AND (c.id = ANY($1::uuid[]) OR c.provider_id = ANY($1::text[]) OR c.provider_id = $2)`,
+    [references, paymentId],
+  );
+  if (result.rowCount) wakeWork('refunds');
 }
 
 export async function reconcileDeliveryRefunds() {
@@ -25,12 +60,8 @@ export async function reconcileDeliveryRefunds() {
        SELECT j.order_id, c.provider_id, c.payment_flow, c.id AS checkout_reference, o.total, o.updated_at
        FROM delivery_dispatch j JOIN orders o ON o.id = j.order_id
        JOIN asaas_checkouts c ON c.id = o.asaas_checkout_id
-       WHERE (
-           (j.refund_state IN ('pending','processing','review') AND o.payment_status = 'paid')
-           OR (j.state = 'cancelled' AND o.payment_status = 'pending' AND o.created_at > NOW() - INTERVAL '35 minutes')
-         )
-         AND (j.refund_checked_at IS NULL OR j.refund_checked_at < NOW() - INTERVAL '1 minute')
-         AND NOT EXISTS (SELECT 1 FROM orders other WHERE other.asaas_checkout_id = c.id AND other.id <> o.id)
+       WHERE ${pendingRefund}
+         AND ${refundDueAt} <= NOW()
        ORDER BY j.refund_checked_at NULLS FIRST LIMIT 5 FOR UPDATE OF j SKIP LOCKED
      )
      UPDATE delivery_dispatch j SET refund_checked_at = NOW() FROM batch b

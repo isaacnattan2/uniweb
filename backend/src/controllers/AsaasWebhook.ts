@@ -3,6 +3,8 @@ import { Request, Response } from 'express';
 import { getClient } from '../config/database';
 import { notifyAsaasSettlement, settleAsaasOrders } from '../services/AsaasPaymentSettlement';
 import { observeDirectCardPayment } from '../services/AsaasCardPayments';
+import { observeDeliveryRefund } from '../services/DeliveryRefunds';
+import { wakeWork } from '../services/WorkEvents';
 
 export async function asaasWebhook(req: Request, res: Response) {
   const expected = Buffer.from(process.env.ASAAS_WEBHOOK_TOKEN?.trim() || '');
@@ -14,7 +16,16 @@ export async function asaasWebhook(req: Request, res: Response) {
   const { event, checkout, payment } = req.body || {};
   if (['PAYMENT_CONFIRMED', 'PAYMENT_RECEIVED', 'PAYMENT_CREDIT_CARD_CAPTURE_REFUSED'].includes(event)) {
     try {
-      await observeDirectCardPayment(payment, event === 'PAYMENT_CREDIT_CARD_CAPTURE_REFUSED');
+      const state = await observeDirectCardPayment(payment, event === 'PAYMENT_CREDIT_CARD_CAPTURE_REFUSED');
+      if (state !== 'pending') wakeWork('cards');
+      return res.sendStatus(200);
+    } catch {
+      return res.sendStatus(500);
+    }
+  }
+  if (['PAYMENT_REFUNDED', 'PAYMENT_PARTIALLY_REFUNDED', 'PAYMENT_REFUND_IN_PROGRESS', 'PAYMENT_REFUND_DENIED'].includes(event)) {
+    try {
+      await observeDeliveryRefund(payment);
       return res.sendStatus(200);
     } catch {
       return res.sendStatus(500);

@@ -1,10 +1,12 @@
 import type { PoolClient } from 'pg';
 import { lockCart } from './CustomerCart';
 import { notifyOrderEvent } from './OrderPush';
+import { wakeWork } from './WorkEvents';
 
 export async function settleAsaasOrders(client: PoolClient, id: string, paid: boolean, userId?: string) {
   let changedIds: string[] = [];
   let newOrders: string[] = [];
+  let cancelledDispatch = false;
   if (paid) {
     const { rows } = await client.query(
       `UPDATE orders SET payment_status = 'paid',
@@ -29,6 +31,7 @@ export async function settleAsaasOrders(client: PoolClient, id: string, paid: bo
       [rows.map((order) => order.id)]
     );
     newOrders = dispatch.rows.filter((job) => job.state !== 'cancelled').map((job) => job.order_id);
+    cancelledDispatch = dispatch.rows.some((job) => job.state === 'cancelled');
     if (newOrders.length) {
       const { rows: stops } = await client.query(
         'SELECT order_id FROM delivery_route_stops WHERE route_order_id = ANY($1::uuid[]) AND order_id <> route_order_id', [newOrders]);
@@ -72,11 +75,13 @@ export async function settleAsaasOrders(client: PoolClient, id: string, paid: bo
        AND payment_status = 'pending' AND order_status = 'cancelled'`, [id]
     );
   }
-  return { changedIds, newOrders, paid };
+  return { changedIds, newOrders, paid, cancelledDispatch };
 }
 
 export function notifyAsaasSettlement(settlement?: Awaited<ReturnType<typeof settleAsaasOrders>>) {
   if (!settlement) return;
+  if (settlement.newOrders.length) wakeWork('dispatch');
+  if (settlement.cancelledDispatch) wakeWork('refunds');
   notifyOrderEvent('new', settlement.newOrders);
   notifyOrderEvent(settlement.paid ? 'ready' : 'cancelled', settlement.changedIds);
 }

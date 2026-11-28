@@ -2,6 +2,7 @@ import { getClient, query } from '../config/database';
 import { asaasPaymentIdPattern, getAsaasConfig } from './AsaasCheckout';
 import { cardApi, AsaasCardError } from './AsaasSavedCards';
 import { notifyAsaasSettlement, settleAsaasOrders } from './AsaasPaymentSettlement';
+import { wakeWork } from './WorkEvents';
 
 type AsaasConfig = NonNullable<ReturnType<typeof getAsaasConfig>>;
 export type CardPaymentState = 'paid' | 'pending' | 'failed';
@@ -70,9 +71,26 @@ export async function submitDirectCardPayment(config: AsaasConfig, reference: st
       await declineAttempt(reference);
       return 'failed';
     }
+    wakeWork('cards');
     return 'pending';
   }
-  return observeDirectCardPayment(payment);
+  return observeDirectCardPayment(payment).finally(() => wakeWork('cards'));
+}
+
+const pendingCards = `FROM asaas_checkouts c CROSS JOIN LATERAL (
+    SELECT MIN(o.created_at) AS created_at FROM orders o
+    WHERE o.asaas_checkout_id = c.id AND o.payment_status = 'pending'
+  ) pending WHERE c.payment_flow = 'saved_card' AND pending.created_at IS NOT NULL`;
+
+const cardDueAt = `COALESCE(c.card_checked_at + CASE WHEN pending.created_at > NOW() - INTERVAL '5 minutes'
+  THEN INTERVAL '1 minute' ELSE INTERVAL '15 minutes' END, NOW())`;
+
+export async function nextDirectCardCheck(): Promise<Date | null> {
+  if (!getAsaasConfig()) return null;
+  const { rows: [row] } = await query(
+    `SELECT MIN(${cardDueAt}) AS due_at ${pendingCards}`
+  );
+  return row.due_at;
 }
 
 export async function reconcileDirectCardPayments() {
@@ -80,11 +98,9 @@ export async function reconcileDirectCardPayments() {
   if (!config) return;
   const { rows } = await query(
     `WITH batch AS (
-       SELECT c.id FROM asaas_checkouts c
-       WHERE c.payment_flow = 'saved_card'
-         AND (c.card_checked_at IS NULL OR c.card_checked_at < NOW() - INTERVAL '1 minute')
-         AND EXISTS (SELECT 1 FROM orders o WHERE o.asaas_checkout_id = c.id AND o.payment_status = 'pending')
-       ORDER BY c.card_checked_at NULLS FIRST LIMIT 5 FOR UPDATE SKIP LOCKED
+       SELECT c.id ${pendingCards}
+         AND ${cardDueAt} <= NOW()
+       ORDER BY c.card_checked_at NULLS FIRST LIMIT 5 FOR UPDATE OF c SKIP LOCKED
      )
      UPDATE asaas_checkouts c SET card_checked_at = NOW() FROM batch WHERE c.id = batch.id RETURNING c.id`,
   );

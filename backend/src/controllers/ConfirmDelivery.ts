@@ -3,6 +3,7 @@ import { getClient } from '../config/database';
 import { AuthRequest } from '../middleware/auth';
 import { notifyOrderEvent } from '../services/OrderPush';
 import { recordDispatchEarnings, releaseDispatchAssignment } from '../services/DeliveryDispatch';
+import { wakeWork } from '../services/WorkEvents';
 
 export async function confirmDelivery(req: AuthRequest, res: Response, next: NextFunction) {
   if (req.userType !== 'driver' || !req.userId) {
@@ -148,6 +149,7 @@ export async function cancelDelivery(req: AuthRequest, res: Response, next: Next
         }
         await releaseDispatchAssignment(client, orderId, 'retry');
         await client.query('COMMIT');
+        wakeWork('dispatch');
         notifyOrderEvent('delivery_reassigned', [orderId]);
         return res.sendStatus(204);
       }

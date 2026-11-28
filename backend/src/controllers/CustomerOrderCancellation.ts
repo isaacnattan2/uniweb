@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { query } from '../config/database';
 import { AuthRequest } from '../middleware/auth';
 import { notifyOrderEvent } from '../services/OrderPush';
+import { wakeWork } from '../services/WorkEvents';
 
 export async function cancelCustomerOrder(req: AuthRequest, res: Response) {
   if (req.userType !== 'customer' || !req.userId) {
@@ -73,5 +74,9 @@ export async function cancelOwnedOrder(orderId: string, owner: string, managedSt
          (delivery_status IN ('in_transit','delivered') OR dispatch_state = 'incident')) AS blocked`,
     [orderId, owner, managedStoreOrder],
   );
+  if (order.changed) {
+    wakeWork('dispatch');
+    wakeWork('refunds');
+  }
   return order as { found: boolean; changed: boolean; blocked: boolean; awaiting_card: boolean; shared_route: boolean; offered_driver_id: string | null };
 }
