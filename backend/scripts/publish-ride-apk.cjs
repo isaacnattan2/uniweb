@@ -8,6 +8,7 @@ const { artifactFilename, getBuildTools, readApkMetadata, readApkSigner, verifyP
 
 const backend = path.resolve(__dirname, '..');
 const app = path.resolve(backend, '../../unicorrida');
+const { updatePushConfig, sendRideUpdatePush } = require(path.join(app, 'scripts/ride-update-push.cjs'));
 const managedApk = /^(?:preview\/)?ride-app\/[1-9]\d*\/[0-9a-f]{64}\/unicorrida-[a-z0-9]+(?:[.-][a-z0-9]+)*-vc[1-9]\d*-(preview|prod)\.apk$/i;
 
 async function main() {
@@ -45,6 +46,7 @@ async function main() {
   const key = prefix + code + '/' + sha256 + '/' + filename;
   if (!managedApk.test(key)) throw new Error('O nome do APK não corresponde ao padrão de distribuição.');
   const config = { ...parse(readFileSync(path.join(backend, '.env'))), ...process.env };
+  const push = updatePushConfig(config);
   const { DATABASE_URL, AWS_ENDPOINT_URL_S3, AWS_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY } = config;
   const bucket = config.RIDE_APP_APK_BUCKET || config.DRIVER_APP_APK_BUCKET || config.NEON_STORAGE_BUCKET;
   if (!DATABASE_URL || !AWS_ENDPOINT_URL_S3 || !AWS_REGION || !AWS_ACCESS_KEY_ID || !AWS_SECRET_ACCESS_KEY || !bucket) {
@@ -99,6 +101,11 @@ async function main() {
       if (!response.ok || (await response.json()).update?.sha256 !== sha256) throw new Error('O manifesto público de preview não confirmou o APK.');
     }
     console.log('APK atual do UniCorrida publicado: ' + url);
+    try {
+      await sendRideUpdatePush(push, { channel, versionCode: code, sha256 });
+    } catch (error) {
+      throw new Error('APK publicado, mas o aviso do OneSignal falhou: ' + error.message);
+    }
   } finally {
     client?.release(true);
     storage.destroy();
