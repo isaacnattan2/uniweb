@@ -304,9 +304,18 @@ uniweb/
 
 ## Acompanhamento de entregas
 
-Configure `NOMINATIM_SEARCH_URL` com o endpoint `/search` de um serviço compatível com Nominatim e `VALHALLA_ROUTE_URL` com o endpoint `/route` do Valhalla em `backend/.env` ou nas variáveis do serviço no Render. Use serviços próprios ou contratados para processar os endereços dos pedidos e calcular rotas de moto.
+Configure a geocodificação do UniCorrida e do UniEntregador em `backend/.env` ou nas variáveis do backend no Render. A chave fica no servidor. O Valhalla calcula os trajetos pelo endpoint `/route` configurado em `VALHALLA_ROUTE_URL`.
 
-Para usar o LocationIQ como geocodificador, configure `NOMINATIM_SEARCH_URL` no backend com `https://us1.locationiq.com/v1/search?format=json&key=SEU_TOKEN`. Guarde o valor nas variáveis de ambiente do serviço. O backend acrescenta o endereço e o filtro de país e lê as coordenadas da resposta.
+| `GEOCODING_PROVIDER` | Configuração |
+| --- | --- |
+| `geoapify` | Defina `GEOAPIFY_API_KEY`. Oferece busca de endereços, sugestões e geocodificação reversa. |
+| `locationiq` | Defina `UNICORRIDA_LOCATIONIQ_TOKEN`. Oferece as três operações. |
+| `nominatim` | Defina `NOMINATIM_SEARCH_URL` com o endpoint `/search` de um serviço compatível. Oferece busca por endereço completo. |
+| `legacy` | Restaura a seleção anterior. Corridas usam LocationIQ quando há token. Entregas e corridas sem token usam `NOMINATIM_SEARCH_URL`. |
+
+Com `GEOCODING_PROVIDER` vazio, o backend usa Geoapify se houver uma chave e segue a configuração `legacy` nos demais casos. O contrato de geocodificação e a seleção de provedores ficam em `backend/src/services/Geocoding.ts`.
+
+Para usar o plano gratuito do Geoapify, inclua a atribuição ao Geoapify e às fontes de dados nas interfaces que exibem informações obtidas pelo serviço. Consulte os [requisitos de atribuição do Geoapify](https://www.geoapify.com/terms-and-conditions/).
 
 O mapa web usa MapLibre com dados do OpenStreetMap servidos pelo OpenFreeMap. Para usar outro estilo compatível, configure `VITE_OSM_MAP_STYLE_URL` em `web/.env`.
 Aplique `backend/migrations/add_delivery_tracking.sql` e reinicie o backend e o Vite.

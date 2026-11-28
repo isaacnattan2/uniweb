@@ -8,7 +8,8 @@ import { AsaasCardError, cardRemoteIp, readCardForCheckout } from '../services/A
 import { submitDirectCardPayment } from '../services/AsaasCardPayments';
 import { lockCart } from '../services/CustomerCart';
 import { dispatchTransaction, dispatchUuid, findDispatchCandidates } from '../services/DeliveryDispatch';
-import { geocodingIntervalMs, locateDeliveryAddresses, passengerGeocoderUrl, queueGeocoding, routeDeliveryStops, validCoordinate, type RoutePoint } from '../services/DeliveryRouting';
+import { routeDeliveryStops, validCoordinate, type RoutePoint } from '../services/DeliveryRouting';
+import { geocodingIntervalMs, getGeocoder, locateDeliveryAddresses, runGeocoding } from '../services/Geocoding';
 
 class RideError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
@@ -38,32 +39,16 @@ export async function autocompletePassengerAddress(req: AuthRequest, res: Respon
   const term = typeof req.query.q === 'string' ? req.query.q.trim() : '';
   if (term.length < 5 || term.length > 200) return res.json([]);
   const secret = process.env.JWT_SECRET;
-  let key: string | null = null;
-  try {
-    const configured = new URL(passengerGeocoderUrl() ?? '');
-    if (configured.hostname.endsWith('.locationiq.com')) key = configured.searchParams.get('key');
-  } catch { /* A LocationIQ configuration is required for suggestions. */ }
-  if (!secret || !key) return res.status(503).json({ error: 'Sugestões indisponíveis. Você pode digitar o endereço completo.' });
-  const target = new URL('https://api.locationiq.com/v1/autocomplete');
-  target.search = new URLSearchParams({ key, q: term, countrycodes: 'br', limit: '5' }).toString();
+  const autocomplete = getGeocoder('ride')?.autocomplete;
+  if (!secret || !autocomplete) return res.status(503).json({ error: 'Sugestões indisponíveis. Você pode digitar o endereço completo.' });
   const signal = AbortSignal.timeout(8000);
   try {
     const { rows: [settings] } = await query('SELECT parallel_geocoding FROM delivery_dispatch_settings WHERE id = true');
-    const lookup = async () => {
-      const response = await fetch(target, { signal, redirect: 'error' });
-      if (response.status === 404) return [];
-      if (!response.ok) {
-        console.warn('[ride-autocomplete] LocationIQ indisponível', { status: response.status });
-        throw new Error('LocationIQ autocomplete unavailable');
-      }
-      return await response.json() as { display_name?: string; lat?: string; lon?: string }[];
-    };
-    const entries = settings?.parallel_geocoding ? await lookup() : await queueGeocoding(lookup, signal);
+    const entries = await runGeocoding(() => autocomplete(term, signal), signal, settings?.parallel_geocoding === true);
     const suggestions = entries.flatMap((entry) => {
-      const label = address(entry.display_name);
-      const lat = Number(entry.lat);
-      const lon = Number(entry.lon);
-      if (!label || !validCoordinate(lat, 90) || !validCoordinate(lon, 180)) return [];
+      const label = address(entry.label);
+      const { lat, lon } = entry;
+      if (!label) return [];
       return [{ label, token: jwt.sign({ label, lat, lon }, secret, {
         audience: 'unicorrida-address', subject: userId, algorithm: 'HS256', expiresIn: '20m',
       }) }];
@@ -79,22 +64,13 @@ export async function reversePassengerAddress(req: AuthRequest, res: Response) {
   if (req.userType !== 'customer' || !req.userId) return res.sendStatus(403);
   const { latitude, longitude } = req.body ?? {};
   if (!validCoordinate(latitude, 90) || !validCoordinate(longitude, 180)) return res.sendStatus(400);
+  const reverse = getGeocoder('ride')?.reverse;
+  if (!reverse) return res.sendStatus(503);
   try {
-    const configured = new URL(passengerGeocoderUrl() ?? '');
-    const key = configured.hostname.endsWith('.locationiq.com') && configured.searchParams.get('key');
-    if (!key) return res.sendStatus(503);
-    const target = new URL('/v1/reverse', configured.origin);
-    target.search = new URLSearchParams({ key, lat: String(latitude), lon: String(longitude), format: 'json' }).toString();
     const signal = AbortSignal.timeout(6000);
     const { rows: [settings] } = await query('SELECT parallel_geocoding FROM delivery_dispatch_settings WHERE id = true');
-    const lookup = async () => {
-      const response = await fetch(target, { signal, redirect: 'error' });
-      if (response.status === 404) return null;
-      if (!response.ok) throw new Error('LocationIQ reverse geocoding unavailable');
-      return address((await response.json() as { display_name?: string }).display_name);
-    };
-    const label = settings?.parallel_geocoding ? await lookup() : await queueGeocoding(lookup, signal);
-    return res.json({ label });
+    const label = await runGeocoding(() => reverse({ lat: latitude, lon: longitude }, signal), signal, settings?.parallel_geocoding === true);
+    return res.json({ label: address(label) });
   } catch {
     return res.sendStatus(503);
   }
@@ -115,7 +91,7 @@ export async function quotePassengerRide(req: AuthRequest, res: Response) {
   const gps: RoutePoint | null = validCoordinate(point?.latitude, 90) && validCoordinate(point?.longitude, 180)
     ? { lat: point.latitude, lon: point.longitude } : null;
   if (!target || (!origin && !gps)) return res.status(400).json({ error: 'Informe o embarque e o destino completos.' });
-  const geocoder = passengerGeocoderUrl();
+  const geocoder = getGeocoder('ride');
   const router = process.env.VALHALLA_ROUTE_URL?.trim();
   if (!geocoder || !router || !getAsaasConfig()) {
     return res.status(503).json({ error: 'O serviço de corridas ainda não está configurado.' });

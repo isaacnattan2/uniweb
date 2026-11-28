@@ -1,7 +1,8 @@
 import { Response } from 'express';
 import { query } from '../config/database';
 import { AuthRequest } from '../middleware/auth';
-import { locateDeliveryAddresses, passengerGeocoderUrl, routeDeliveryStops, validCoordinate } from '../services/DeliveryRouting';
+import { routeDeliveryStops, validCoordinate } from '../services/DeliveryRouting';
+import { getGeocoder, locateDeliveryAddresses } from '../services/Geocoding';
 
 const validOrderId = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const activeOrder = `o.delivery_type = 'delivery' AND o.deleted_at IS NULL
@@ -90,14 +91,14 @@ export async function getDeliveryRoute(req: AuthRequest, res: Response) {
     [req.params.orderId, req.userId]
   );
   if (!delivery) return res.status(409).json({ error: 'Rota indisponível no momento. Aguarde a atualização da localização.' });
-  const geocoderUrl = delivery.passenger_ride ? passengerGeocoderUrl() : process.env.NOMINATIM_SEARCH_URL?.trim();
-  if (!geocoderUrl) return res.status(503).json({ error: 'O cálculo de rotas ainda não está configurado.' });
+  const geocoder = getGeocoder(delivery.passenger_ride ? 'ride' : 'delivery');
+  if (!geocoder) return res.status(503).json({ error: 'O cálculo de rotas ainda não está configurado.' });
 
   try {
     const signal = AbortSignal.timeout(8000);
     const address = delivery.delivery_address?.trim();
     if (!address) return res.status(422).json({ error: 'O pedido não tem um endereço de entrega.' });
-    const [destination] = await locateDeliveryAddresses(geocoderUrl, [address], signal, delivery.parallel_geocoding === true);
+    const [destination] = await locateDeliveryAddresses(geocoder, [address], signal, delivery.parallel_geocoding === true);
     if (!destination) {
       return res.status(422).json({ error: 'Endereço do pedido não encontrado no mapa.' });
     }

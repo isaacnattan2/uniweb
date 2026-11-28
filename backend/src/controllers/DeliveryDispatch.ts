@@ -4,7 +4,8 @@ import { query } from '../config/database';
 import type { AuthRequest } from '../middleware/auth';
 import { storeCanReceivePayout } from '../services/AsaasStoreApproval';
 import { formatDeliveryAddress, normalizeDeliveryAddress } from '../services/DeliveryAddress';
-import { DeliveryProviderHttpError, geocodingIntervalMs, locateDeliveryAddresses, routeDeliveryStops, validCoordinate } from '../services/DeliveryRouting';
+import { DeliveryProviderHttpError, routeDeliveryStops, validCoordinate } from '../services/DeliveryRouting';
+import { geocodingIntervalMs, getGeocoder, locateDeliveryAddresses } from '../services/Geocoding';
 import { ratePickupAddress } from '../services/OrderDeliveryDistance';
 import { dispatchTransaction, dispatchUuid, dispatchWindowMinutes, findDispatchCandidates, findDispatchSlotOptions, findDispatchSlots, recordDispatchEarnings, releaseDispatchAssignment, respondToDispatchOffer } from '../services/DeliveryDispatch';
 import type { DispatchRoute } from '../services/DeliveryDispatch';
@@ -37,12 +38,12 @@ export async function quoteDelivery(req: AuthRequest, res: Response) {
   if (eligibility.includes(false)) {
     return res.status(409).json({ error: 'A loja est\u00e1 com o cadastro de recebimentos pendente.' });
   }
-  const geocoder = process.env.NOMINATIM_SEARCH_URL?.trim();
+  const geocoder = getGeocoder('delivery');
   const router = process.env.VALHALLA_ROUTE_URL?.trim();
   if (!geocoder || !router) return res.status(503).json({ error: 'A cotação de entrega está temporariamente indisponível.' });
   let route: DispatchRoute;
   let stops: { businessId: string; address: string }[];
-  let provider = 'nominatim';
+  let provider = geocoder.name;
   const parallelGeocoding = stores[0].parallel_geocoding === true;
   let signal = AbortSignal.timeout(8000 + (parallelGeocoding ? 0 : stores.length * geocodingIntervalMs));
   try {

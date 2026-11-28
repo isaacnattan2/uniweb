@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { query } from '../config/database';
-import { locateDeliveryAddresses, routeDelivery } from './DeliveryRouting';
+import { routeDelivery } from './DeliveryRouting';
+import { getGeocoder, locateDeliveryAddresses } from './Geocoding';
 
 export interface DeliveryDistanceOrder {
   id: string;
@@ -41,13 +42,13 @@ async function loadDistance(orderId: string, key: string, pickup: string, destin
   if (cached) return cached.distance_meters;
 
   const routeUrl = process.env.VALHALLA_ROUTE_URL?.trim();
-  const geocoderUrl = process.env.NOMINATIM_SEARCH_URL?.trim();
-  if (!routeUrl || !geocoderUrl) return null;
+  const geocoder = getGeocoder('delivery');
+  if (!routeUrl || !geocoder) return null;
   let distanceMeters = null;
   try {
     const signal = AbortSignal.timeout(8000);
     const { rows: [settings] } = await query('SELECT parallel_geocoding FROM delivery_dispatch_settings WHERE id = true');
-    const [from, to] = await locateDeliveryAddresses(geocoderUrl, [pickup, destination], signal, settings?.parallel_geocoding === true);
+    const [from, to] = await locateDeliveryAddresses(geocoder, [pickup, destination], signal, settings?.parallel_geocoding === true);
     if (from && to) {
       const route = await routeDelivery(routeUrl, from, to, signal);
       if (route && Number.isFinite(route.distance) && route.distance >= 0 && route.distance <= 2147483647) {
