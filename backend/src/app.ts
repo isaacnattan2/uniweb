@@ -38,8 +38,8 @@ app.use('/api/cart', cartRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/admin', adminRoutes);
 app.get('/api/app/theme', (req, res, next) => getDriverAppTheme(req, res).catch(next));
-app.get('/api/app/unicorrida/android', (_req, res, next) => getRideAppRelease(res).catch(next));
-app.get('/api/app/unicorrida/android/download', (_req, res, next) => getRideAppRelease(res, true).catch(next));
+app.get('/api/app/unicorrida/android', (req, res, next) => getRideAppRelease(res, false, req.query.channel === 'preview').catch(next));
+app.get('/api/app/unicorrida/android/download', (req, res, next) => getRideAppRelease(res, true, req.query.channel === 'preview').catch(next));
 
 // Health check
 app.get('/health', (req, res) => {

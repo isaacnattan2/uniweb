@@ -65,6 +65,15 @@ export function StoreWithdrawals({ businessId }: { businessId?: string }) {
           {data.sandbox && <p><strong>Ambiente de testes do Asaas</strong></p>}
           {data.approval && <StoreAsaasApprovalDetails approval={data.approval} />}
           <p><strong>Saldo disponível na conta Asaas</strong> {currency.format(data.availableBalance)}</p>
+          {data.availableBalance > 0 && data.approval.bankAccountInfo === 'APPROVED' ? (
+            <p>
+              <a className="btn-primary" href={data.sandbox ? 'https://sandbox.asaas.com/login/auth' : 'https://www.asaas.com/login/auth'}
+                target="_blank" rel="noreferrer">Sacar pelo Asaas</a>
+            </p>
+          ) : (
+            <p>{data.availableBalance <= 0 ? 'Saque disponível quando houver saldo.'
+              : 'Aguarde a aprovação dos dados bancários para sacar.'}</p>
+          )}
           <h3>Histórico de transferências</h3>
           {data.transfers.length === 0 ? <p>Nenhuma transferência nesta página.</p> : (
             <div className="store-withdrawals-table list-panel">
